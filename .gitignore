@@ -1,0 +1,5 @@
+/envs/
+/target/
+/.direnv/
+/.envrc
+/AGENTS.md
