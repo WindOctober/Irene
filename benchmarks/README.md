@@ -13,6 +13,7 @@ The current sources are:
 
 ```text
 benchmarks/
+├── openqasm3-programs/
 ├── qubit-reuse/
 ├── qseqsim/
 ├── sqbricks/
@@ -24,8 +25,8 @@ benchmarks/
 └── veriqbench-sequential/
 ```
 
-See [`SCHEMA.md`](SCHEMA.md) for the manifest schema. The corpus has 762 paired
-cases: 685 `eq` and 77 `neq`. QSeqSim additionally contributes 21 unpaired
+See [`SCHEMA.md`](SCHEMA.md) for the manifest schema. The corpus has 788 paired
+cases: 699 `eq` and 89 `neq`. QSeqSim additionally contributes 21 unpaired
 programs, which are not counted as equivalence cases.
 
 ## Inclusion scope
@@ -47,6 +48,11 @@ self-contained program pairs:
 VeriQBench Sequential contributes 20 OpenQASM 3 sequential-machine pairs:
 15 `eq` and 5 `neq`. Qubit reuse contributes 10 generated `eq` pairs whose
 right-hand programs use measurement, reset, and physical-qubit reuse.
+
+OpenQASM 3 program transformations contribute fourteen `eq` and twelve `neq`
+pairs. They cover inverse QFT, teleportation, IPE, RUS, repetition-code QEC,
+fault-tolerant gate teleportation, magic-state injection, MBQC, remote CNOT,
+dynamic GHZ preparation, and amplitude-damping environment reuse.
 
 QSeqSim contributes standalone RUS, quantum-random-walk, Grover, and random
 while-loop programs. Every QSeqSim entry has `paired = false` and no truth
