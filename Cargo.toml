@@ -3,9 +3,14 @@ name = "irene"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
-description = "A future Rust equivalence checker for hybrid quantum programs"
+description = "An equivalence checker for hybrid quantum programs"
 
 [lib]
 path = "src/lib.rs"
 
 [dependencies]
+clap = { version = "4.5", features = ["derive"] }
+oq3_lexer = "0.7.0"
+oq3_source_file = "0.7.0"
+oq3_syntax = "0.7.0"
+thiserror = "2.0"
