@@ -18,6 +18,8 @@ line_endings = "lf"
 semantic_rewrite = false
 ```
 
+`program_format` is either `openqasm2` or `openqasm3`.
+
 Each task is represented by one `[[case]]` entry:
 
 ```toml
@@ -50,8 +52,31 @@ equality.
 `qbircks_compatible` records only whether the current HQbricks/QbIRcks
 OpenQASM 2 frontend can parse both inputs. It is not part of the ground truth.
 
+Closed programs may set `initial_state = "zero"` and leave `input_pairs`
+empty. Their equivalence is evaluated from the declared initial state.
+
+Sequential-machine cases use `equivalence = "sequential"` and declare
+`input_variables` and `output_variables`. Their internal quantum state persists
+between machine steps and is not treated as an observable output register.
+
 Allowed `equivalence` values are:
 
 - `unitary`: full unitary equivalence;
 - `hybrid`: SQbricks hybrid-circuit equivalence;
 - `partial`: partial equivalence with observable/discard semantics.
+- `sequential`: equivalence over all input sequences of a sequential quantum
+  machine with persistent internal state.
+
+Standalone programs that do not yet form an equivalence task use `[[program]]`:
+
+```toml
+[[program]]
+id = "stable-unique-id"
+suite = "source-suite"
+path = "programs/...qasm"
+paired = false
+source_path = "original/source/path"
+```
+
+An unpaired program has no `left`, `right`, or `truth` field and is not counted
+as an equivalence case.

@@ -1,24 +1,32 @@
 # Irene benchmarks
 
-This directory contains only equivalence tasks that form static program pairs
-with reliable `eq` or `neq` ground truth. All programs use:
+This directory contains equivalence tasks with reliable `eq` or `neq` ground
+truth, plus explicitly marked standalone programs that may become tasks later.
+All programs use:
 
 - UTF-8 text;
 - LF line endings;
 - the `.qasm` extension;
-- the `OPENQASM 2.0;` header.
+- an `OPENQASM 2.0;` or `OPENQASM 3.0;` header.
 
-SQbricks is currently the only source:
+The current sources are:
 
 ```text
 benchmarks/
+├── qubit-reuse/
+├── qseqsim/
 ├── sqbricks/
 │   ├── manifest.toml
-│   └── programs/
+│   ├── programs/
+│   └── generated/
+│       ├── manifest.toml
+│       └── programs/
+└── veriqbench-sequential/
 ```
 
-See [`SCHEMA.md`](SCHEMA.md) for the manifest schema. The corpus currently has
-242 cases: 170 `eq` and 72 `neq`.
+See [`SCHEMA.md`](SCHEMA.md) for the manifest schema. The corpus has 762 paired
+cases: 685 `eq` and 77 `neq`. QSeqSim additionally contributes 21 unpaired
+programs, which are not counted as equivalence cases.
 
 ## Inclusion scope
 
@@ -29,9 +37,23 @@ The corpus includes every task from the SQbricks explicit two-path lists:
 - `sanity-partial`: 9 `neq` cases;
 - `unit-vs-hybrid`: 170 `eq` cases.
 
-Transformation lists containing only one circuit are excluded because they
-require SQbricks or Qiskit to generate the second circuit at runtime and are
-not yet self-contained program pairs.
+The generated manifest materializes three SQbricks transformation suites as
+self-contained program pairs:
+
+- `qiskit-hybrid`: 88 cases;
+- `owm-vs-qiskit`: 55 cases;
+- `owm-vs-tele`: 347 cases.
+
+VeriQBench Sequential contributes 20 OpenQASM 3 sequential-machine pairs:
+15 `eq` and 5 `neq`. Qubit reuse contributes 10 generated `eq` pairs whose
+right-hand programs use measurement, reset, and physical-qubit reuse.
+
+QSeqSim contributes standalone RUS, quantum-random-walk, Grover, and random
+while-loop programs. Every QSeqSim entry has `paired = false` and no truth
+label.
+
+The SQbricks-packaged name `qft_4_feynman.qasm` is used for the corresponding
+Feynman source `qft_4.qasm`.
 
 `truth` is the expected result under the `equivalence` semantics declared in
 the manifest. In particular, `sanity-partial` uses the SQbricks partial/discard

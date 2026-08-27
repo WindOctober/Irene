@@ -1,0 +1,213 @@
+schema_version = 1
+program_format = "openqasm3"
+
+[source]
+id = "veriqbench-sequential"
+name = "VeriQBench Sequential"
+repository = "https://github.com/Veri-Q/Benchmark"
+commit = "1c03e45371e5701f62c123943dec1cace4d46767"
+
+[normalization]
+encoding = "utf-8"
+line_endings = "lf"
+semantic_rewrite = false
+
+[[case]]
+id = "veriqbench-sequential-qctrl-1"
+suite = "qctrl"
+left = "programs/qctrl-1.a.qasm"
+right = "programs/qctrl-1.b.qasm"
+truth = "eq"
+equivalence = "sequential"
+input_variables = ["d", "q1", "q2"]
+output_variables = ["x1", "x2", "x3"]
+
+[[case]]
+id = "veriqbench-sequential-qctrl-2"
+suite = "qctrl"
+left = "programs/qctrl-2.a.qasm"
+right = "programs/qctrl-2.b.qasm"
+truth = "eq"
+equivalence = "sequential"
+input_variables = ["d", "q1", "q2"]
+output_variables = ["x1", "x2", "x3"]
+
+[[case]]
+id = "veriqbench-sequential-qft-large-1"
+suite = "qft"
+left = "programs/qft-large-1.a.qasm"
+right = "programs/qft-large-1.b.qasm"
+truth = "eq"
+equivalence = "sequential"
+input_variables = ["d", "q"]
+output_variables = ["md", "mq"]
+
+[[case]]
+id = "veriqbench-sequential-qft-large-2"
+suite = "qft"
+left = "programs/qft-large-2.a.qasm"
+right = "programs/qft-large-2.b.qasm"
+truth = "neq"
+equivalence = "sequential"
+input_variables = ["d", "q"]
+output_variables = ["md", "mq"]
+
+[[case]]
+id = "veriqbench-sequential-qft-large-3"
+suite = "qft"
+left = "programs/qft-large-3.a.qasm"
+right = "programs/qft-large-3.b.qasm"
+truth = "neq"
+equivalence = "sequential"
+input_variables = ["d", "q"]
+output_variables = ["md", "mq"]
+
+[[case]]
+id = "veriqbench-sequential-qft-small-1"
+suite = "qft"
+left = "programs/qft-small-1.a.qasm"
+right = "programs/qft-small-1.b.qasm"
+truth = "neq"
+equivalence = "sequential"
+input_variables = ["d", "q"]
+output_variables = ["md", "mq"]
+
+[[case]]
+id = "veriqbench-sequential-qft-small-2"
+suite = "qft"
+left = "programs/qft-small-2.a.qasm"
+right = "programs/qft-small-2.b.qasm"
+truth = "neq"
+equivalence = "sequential"
+input_variables = ["d", "q"]
+output_variables = ["md", "mq"]
+
+[[case]]
+id = "veriqbench-sequential-qhalf-adder"
+suite = "qhalf-adder"
+left = "programs/qhalf-adder.a.qasm"
+right = "programs/qhalf-adder.b.qasm"
+truth = "eq"
+equivalence = "sequential"
+input_variables = ["c", "a"]
+output_variables = ["mc", "ma"]
+
+[[case]]
+id = "veriqbench-sequential-qrus-1"
+suite = "qrus"
+left = "programs/qrus-1.a.qasm"
+right = "programs/qrus-1.b.qasm"
+truth = "eq"
+equivalence = "sequential"
+input_variables = ["q"]
+output_variables = ["x"]
+
+[[case]]
+id = "veriqbench-sequential-qrus-2"
+suite = "qrus"
+left = "programs/qrus-2.a.qasm"
+right = "programs/qrus-2.b.qasm"
+truth = "eq"
+equivalence = "sequential"
+input_variables = ["q"]
+output_variables = ["x"]
+
+[[case]]
+id = "veriqbench-sequential-qwalk-diff"
+suite = "qwalk"
+left = "programs/qwalk-diff.a.qasm"
+right = "programs/qwalk-diff.b.qasm"
+truth = "eq"
+equivalence = "sequential"
+input_variables = ["d"]
+output_variables = ["x"]
+
+[[case]]
+id = "veriqbench-sequential-qwalk-irr"
+suite = "qwalk"
+left = "programs/qwalk-irr.a.qasm"
+right = "programs/qwalk-irr.b.qasm"
+truth = "eq"
+equivalence = "sequential"
+input_variables = ["d"]
+output_variables = ["x"]
+
+[[case]]
+id = "veriqbench-sequential-qwalk-large-1"
+suite = "qwalk"
+left = "programs/qwalk-large-1.a.qasm"
+right = "programs/qwalk-large-1.b.qasm"
+truth = "eq"
+equivalence = "sequential"
+input_variables = ["d"]
+output_variables = ["x"]
+
+[[case]]
+id = "veriqbench-sequential-qwalk-large-2"
+suite = "qwalk"
+left = "programs/qwalk-large-2.a.qasm"
+right = "programs/qwalk-large-2.b.qasm"
+truth = "eq"
+equivalence = "sequential"
+input_variables = ["d"]
+output_variables = ["x"]
+
+[[case]]
+id = "veriqbench-sequential-qwalk-large-3"
+suite = "qwalk"
+left = "programs/qwalk-large-3.a.qasm"
+right = "programs/qwalk-large-3.b.qasm"
+truth = "eq"
+equivalence = "sequential"
+input_variables = ["d"]
+output_variables = ["x"]
+
+[[case]]
+id = "veriqbench-sequential-qwalk-small-1"
+suite = "qwalk"
+left = "programs/qwalk-small-1.a.qasm"
+right = "programs/qwalk-small-1.b.qasm"
+truth = "neq"
+equivalence = "sequential"
+input_variables = ["d"]
+output_variables = ["x"]
+
+[[case]]
+id = "veriqbench-sequential-qwalk-small-2"
+suite = "qwalk"
+left = "programs/qwalk-small-2.a.qasm"
+right = "programs/qwalk-small-2.b.qasm"
+truth = "eq"
+equivalence = "sequential"
+input_variables = ["d"]
+output_variables = ["x"]
+
+[[case]]
+id = "veriqbench-sequential-qwalk-sym-1"
+suite = "qwalk"
+left = "programs/qwalk-sym-1.a.qasm"
+right = "programs/qwalk-sym-1.b.qasm"
+truth = "eq"
+equivalence = "sequential"
+input_variables = ["d"]
+output_variables = ["x"]
+
+[[case]]
+id = "veriqbench-sequential-qwalk-sym-2"
+suite = "qwalk"
+left = "programs/qwalk-sym-2.a.qasm"
+right = "programs/qwalk-sym-2.b.qasm"
+truth = "eq"
+equivalence = "sequential"
+input_variables = ["d"]
+output_variables = ["x"]
+
+[[case]]
+id = "veriqbench-sequential-qwalk-sym-3"
+suite = "qwalk"
+left = "programs/qwalk-sym-3.a.qasm"
+right = "programs/qwalk-sym-3.b.qasm"
+truth = "eq"
+equivalence = "sequential"
+input_variables = ["d"]
+output_variables = ["x"]

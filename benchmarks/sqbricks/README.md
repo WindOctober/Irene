@@ -25,3 +25,22 @@ and then compares all lifted quantum wires with empty pair lists. Its
 `sanity-partial` branch also does not propagate the partial-interface parameters.
 The manifest preserves the intended partial/discard interface expressed by the
 suite instead of reproducing that script behavior.
+
+## Generated program pairs
+
+`generated/manifest.toml` contains 490 additional `eq` cases materialized from
+the SQbricks single-program transformation lists. It stores the generated QASM
+programs and the input/output maps returned by the SQbricks OWM and
+teleportation transformations:
+
+- `qiskit-hybrid`: 88 cases;
+- `owm-vs-qiskit`: 55 cases;
+- `owm-vs-tele`: 347 cases.
+
+The `owm-vs-tele` list names the Feynman source `qft_4.qasm`; SQbricks packages
+the same file as `qft_4_feynman.qasm`, so the materializer resolves that name.
+
+Of the 435 unique source programs, all 34 Feynman files and 398 VeriQbench
+files match their source repositories. The remaining three are SQbricks
+variants: corrected bit-flip and phase-flip programs derived from VeriQbench,
+and a reset-free ancilla version of the QASMBench Shor program.
