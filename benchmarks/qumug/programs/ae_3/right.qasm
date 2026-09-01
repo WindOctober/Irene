@@ -1,0 +1,20 @@
+// QUMUG GA first-order mutant: rz_gate at gate position 12, parameters [-0.14322001534164522, 0.10226433189413474, 0.31997579607611104]
+OPENQASM 2.0;
+include "qelib1.inc";
+qreg eval[2];
+qreg q[1];
+u2(0,-pi) eval[0];
+u2(0,-pi) eval[1];
+u3(0.9272952180016122,0,0) q[0];
+cx eval[0],q[0];
+u(-0.9272952180016122,0,0) q[0];
+cx eval[0],q[0];
+u3(0.9272952180016122,0,0) q[0];
+cx eval[1],q[0];
+u(-1.8545904360032244,0,0) q[0];
+cx eval[1],q[0];
+h eval[1];
+cp(-pi/2) eval[0],eval[1];
+rz(-0.14322001534164522) eval[0];
+h eval[0];
+u(1.8545904360032244,0,0) q[0];

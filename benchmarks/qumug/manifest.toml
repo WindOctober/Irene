@@ -1,0 +1,733 @@
+schema_version = 1
+program_format = "openqasm2"
+
+[source]
+id = "qumug"
+name = "QUMUG Hard Mutants"
+repository = "https://zenodo.org/records/21718539"
+commit = "21718539"
+
+[normalization]
+encoding = "utf-8"
+line_endings = "lf"
+semantic_rewrite = true
+
+[[case]]
+id = "qumug-ae_3-ga-first-order"
+suite = "ae"
+left = "programs/ae_3/left.qasm"
+right = "programs/ae_3/right.qasm"
+truth = "neq"
+equivalence = "unitary"
+input_pairs = [
+  "quantum:eval[0]=quantum:eval[0]",
+  "quantum:eval[1]=quantum:eval[1]",
+  "quantum:q[0]=quantum:q[0]",
+]
+output_pairs = [
+  "quantum:eval[0]=quantum:eval[0]",
+  "quantum:eval[1]=quantum:eval[1]",
+  "quantum:q[0]=quantum:q[0]",
+]
+source_left = "data/origin_qc/ae_indep_qiskit_3.qasm"
+source_right = "final_exp_results_all.csv: GA run 0, Individual 355, rz_gate at 12 with [-0.14322001534164522, 0.10226433189413474, 0.31997579607611104]"
+
+[[case]]
+id = "qumug-ae_4-ga-first-order"
+suite = "ae"
+left = "programs/ae_4/left.qasm"
+right = "programs/ae_4/right.qasm"
+truth = "neq"
+equivalence = "unitary"
+input_pairs = [
+  "quantum:eval[0]=quantum:eval[0]",
+  "quantum:eval[1]=quantum:eval[1]",
+  "quantum:eval[2]=quantum:eval[2]",
+  "quantum:q[0]=quantum:q[0]",
+]
+output_pairs = [
+  "quantum:eval[0]=quantum:eval[0]",
+  "quantum:eval[1]=quantum:eval[1]",
+  "quantum:eval[2]=quantum:eval[2]",
+  "quantum:q[0]=quantum:q[0]",
+]
+source_left = "data/origin_qc/ae_indep_qiskit_4.qasm"
+source_right = "final_exp_results_all.csv: GA run 0, Individual 549, rx_gate at 20 with [0.02290073344133861, 0.4002900595560356, 0.5]"
+
+[[case]]
+id = "qumug-ae_5-ga-first-order"
+suite = "ae"
+left = "programs/ae_5/left.qasm"
+right = "programs/ae_5/right.qasm"
+truth = "neq"
+equivalence = "unitary"
+input_pairs = [
+  "quantum:eval[0]=quantum:eval[0]",
+  "quantum:eval[1]=quantum:eval[1]",
+  "quantum:eval[2]=quantum:eval[2]",
+  "quantum:eval[3]=quantum:eval[3]",
+  "quantum:q[0]=quantum:q[0]",
+]
+output_pairs = [
+  "quantum:eval[0]=quantum:eval[0]",
+  "quantum:eval[1]=quantum:eval[1]",
+  "quantum:eval[2]=quantum:eval[2]",
+  "quantum:eval[3]=quantum:eval[3]",
+  "quantum:q[0]=quantum:q[0]",
+]
+source_left = "data/origin_qc/ae_indep_qiskit_5.qasm"
+source_right = "final_exp_results_all.csv: GA run 0, Individual 223, rz_gate at 29 with [0.019165989413640776, 0.5, 0.27631504344732527]"
+
+[[case]]
+id = "qumug-ae_6-ga-first-order"
+suite = "ae"
+left = "programs/ae_6/left.qasm"
+right = "programs/ae_6/right.qasm"
+truth = "neq"
+equivalence = "unitary"
+input_pairs = [
+  "quantum:eval[0]=quantum:eval[0]",
+  "quantum:eval[1]=quantum:eval[1]",
+  "quantum:eval[2]=quantum:eval[2]",
+  "quantum:eval[3]=quantum:eval[3]",
+  "quantum:eval[4]=quantum:eval[4]",
+  "quantum:q[0]=quantum:q[0]",
+]
+output_pairs = [
+  "quantum:eval[0]=quantum:eval[0]",
+  "quantum:eval[1]=quantum:eval[1]",
+  "quantum:eval[2]=quantum:eval[2]",
+  "quantum:eval[3]=quantum:eval[3]",
+  "quantum:eval[4]=quantum:eval[4]",
+  "quantum:q[0]=quantum:q[0]",
+]
+source_left = "data/origin_qc/ae_indep_qiskit_6.qasm"
+source_right = "final_exp_results_all.csv: GA run 0, Individual 104, rx_gate at 39 with [-0.0009967853670832926, 0.5, 0.40025899316122604]"
+
+[[case]]
+id = "qumug-ae_7-ga-first-order"
+suite = "ae"
+left = "programs/ae_7/left.qasm"
+right = "programs/ae_7/right.qasm"
+truth = "neq"
+equivalence = "unitary"
+input_pairs = [
+  "quantum:eval[0]=quantum:eval[0]",
+  "quantum:eval[1]=quantum:eval[1]",
+  "quantum:eval[2]=quantum:eval[2]",
+  "quantum:eval[3]=quantum:eval[3]",
+  "quantum:eval[4]=quantum:eval[4]",
+  "quantum:eval[5]=quantum:eval[5]",
+  "quantum:q[0]=quantum:q[0]",
+]
+output_pairs = [
+  "quantum:eval[0]=quantum:eval[0]",
+  "quantum:eval[1]=quantum:eval[1]",
+  "quantum:eval[2]=quantum:eval[2]",
+  "quantum:eval[3]=quantum:eval[3]",
+  "quantum:eval[4]=quantum:eval[4]",
+  "quantum:eval[5]=quantum:eval[5]",
+  "quantum:q[0]=quantum:q[0]",
+]
+source_left = "data/origin_qc/ae_indep_qiskit_7.qasm"
+source_right = "final_exp_results_all.csv: GA run 0, Individual 9, rx_gate at 0 with [-6.074859082234673e-05, 0.046390127658249375, 0.4297404641355135]"
+
+[[case]]
+id = "qumug-ghz_3-ga-first-order"
+suite = "ghz"
+left = "programs/ghz_3/left.qasm"
+right = "programs/ghz_3/right.qasm"
+truth = "neq"
+equivalence = "unitary"
+input_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+]
+output_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+]
+source_left = "data/origin_qc/ghz_indep_qiskit_3.qasm"
+source_right = "final_exp_results_all.csv: GA run 0, Individual 280, ry_gate at 2 with [0.052512254801686996, 0.029517036487844997, 0.42643281039091185]"
+
+[[case]]
+id = "qumug-ghz_4-ga-first-order"
+suite = "ghz"
+left = "programs/ghz_4/left.qasm"
+right = "programs/ghz_4/right.qasm"
+truth = "neq"
+equivalence = "unitary"
+input_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+]
+output_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+]
+source_left = "data/origin_qc/ghz_indep_qiskit_4.qasm"
+source_right = "final_exp_results_all.csv: GA run 0, Individual 569, rz_gate at 3 with [-0.011511459338763297, 0.4591973027867907, 0.5]"
+
+[[case]]
+id = "qumug-ghz_5-ga-first-order"
+suite = "ghz"
+left = "programs/ghz_5/left.qasm"
+right = "programs/ghz_5/right.qasm"
+truth = "neq"
+equivalence = "unitary"
+input_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+  "quantum:q[4]=quantum:q[4]",
+]
+output_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+  "quantum:q[4]=quantum:q[4]",
+]
+source_left = "data/origin_qc/ghz_indep_qiskit_5.qasm"
+source_right = "final_exp_results_all.csv: GA run 0, Individual 27, rx_gate at 4 with [-0.014459156081319091, 0.5, 0.25458070382378206]"
+
+[[case]]
+id = "qumug-ghz_6-ga-first-order"
+suite = "ghz"
+left = "programs/ghz_6/left.qasm"
+right = "programs/ghz_6/right.qasm"
+truth = "neq"
+equivalence = "unitary"
+input_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+  "quantum:q[4]=quantum:q[4]",
+  "quantum:q[5]=quantum:q[5]",
+]
+output_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+  "quantum:q[4]=quantum:q[4]",
+  "quantum:q[5]=quantum:q[5]",
+]
+source_left = "data/origin_qc/ghz_indep_qiskit_6.qasm"
+source_right = "final_exp_results_all.csv: GA run 0, Individual 1, rx_gate at 5 with [-0.0032229549461747723, 5.971222855796062, 0.4297058408487564]"
+
+[[case]]
+id = "qumug-ghz_7-ga-first-order"
+suite = "ghz"
+left = "programs/ghz_7/left.qasm"
+right = "programs/ghz_7/right.qasm"
+truth = "neq"
+equivalence = "unitary"
+input_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+  "quantum:q[4]=quantum:q[4]",
+  "quantum:q[5]=quantum:q[5]",
+  "quantum:q[6]=quantum:q[6]",
+]
+output_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+  "quantum:q[4]=quantum:q[4]",
+  "quantum:q[5]=quantum:q[5]",
+  "quantum:q[6]=quantum:q[6]",
+]
+source_left = "data/origin_qc/ghz_indep_qiskit_7.qasm"
+source_right = "final_exp_results_all.csv: GA run 0, Individual 30, rx_gate at 6 with [0.002217170166389622, 0.4352115466345402, 0.44570129623531274]"
+
+[[case]]
+id = "qumug-qft_3-ga-first-order"
+suite = "qft"
+left = "programs/qft_3/left.qasm"
+right = "programs/qft_3/right.qasm"
+truth = "neq"
+equivalence = "unitary"
+input_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+]
+output_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+]
+source_left = "data/origin_qc/qft_indep_qiskit_3.qasm"
+source_right = "final_exp_results_all.csv: GA run 0, Individual 301, rz_gate at 6 with [0.05983559455713557, 0.4971762303363736, 0.2366494660884294]"
+
+[[case]]
+id = "qumug-qft_4-ga-first-order"
+suite = "qft"
+left = "programs/qft_4/left.qasm"
+right = "programs/qft_4/right.qasm"
+truth = "neq"
+equivalence = "unitary"
+input_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+]
+output_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+]
+source_left = "data/origin_qc/qft_indep_qiskit_4.qasm"
+source_right = "final_exp_results_all.csv: GA run 0, Individual 470, rx_gate at 0 with [-0.021977319421610672, 0.40742385634455547, 0.04521527339527311]"
+
+[[case]]
+id = "qumug-qft_5-ga-first-order"
+suite = "qft"
+left = "programs/qft_5/left.qasm"
+right = "programs/qft_5/right.qasm"
+truth = "neq"
+equivalence = "unitary"
+input_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+  "quantum:q[4]=quantum:q[4]",
+]
+output_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+  "quantum:q[4]=quantum:q[4]",
+]
+source_left = "data/origin_qc/qft_indep_qiskit_5.qasm"
+source_right = "final_exp_results_all.csv: GA run 0, Individual 16, rx_gate at 0 with [0.0019245696809164492, 6.255269045578561, 0.20807079989901145]"
+
+[[case]]
+id = "qumug-qft_6-ga-first-order"
+suite = "qft"
+left = "programs/qft_6/left.qasm"
+right = "programs/qft_6/right.qasm"
+truth = "neq"
+equivalence = "unitary"
+input_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+  "quantum:q[4]=quantum:q[4]",
+  "quantum:q[5]=quantum:q[5]",
+]
+output_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+  "quantum:q[4]=quantum:q[4]",
+  "quantum:q[5]=quantum:q[5]",
+]
+source_left = "data/origin_qc/qft_indep_qiskit_6.qasm"
+source_right = "final_exp_results_all.csv: GA run 0, Individual 71, rx_gate at 21 with [-0.0035962178197209886, 0.14216668784030867, 0.06225128384271251]"
+
+[[case]]
+id = "qumug-qft_7-ga-first-order"
+suite = "qft"
+left = "programs/qft_7/left.qasm"
+right = "programs/qft_7/right.qasm"
+truth = "neq"
+equivalence = "unitary"
+input_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+  "quantum:q[4]=quantum:q[4]",
+  "quantum:q[5]=quantum:q[5]",
+  "quantum:q[6]=quantum:q[6]",
+]
+output_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+  "quantum:q[4]=quantum:q[4]",
+  "quantum:q[5]=quantum:q[5]",
+  "quantum:q[6]=quantum:q[6]",
+]
+source_left = "data/origin_qc/qft_indep_qiskit_7.qasm"
+source_right = "final_exp_results_all.csv: GA run 0, Individual 12, rx_gate at 28 with [0.0006097597153286675, 0.5, 0.13557631995559666]"
+
+[[case]]
+id = "qumug-qpe_3-ga-first-order"
+suite = "qpe"
+left = "programs/qpe_3/left.qasm"
+right = "programs/qpe_3/right.qasm"
+truth = "neq"
+equivalence = "unitary"
+input_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:psi[0]=quantum:psi[0]",
+]
+output_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:psi[0]=quantum:psi[0]",
+]
+source_left = "data/origin_qc/qpeexact_indep_qiskit_3.qasm"
+source_right = "final_exp_results_all.csv: GA run 0, Individual 33, rx_gate at 1 with [-0.05969487942501369, 0.44582620292210084, 0.5]"
+
+[[case]]
+id = "qumug-qpe_4-ga-first-order"
+suite = "qpe"
+left = "programs/qpe_4/left.qasm"
+right = "programs/qpe_4/right.qasm"
+truth = "neq"
+equivalence = "unitary"
+input_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:psi[0]=quantum:psi[0]",
+]
+output_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:psi[0]=quantum:psi[0]",
+]
+source_left = "data/origin_qc/qpeexact_indep_qiskit_4.qasm"
+source_right = "final_exp_results_all.csv: GA run 0, Individual 0, rx_gate at 8 with [-0.08975436064453944, 0.09330057151671961, 0.32305716595672607]"
+
+[[case]]
+id = "qumug-qpe_5-ga-first-order"
+suite = "qpe"
+left = "programs/qpe_5/left.qasm"
+right = "programs/qpe_5/right.qasm"
+truth = "neq"
+equivalence = "unitary"
+input_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+  "quantum:psi[0]=quantum:psi[0]",
+]
+output_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+  "quantum:psi[0]=quantum:psi[0]",
+]
+source_left = "data/origin_qc/qpeexact_indep_qiskit_5.qasm"
+source_right = "final_exp_results_all.csv: GA run 0, Individual 35, rx_gate at 17 with [-0.0041773154883697665, 0.2851471546714066, 0.16762154074473]"
+
+[[case]]
+id = "qumug-qpe_6-ga-first-order"
+suite = "qpe"
+left = "programs/qpe_6/left.qasm"
+right = "programs/qpe_6/right.qasm"
+truth = "neq"
+equivalence = "unitary"
+input_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+  "quantum:q[4]=quantum:q[4]",
+  "quantum:psi[0]=quantum:psi[0]",
+]
+output_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+  "quantum:q[4]=quantum:q[4]",
+  "quantum:psi[0]=quantum:psi[0]",
+]
+source_left = "data/origin_qc/qpeexact_indep_qiskit_6.qasm"
+source_right = "final_exp_results_all.csv: GA run 0, Individual 20, rz_gate at 15 with [-0.005611168955357278, 0.36876756341537203, 0.4970399838782738]"
+
+[[case]]
+id = "qumug-qpe_7-ga-first-order"
+suite = "qpe"
+left = "programs/qpe_7/left.qasm"
+right = "programs/qpe_7/right.qasm"
+truth = "neq"
+equivalence = "unitary"
+input_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+  "quantum:q[4]=quantum:q[4]",
+  "quantum:q[5]=quantum:q[5]",
+  "quantum:psi[0]=quantum:psi[0]",
+]
+output_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+  "quantum:q[4]=quantum:q[4]",
+  "quantum:q[5]=quantum:q[5]",
+  "quantum:psi[0]=quantum:psi[0]",
+]
+source_left = "data/origin_qc/qpeexact_indep_qiskit_7.qasm"
+source_right = "final_exp_results_all.csv: GA run 0, Individual 24, rz_gate at 5 with [0.0009355733939954978, 0.055618276740782235, 0.33126876288678997]"
+
+[[case]]
+id = "qumug-vqe_3-ga-first-order"
+suite = "vqe"
+left = "programs/vqe_3/left.qasm"
+right = "programs/vqe_3/right.qasm"
+truth = "neq"
+equivalence = "unitary"
+input_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+]
+output_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+]
+source_left = "data/origin_qc/vqe_indep_qiskit_3.qasm"
+source_right = "final_exp_results_all.csv: GA run 0, Individual 377, rx_gate at 6 with [0.05661927112291587, 0.11802473809902236, 0.11781545198721596]"
+
+[[case]]
+id = "qumug-vqe_4-ga-first-order"
+suite = "vqe"
+left = "programs/vqe_4/left.qasm"
+right = "programs/vqe_4/right.qasm"
+truth = "neq"
+equivalence = "unitary"
+input_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+]
+output_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+]
+source_left = "data/origin_qc/vqe_indep_qiskit_4.qasm"
+source_right = "final_exp_results_all.csv: GA run 0, Individual 63, rz_gate at 14 with [0.02949382670665385, 0.3040446305733244, 0.1660965971003886]"
+
+[[case]]
+id = "qumug-vqe_5-ga-first-order"
+suite = "vqe"
+left = "programs/vqe_5/left.qasm"
+right = "programs/vqe_5/right.qasm"
+truth = "neq"
+equivalence = "unitary"
+input_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+  "quantum:q[4]=quantum:q[4]",
+]
+output_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+  "quantum:q[4]=quantum:q[4]",
+]
+source_left = "data/origin_qc/vqe_indep_qiskit_5.qasm"
+source_right = "final_exp_results_all.csv: GA run 0, Individual 84, rz_gate at 18 with [0.00878280784668534, 0.37394967800792445, 0.38705219180211936]"
+
+[[case]]
+id = "qumug-vqe_6-ga-first-order"
+suite = "vqe"
+left = "programs/vqe_6/left.qasm"
+right = "programs/vqe_6/right.qasm"
+truth = "neq"
+equivalence = "unitary"
+input_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+  "quantum:q[4]=quantum:q[4]",
+  "quantum:q[5]=quantum:q[5]",
+]
+output_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+  "quantum:q[4]=quantum:q[4]",
+  "quantum:q[5]=quantum:q[5]",
+]
+source_left = "data/origin_qc/vqe_indep_qiskit_6.qasm"
+source_right = "final_exp_results_all.csv: GA run 0, Individual 90, rx_gate at 22 with [0.001009361346938525, 0.4990999136390628, 0.39322832015742265]"
+
+[[case]]
+id = "qumug-vqe_7-ga-first-order"
+suite = "vqe"
+left = "programs/vqe_7/left.qasm"
+right = "programs/vqe_7/right.qasm"
+truth = "neq"
+equivalence = "unitary"
+input_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+  "quantum:q[4]=quantum:q[4]",
+  "quantum:q[5]=quantum:q[5]",
+  "quantum:q[6]=quantum:q[6]",
+]
+output_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+  "quantum:q[4]=quantum:q[4]",
+  "quantum:q[5]=quantum:q[5]",
+  "quantum:q[6]=quantum:q[6]",
+]
+source_left = "data/origin_qc/vqe_indep_qiskit_7.qasm"
+source_right = "final_exp_results_all.csv: GA run 0, Individual 8, rz_gate at 0 with [0.0007081381191203846, 0.4282953565191128, 0.5]"
+
+[[case]]
+id = "qumug-w-state_3-ga-first-order"
+suite = "w-state"
+left = "programs/w-state_3/left.qasm"
+right = "programs/w-state_3/right.qasm"
+truth = "neq"
+equivalence = "unitary"
+input_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+]
+output_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+]
+source_left = "data/origin_qc/wstate_indep_qiskit_3.qasm"
+source_right = "final_exp_results_all.csv: GA run 0, Individual 440, rz_gate at 0 with [0.09716023324498901, 0.4873004286531119, 0.2720331864973366]"
+
+[[case]]
+id = "qumug-w-state_4-ga-first-order"
+suite = "w-state"
+left = "programs/w-state_4/left.qasm"
+right = "programs/w-state_4/right.qasm"
+truth = "neq"
+equivalence = "unitary"
+input_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+]
+output_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+]
+source_left = "data/origin_qc/wstate_indep_qiskit_4.qasm"
+source_right = "final_exp_results_all.csv: GA run 0, Individual 62, rx_gate at 11 with [-0.008167516725914661, 0.3585589313536562, 0.3058815793210373]"
+
+[[case]]
+id = "qumug-w-state_5-ga-first-order"
+suite = "w-state"
+left = "programs/w-state_5/left.qasm"
+right = "programs/w-state_5/right.qasm"
+truth = "neq"
+equivalence = "unitary"
+input_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+  "quantum:q[4]=quantum:q[4]",
+]
+output_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+  "quantum:q[4]=quantum:q[4]",
+]
+source_left = "data/origin_qc/wstate_indep_qiskit_5.qasm"
+source_right = "final_exp_results_all.csv: GA run 0, Individual 47, ry_gate at 16 with [0.0009135053963601689, 6.11673423276716, 0.5]"
+
+[[case]]
+id = "qumug-w-state_6-ga-first-order"
+suite = "w-state"
+left = "programs/w-state_6/left.qasm"
+right = "programs/w-state_6/right.qasm"
+truth = "neq"
+equivalence = "unitary"
+input_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+  "quantum:q[4]=quantum:q[4]",
+  "quantum:q[5]=quantum:q[5]",
+]
+output_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+  "quantum:q[4]=quantum:q[4]",
+  "quantum:q[5]=quantum:q[5]",
+]
+source_left = "data/origin_qc/wstate_indep_qiskit_6.qasm"
+source_right = "final_exp_results_all.csv: GA run 2, Individual 65, ry_gate at 15 with [-0.00017640615596503477, 0.5, 0.5]"
+
+[[case]]
+id = "qumug-w-state_7-ga-first-order"
+suite = "w-state"
+left = "programs/w-state_7/left.qasm"
+right = "programs/w-state_7/right.qasm"
+truth = "neq"
+equivalence = "unitary"
+input_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+  "quantum:q[4]=quantum:q[4]",
+  "quantum:q[5]=quantum:q[5]",
+  "quantum:q[6]=quantum:q[6]",
+]
+output_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+  "quantum:q[4]=quantum:q[4]",
+  "quantum:q[5]=quantum:q[5]",
+  "quantum:q[6]=quantum:q[6]",
+]
+source_left = "data/origin_qc/wstate_indep_qiskit_7.qasm"
+source_right = "final_exp_results_all.csv: GA run 0, Individual 24, rx_gate at 18 with [-0.0002340334920442836, 0.47520119042431386, 0.17653481483115901]"
