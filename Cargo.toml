@@ -9,8 +9,12 @@ description = "An equivalence checker for hybrid quantum programs"
 path = "src/lib.rs"
 
 [dependencies]
+bigdecimal = "0.4"
 clap = { version = "4.5", features = ["derive"] }
+num-bigint = "0.4"
+num-rational = "0.4"
 oq3_lexer = "0.7.0"
 oq3_source_file = "0.7.0"
 oq3_syntax = "0.7.0"
+rug = { version = "1.30", default-features = false, features = ["float", "std"] }
 thiserror = "2.0"

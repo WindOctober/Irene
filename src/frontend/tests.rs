@@ -1,7 +1,13 @@
-use crate::ir::Statement;
+use num_rational::BigRational;
+
+use crate::ir::{Gate, NumericConstant, NumericExpr, NumericType, Statement};
 
 use super::openqasm3::{FrontendError, parse_str};
 use super::scope::{BindingKind, ScopeError, ScopeKind, ScopeStack};
+
+fn rational(numerator: i64, denominator: i64) -> NumericExpr {
+    NumericExpr::Rational(BigRational::new(numerator.into(), denominator.into()))
+}
 
 #[test]
 fn block_shadowing_uses_distinct_symbol_ids() {
@@ -193,5 +199,70 @@ fn gates_cannot_be_shadowed() {
     assert_eq!(
         scopes.declare("operation", BindingKind::ClassicalBit { width: 1 }),
         Err(ScopeError::CannotShadow("operation".to_owned()))
+    );
+}
+
+#[test]
+fn preserves_numeric_gate_parameters_without_float_conversion() {
+    let program = parse_str(
+        r#"
+        OPENQASM 3.0;
+        include "stdgates.inc";
+        input angle[20] theta;
+        input float[64] delta;
+        qubit[2] q;
+        rz(0.1) q[0];
+        rz(0.100) q[0];
+        rz(1e-1) q[0];
+        cp(pi / 7 + theta) q[0], q[1];
+        crz(-1.25e-3 * delta) q[0], q[1];
+        "#,
+        "angle-parameters.qasm",
+    )
+    .unwrap();
+
+    assert_eq!(program.numeric_inputs[0].ty, NumericType::Angle(Some(20)));
+    assert_eq!(program.numeric_inputs[1].ty, NumericType::Float(Some(64)));
+
+    let Statement::Apply {
+        gate, parameters, ..
+    } = &program.body.statements[0]
+    else {
+        panic!("expected an rz gate");
+    };
+    assert_eq!(*gate, Gate::Rz);
+    assert_eq!(parameters, &[rational(1, 10)]);
+    for statement in &program.body.statements[1..3] {
+        let Statement::Apply { parameters, .. } = statement else {
+            panic!("expected an rz gate");
+        };
+        assert_eq!(parameters, &[rational(1, 10)]);
+    }
+
+    let theta = NumericExpr::Input(program.numeric_inputs[0].id);
+    let Statement::Apply { parameters, .. } = &program.body.statements[3] else {
+        panic!("expected a cp gate");
+    };
+    assert_eq!(
+        parameters,
+        &[NumericExpr::Add(
+            Box::new(NumericExpr::Div(
+                Box::new(NumericExpr::Constant(NumericConstant::Pi)),
+                Box::new(rational(7, 1)),
+            )),
+            Box::new(theta),
+        )]
+    );
+
+    let delta = NumericExpr::Input(program.numeric_inputs[1].id);
+    let Statement::Apply { parameters, .. } = &program.body.statements[4] else {
+        panic!("expected a crz gate");
+    };
+    assert_eq!(
+        parameters,
+        &[NumericExpr::Mul(
+            Box::new(NumericExpr::Neg(Box::new(rational(1, 800)))),
+            Box::new(delta),
+        )]
     );
 }

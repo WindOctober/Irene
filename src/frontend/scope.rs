@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::ir::SymbolId;
+use crate::ir::{NumericType, SymbolId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ScopeKind {
@@ -12,6 +12,7 @@ pub(super) enum ScopeKind {
 pub(super) enum BindingKind {
     QuantumRegister { width: usize },
     ClassicalBit { width: usize },
+    NumericInput(NumericType),
     Gate,
     Constant,
 }
@@ -25,6 +26,7 @@ impl BindingKind {
         match self {
             Self::QuantumRegister { .. } => "quantum register",
             Self::ClassicalBit { .. } => "classical bit register",
+            Self::NumericInput(_) => "numeric input",
             Self::Gate => "gate",
             Self::Constant => "constant",
         }
