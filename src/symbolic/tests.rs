@@ -123,16 +123,123 @@ fn measurement_controls_distinct_symbolic_branches() {
     .unwrap();
 
     assert_eq!(hps.components.len(), 2);
-    let outcome_value = BooleanPolynomial::variable(Variable::Path(0));
-    assert_eq!(hps.components[0].guard, outcome_value);
-    assert_eq!(hps.components[1].guard, outcome_value.complement());
-    assert_eq!(hps.components[0].path_support, [0, 1].into());
-    assert_eq!(hps.components[1].path_support, [0].into());
+    assert!(hps.components[0].guard.is_empty());
+    assert!(hps.components[1].guard.is_empty());
+    assert_eq!(hps.components[0].path_support, [1].into());
+    assert!(hps.components[1].path_support.is_empty());
     assert!(matches!(
         &hps.components[0].output.history[0],
         HistoryEntry::Write { target, value }
-            if target == &outcome && value == &outcome_value
+            if target == &outcome && value.is_one()
     ));
+    assert!(matches!(
+        &hps.components[1].output.history[0],
+        HistoryEntry::Write { target, value }
+            if target == &outcome && value.is_zero()
+    ));
+}
+
+#[test]
+fn affine_branch_relations_are_solved_over_gf2() {
+    let q0 = qubit(0, 0);
+    let q1 = qubit(0, 1);
+    let c0 = bit(1, 0);
+    let c1 = bit(1, 1);
+    let hps = execute(
+        &program(
+            2,
+            2,
+            vec![
+                Statement::Apply {
+                    gate: Gate::H,
+                    parameters: Vec::new(),
+                    qubits: vec![q0.clone()],
+                },
+                Statement::Apply {
+                    gate: Gate::H,
+                    parameters: Vec::new(),
+                    qubits: vec![q1.clone()],
+                },
+                Statement::Measure {
+                    qubit: q0,
+                    target: c0.clone(),
+                },
+                Statement::Measure {
+                    qubit: q1,
+                    target: c1.clone(),
+                },
+                Statement::If {
+                    condition: ClassicalExpr::Xor(
+                        Box::new(ClassicalExpr::Bit(c0)),
+                        Box::new(ClassicalExpr::Bit(c1)),
+                    ),
+                    then_branch: Block::default(),
+                    else_branch: Block::default(),
+                },
+            ],
+        ),
+        &ExecutionConfig::zero(),
+    )
+    .unwrap();
+
+    assert_eq!(hps.components.len(), 2);
+    for component in &hps.components {
+        assert!(component.guard.is_empty());
+        assert_eq!(component.path_support.len(), 1);
+    }
+}
+
+#[test]
+fn nonlinear_branch_constraints_are_routed_through_a_bdd() {
+    let q0 = qubit(0, 0);
+    let q1 = qubit(0, 1);
+    let c0 = bit(1, 0);
+    let c1 = bit(1, 1);
+    let hps = execute(
+        &program(
+            2,
+            2,
+            vec![
+                Statement::Apply {
+                    gate: Gate::H,
+                    parameters: Vec::new(),
+                    qubits: vec![q0.clone()],
+                },
+                Statement::Apply {
+                    gate: Gate::H,
+                    parameters: Vec::new(),
+                    qubits: vec![q1.clone()],
+                },
+                Statement::Measure {
+                    qubit: q0,
+                    target: c0.clone(),
+                },
+                Statement::Measure {
+                    qubit: q1,
+                    target: c1.clone(),
+                },
+                Statement::If {
+                    condition: ClassicalExpr::And(
+                        Box::new(ClassicalExpr::Bit(c0)),
+                        Box::new(ClassicalExpr::Bit(c1)),
+                    ),
+                    then_branch: Block::default(),
+                    else_branch: Block::default(),
+                },
+            ],
+        ),
+        &ExecutionConfig::zero(),
+    )
+    .unwrap();
+
+    let then_component = &hps.components[0];
+    assert!(then_component.guard.is_empty());
+    assert!(then_component.path_support.is_empty());
+
+    let else_component = &hps.components[1];
+    assert_eq!(else_component.path_support, [0, 1].into());
+    assert_eq!(else_component.guard.len(), 1);
+    assert!(!else_component.guard[0].is_affine());
 }
 
 #[test]

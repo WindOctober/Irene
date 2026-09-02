@@ -6,7 +6,7 @@ use num_rational::BigRational;
 
 use crate::ir::NumericExpr;
 
-use super::{BooleanPolynomial, Monomial};
+use super::{BooleanPolynomial, Monomial, Variable};
 
 /// One coefficient in an HPS phase polynomial, measured in turns.
 ///
@@ -122,6 +122,27 @@ impl PhasePolynomial {
         // before scaling it as a phase expression.
         for (monomial, lifted_coefficient) in lift_boolean(polynomial) {
             self.add_term(monomial, coefficient.scaled(lifted_coefficient));
+        }
+    }
+
+    /// Substitutes a Boolean variable throughout the arithmetic phase.
+    ///
+    /// Boolean expressions are lifted before being reinserted. Thus replacing
+    /// `y` by `1 ⊕ x` in the phase `y/2` yields `(1-x)/2`, rather than
+    /// incorrectly treating XOR as ordinary addition.
+    pub(crate) fn substitute(&mut self, variable: &Variable, replacement: &BooleanPolynomial) {
+        let terms = std::mem::take(&mut self.terms);
+        for (monomial, coefficient) in terms {
+            let mut substituted = BooleanPolynomial::one();
+            for current in monomial.variables() {
+                let factor = if current == variable {
+                    replacement.clone()
+                } else {
+                    BooleanPolynomial::variable(current.clone())
+                };
+                substituted = substituted.and(&factor);
+            }
+            self.add_boolean(&substituted, coefficient);
         }
     }
 

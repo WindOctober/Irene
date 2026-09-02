@@ -133,6 +133,34 @@ impl Scalar {
         }
     }
 
+    /// Substitutes a Boolean input or path variable in scalar conditions.
+    ///
+    /// For example, replacing `y` by `0` reduces
+    /// `select(y, sin(θ/2), cos(θ/2))` to `cos(θ/2)`.
+    pub(crate) fn substitute(&self, variable: &Variable, replacement: &BooleanPolynomial) -> Self {
+        match self {
+            Self::Rational(_) | Self::Sin(_) | Self::Cos(_) => self.clone(),
+            Self::Sqrt(value) => Self::sqrt(value.substitute(variable, replacement)),
+            Self::Add(left, right) => left
+                .substitute(variable, replacement)
+                .sum(right.substitute(variable, replacement)),
+            Self::Mul(left, right) => left
+                .substitute(variable, replacement)
+                .multiply(right.substitute(variable, replacement)),
+            Self::Neg(value) => value.substitute(variable, replacement).negate(),
+            Self::Inverse(value) => value.substitute(variable, replacement).inverse(),
+            Self::Select {
+                condition,
+                when_true,
+                when_false,
+            } => Self::select(
+                condition.substitute(variable, replacement),
+                when_true.substitute(variable, replacement),
+                when_false.substitute(variable, replacement),
+            ),
+        }
+    }
+
     /// Evaluates the symbolic scalar using MPFR at the requested bit precision.
     ///
     /// For example, evaluating `sin(theta / 2)` requires a numeric binding for

@@ -7,6 +7,7 @@ use crate::ir::{
     Block, ClassicalBit, ClassicalExpr, Gate, NumericExpr, Program, Qubit, Register, Statement,
 };
 
+use super::optimize::simplify_component;
 use super::{BooleanPolynomial, PhaseCoefficient, PhasePolynomial, Scalar, Variable};
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -104,15 +105,15 @@ pub struct HybridMemory {
 
 /// One HPS summand produced by symbolic control flow.
 ///
-/// Its amplitude is `guard * scalar * exp(2πi phase)`; `output` describes the
-/// hybrid-memory signature of the summand.
+/// Its amplitude is `scalar * exp(2πi phase)` on assignments satisfying
+/// `guard`; `output` describes the hybrid-memory signature of the summand.
 ///
 /// For example, branching on a measured path variable `y0` produces a then
 /// component guarded by `y0` and an else component guarded by `1 ⊕ y0`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Component {
-    /// Boolean filter selecting the paths on which this component is active.
-    pub guard: BooleanPolynomial,
+    /// Equations whose conjunction selects this component.
+    pub guard: Vec<BooleanPolynomial>,
     /// Real symbolic amplitude; complex factors are stored in `phase`.
     pub scalar: Scalar,
     /// Path variables summed over when this component is concretized.
@@ -149,7 +150,7 @@ pub fn execute(
 ) -> Result<HybridPathSum, SymbolicError> {
     let input = initial_memory(program, &config.initial_state)?;
     let component = Component {
-        guard: BooleanPolynomial::one(),
+        guard: Vec::new(),
         scalar: Scalar::one(),
         path_support: BTreeSet::new(),
         phase: PhasePolynomial::zero(),
@@ -168,10 +169,10 @@ fn initial_memory(
     // Uninitialized OpenQASM 3 classical declarations have no defined value;
     // measurement or a future assignment inserts one into the map.
     let qubits: BTreeSet<_> = register_cells(&program.quantum_registers).collect();
-    if let InitialState::Zero { symbolic_inputs } = initial_state {
-        if let Some(qubit) = symbolic_inputs.difference(&qubits).next() {
-            return Err(SymbolicError::UnknownInput(qubit.clone()));
-        }
+    if let InitialState::Zero { symbolic_inputs } = initial_state
+        && let Some(qubit) = symbolic_inputs.difference(&qubits).next()
+    {
+        return Err(SymbolicError::UnknownInput(qubit.clone()));
     }
     let quantum = qubits
         .into_iter()
@@ -244,18 +245,23 @@ impl Executor {
                 let mut result = Vec::new();
                 for component in components {
                     let condition = evaluate_classical(condition, &component.output.classical)?;
-                    // ⟦if b then P else Q⟧(h) = b⟦P⟧(h) + (1-b)⟦Q⟧(h).
-                    // Example: if c contains y0, the components receive guards
-                    // y0 and 1 ⊕ y0, respectively.
+                    // ⟦if b then P else Q⟧(h) restricts the two paths by
+                    // b=1 and b=0. Simplifying here removes determined path
+                    // variables before either branch creates more expressions.
                     let mut then_component = component.clone();
-                    then_component.guard = then_component.guard.and(&condition);
+                    let then_constraint = condition.complement();
+                    if !then_constraint.is_zero() {
+                        then_component.guard.push(then_constraint);
+                    }
                     let mut else_component = component;
-                    else_component.guard = else_component.guard.and(&condition.complement());
+                    if !condition.is_zero() {
+                        else_component.guard.push(condition);
+                    }
 
-                    if !then_component.guard.is_zero() {
+                    if simplify_component(&mut then_component) {
                         result.extend(self.execute_block(vec![then_component], then_branch)?);
                     }
-                    if !else_component.guard.is_zero() {
+                    if simplify_component(&mut else_component) {
                         result.extend(self.execute_block(vec![else_component], else_branch)?);
                     }
                 }

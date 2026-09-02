@@ -6,6 +6,7 @@
 
 mod boolean;
 mod executor;
+pub mod optimize;
 mod phase;
 mod scalar;
 

@@ -37,6 +37,10 @@ impl Monomial {
         self.0.iter()
     }
 
+    pub(crate) fn degree(&self) -> usize {
+        self.0.len()
+    }
+
     /// Multiplies two monomials by taking the union of their variables.
     pub(crate) fn multiply(&self, other: &Self) -> Self {
         Self(self.0.union(&other.0).cloned().collect())
@@ -85,6 +89,26 @@ impl BooleanPolynomial {
         self.terms.iter()
     }
 
+    /// Returns every variable occurring in the polynomial.
+    pub(crate) fn variables(&self) -> BTreeSet<Variable> {
+        self.terms
+            .iter()
+            .flat_map(|term| term.variables().cloned())
+            .collect()
+    }
+
+    /// Whether the expression is affine over GF(2).
+    ///
+    /// For example, `1 ⊕ x ⊕ y` is affine, while `x*y` is nonlinear.
+    /// Affine expressions can be solved directly by Gaussian elimination.
+    pub(crate) fn is_affine(&self) -> bool {
+        self.terms.iter().all(|term| term.degree() <= 1)
+    }
+
+    pub(crate) fn has_term(&self, term: &Monomial) -> bool {
+        self.terms.contains(term)
+    }
+
     /// Adds two ANF polynomials over GF(2), cancelling duplicate monomials.
     /// For example, `(x ⊕ y) ⊕ y = x`.
     pub fn xor(&self, other: &Self) -> Self {
@@ -115,6 +139,27 @@ impl BooleanPolynomial {
     /// Computes Boolean negation using `not p = 1 ⊕ p`.
     pub fn complement(&self) -> Self {
         self.xor(&Self::one())
+    }
+
+    /// Replaces one Boolean variable by another ANF expression.
+    ///
+    /// For example, substituting `y = 1 ⊕ x` into `z ⊕ y` produces
+    /// `1 ⊕ x ⊕ z`.
+    pub(crate) fn substitute(&self, variable: &Variable, replacement: &Self) -> Self {
+        let mut result = Self::zero();
+        for monomial in &self.terms {
+            let mut substituted = Self::one();
+            for current in monomial.variables() {
+                let factor = if current == variable {
+                    replacement.clone()
+                } else {
+                    Self::variable(current.clone())
+                };
+                substituted = substituted.and(&factor);
+            }
+            result = result.xor(&substituted);
+        }
+        result
     }
 }
 
