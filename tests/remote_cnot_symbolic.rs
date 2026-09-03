@@ -3,11 +3,9 @@ use std::path::{Path, PathBuf};
 
 use irene::frontend::openqasm3;
 use irene::ir::{ClassicalBit, Program, Qubit, Register};
-use irene::symbolic::optimize::simplify;
 use irene::symbolic::{
-    ExecutionConfig, HistoryEntry, HybridMemory, HybridPathSum, PhasePolynomial, Scalar, execute,
+    ExecutionConfig, HistoryEntry, HybridMemory, HybridPathSum, OutputSelection, Scalar, execute,
 };
-use num_rational::BigRational;
 
 fn benchmark_file(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -36,6 +34,27 @@ fn symbolic_data_inputs(program: &Program) -> ExecutionConfig {
             index: 3,
         },
     ])
+}
+
+fn selected_data_outputs(program: &Program) -> OutputSelection {
+    let q = program
+        .quantum_registers
+        .iter()
+        .find(|register| register.name == "q")
+        .unwrap();
+    OutputSelection::new(
+        [
+            Qubit {
+                register: q.id,
+                index: 0,
+            },
+            Qubit {
+                register: q.id,
+                index: 3,
+            },
+        ],
+        [],
+    )
 }
 
 fn register_cell(registers: &[Register], id: irene::ir::SymbolId, index: usize) -> String {
@@ -105,31 +124,25 @@ fn executes_and_prints_remote_cnot_states() {
     let left = parse(&benchmark_file("left.qasm"));
     let right = parse(&benchmark_file("right.qasm"));
 
-    let left_state = execute(&left, &symbolic_data_inputs(&left)).unwrap();
-    let right_state = execute(&right, &symbolic_data_inputs(&right)).unwrap();
+    let left_state = execute(
+        &left,
+        &symbolic_data_inputs(&left),
+        &selected_data_outputs(&left),
+    )
+    .unwrap();
+    let right_state = execute(
+        &right,
+        &symbolic_data_inputs(&right),
+        &selected_data_outputs(&right),
+    )
+    .unwrap();
 
     print_state("unitary routed CNOT", &left, &left_state);
     print_state("measurement-based remote CNOT", &right, &right_state);
 
-    let simplified_left = simplify(left_state);
-    let simplified_right = simplify(right_state);
-
-    assert_eq!(simplified_left.components.len(), 1);
-    assert_eq!(simplified_right.components.len(), 4);
-    for component in &simplified_right.components {
-        assert!(component.guard.is_empty());
-        assert!(component.path_support.is_empty());
-        assert_eq!(component.phase, PhasePolynomial::zero());
-        assert_eq!(
-            component.scalar,
-            Scalar::rational(BigRational::new(1.into(), 2.into()))
-        );
-    }
-
-    print_state("simplified unitary routed CNOT", &left, &simplified_left);
-    print_state(
-        "simplified measurement-based remote CNOT",
-        &right,
-        &simplified_right,
-    );
+    assert_eq!(left_state.components.len(), 1);
+    assert_eq!(right_state.components.len(), 1);
+    assert_eq!(left_state.components[0], right_state.components[0]);
+    assert_eq!(right_state.components[0].scalar, Scalar::one());
+    assert!(right_state.components[0].output.history.is_empty());
 }

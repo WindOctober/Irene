@@ -6,15 +6,17 @@
 
 mod boolean;
 mod executor;
-pub mod optimize;
+mod optimize;
 mod phase;
 mod scalar;
+mod validate;
 
 pub use boolean::{BooleanPolynomial, Monomial, Variable};
 pub use executor::{
     Component, ExecutionConfig, HistoryEntry, HybridMemory, HybridPathSum, InitialState,
     SymbolicError, execute,
 };
+pub use optimize::OutputSelection;
 pub use phase::{PhaseCoefficient, PhasePolynomial};
 pub use scalar::{Scalar, ScalarBindings, ScalarEvaluationError};
 

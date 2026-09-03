@@ -4,16 +4,23 @@ use num_rational::BigRational;
 use thiserror::Error;
 
 use crate::ir::{
-    Block, ClassicalBit, ClassicalExpr, Gate, NumericExpr, Program, Qubit, Register, Statement,
+    AstIdGenerator, Block, ClassicalBit, ClassicalExpr, ClassicalExprKind, Gate, NumericExpr,
+    NumericExprKind, Program, Qubit, Register, StatementKind,
 };
 
-use super::optimize::simplify_component;
+use super::optimize::slice::{self, DiscardSet, OutputSelection, SlicePlan};
+use super::optimize::{merge_components, simplify, simplify_component};
+use super::validate;
 use super::{BooleanPolynomial, PhaseCoefficient, PhasePolynomial, Scalar, Variable};
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum SymbolicError {
     #[error("configured symbolic input is not declared by the program: {0:?}")]
     UnknownInput(Qubit),
+    #[error("selected quantum output is not declared by the program: {0:?}")]
+    UnknownQuantumOutput(Qubit),
+    #[error("selected classical output is not declared by the program: {0:?}")]
+    UnknownClassicalOutput(ClassicalBit),
     #[error("classical bit is read before it is assigned: {0:?}")]
     UninitializedClassical(ClassicalBit),
 }
@@ -103,6 +110,29 @@ pub struct HybridMemory {
     pub history: Vec<HistoryEntry>,
 }
 
+impl HybridMemory {
+    /// Hides one computational-basis value while retaining the equality
+    /// constraint required by partial trace.
+    ///
+    /// Constants create no alternative worlds. Likewise, if an earlier
+    /// measurement already recorded the same expression, another copy would
+    /// impose the identical bra/ket equality and is redundant.
+    pub(crate) fn discard(&mut self, value: BooleanPolynomial) {
+        if value.is_zero() || value.is_one() {
+            return;
+        }
+        let already_recorded = self.history.iter().any(|entry| match entry {
+            HistoryEntry::Write {
+                value: recorded, ..
+            }
+            | HistoryEntry::Discard { value: recorded } => recorded == &value,
+        });
+        if !already_recorded {
+            self.history.push(HistoryEntry::Discard { value });
+        }
+    }
+}
+
 /// One HPS summand produced by symbolic control flow.
 ///
 /// Its amplitude is `scalar * exp(2πi phase)` on assignments satisfying
@@ -137,7 +167,7 @@ pub struct HybridPathSum {
     pub components: Vec<Component>,
 }
 
-/// Executes a program from the configured quantum inputs.
+/// Executes a program from the configured inputs and selected outputs.
 ///
 /// For example, with [`ExecutionConfig::all_symbolic`], the initial values of
 /// two declared qubits are `x0` and `x1`. After `cx q[0], q[1]`, their output
@@ -147,23 +177,66 @@ pub struct HybridPathSum {
 pub fn execute(
     program: &Program,
     config: &ExecutionConfig,
+    output_selection: &OutputSelection,
 ) -> Result<HybridPathSum, SymbolicError> {
-    let input = initial_memory(program, &config.initial_state)?;
-    let component = Component {
+    let plan = slice::build_slice_plan(program, output_selection)?;
+    validate::definite_assignment(program, output_selection)?;
+    let mut hps = simplify(execute_with_plan(program, config, &plan)?);
+    hps.components = merge_components(hps.components);
+    Ok(hps)
+}
+
+/// Executes with a precomputed slice plan.
+///
+/// Statements always come from the original program. The sidecar plan only
+/// decides whether each statement is relevant and where dead values can be
+/// discarded.
+fn execute_with_plan(
+    program: &Program,
+    config: &ExecutionConfig,
+    plan: &SlicePlan,
+) -> Result<HybridPathSum, SymbolicError> {
+    let mut tracked_inputs = plan.live_quantum.clone();
+    match &config.initial_state {
+        InitialState::AllSymbolic => {
+            tracked_inputs.extend(register_cells(&program.quantum_registers));
+        }
+        InitialState::Zero { symbolic_inputs } => {
+            tracked_inputs.extend(symbolic_inputs.iter().cloned());
+        }
+    }
+    let input = initial_memory(program, &config.initial_state, &tracked_inputs)?;
+    let mut component = Component {
         guard: Vec::new(),
         scalar: Scalar::one(),
         path_support: BTreeSet::new(),
         phase: PhasePolynomial::zero(),
         output: input.clone(),
     };
-    let mut executor = Executor { next_path: 0 };
-    let components = executor.execute_block(vec![component], &program.body)?;
+    // Symbolic inputs remain in `input`, even when they cannot affect an
+    // selected output. Move those dead inputs into hidden history instead of
+    // silently deleting them: `Discard(x)` represents the partial trace that
+    // prevents the x=0 and x=1 amplitudes from interfering afterwards.
+    DiscardSet {
+        quantum: tracked_inputs
+            .difference(&plan.live_quantum)
+            .cloned()
+            .collect(),
+        classical: Vec::new(),
+    }
+    .apply(&mut component);
+    let mut executor = Executor {
+        next_path: 0,
+        ids: AstIdGenerator::starting_at(program.ast_id_bound()),
+    };
+    let components = executor.execute_block(vec![component], &program.body, plan)?;
     Ok(HybridPathSum { input, components })
 }
 
 fn initial_memory(
     program: &Program,
     initial_state: &InitialState,
+    tracked_qubits: &BTreeSet<Qubit>,
 ) -> Result<HybridMemory, SymbolicError> {
     // An HPS input signature contains constants or free Boolean variables.
     // Uninitialized OpenQASM 3 classical declarations have no defined value;
@@ -176,6 +249,7 @@ fn initial_memory(
     }
     let quantum = qubits
         .into_iter()
+        .filter(|qubit| tracked_qubits.contains(qubit))
         .map(|qubit| {
             let symbolic = match initial_state {
                 InitialState::AllSymbolic => true,
@@ -202,79 +276,120 @@ fn initial_memory(
 /// accidentally denote the same summation variable.
 struct Executor {
     next_path: usize,
+    ids: AstIdGenerator,
 }
 
 impl Executor {
-    /// Executes statements in source order and removes block-local storage at
-    /// lexical scope exit.
+    /// Executes original IR statements using an AST-ID-indexed slice plan.
     ///
-    /// A local bit has no value until assigned. Its measurement writes remain
-    /// in `history` after exit because hiding a result must not restore quantum
-    /// interference.
+    /// Statements run in source order. At lexical scope exit, block-local
+    /// classical values are removed from the current memory, but their writes
+    /// remain in history: hiding a measurement result must not restore
+    /// interference between the worlds it created.
     fn execute_block(
         &mut self,
         mut components: Vec<Component>,
         block: &Block,
+        plan: &SlicePlan,
     ) -> Result<Vec<Component>, SymbolicError> {
-        for statement in &block.statements {
-            components = self.execute_statement(components, statement)?;
+        // Entry discard sets primarily occur on `if` branches. Backward analysis
+        // takes the union of both branches' dependencies before the `if`, so a
+        // value needed only by the sibling branch is still present here. The
+        // discard set traces that value out as soon as this branch is entered.
+        //
+        // Example: in `if c { cx a, out } else { skip }`, with only `out`
+        // selected, `a` is live before the `if` but is discarded at the entry
+        // of the else block.
+        if let Some(discard) = plan.discard_set(block.ast_id) {
+            for component in &mut components {
+                discard.apply(component);
+            }
+            if components.len() > 1 {
+                components = merge_components(components);
+            }
         }
+        for statement in &block.statements {
+            if !plan.retains(statement.ast_id) {
+                continue;
+            }
+            let is_join = matches!(&statement.kind, StatementKind::If { .. });
+            let is_reset = matches!(&statement.kind, StatementKind::Reset(_));
+            components = match &statement.kind {
+                StatementKind::If {
+                    condition,
+                    then_branch,
+                    else_branch,
+                } => {
+                    let mut result = Vec::new();
+                    for component in components {
+                        let condition = evaluate_classical(condition, &component.output.classical)?;
+                        // Guards are equations equal to zero. The then branch
+                        // therefore adds `1 ⊕ condition = 0`, while the else
+                        // branch adds `condition = 0`. Simplifying immediately
+                        // removes determined path variables before either
+                        // branch introduces more symbolic expressions.
+                        let mut then_component = component.clone();
+                        let then_constraint = condition.complement();
+                        if !then_constraint.is_zero() {
+                            then_component.guard.push(then_constraint);
+                        }
+                        let mut else_component = component;
+                        if !condition.is_zero() {
+                            else_component.guard.push(condition);
+                        }
+                        if simplify_component(&mut then_component) {
+                            result.extend(self.execute_block(
+                                vec![then_component],
+                                then_branch,
+                                plan,
+                            )?);
+                        }
+                        if simplify_component(&mut else_component) {
+                            result.extend(self.execute_block(
+                                vec![else_component],
+                                else_branch,
+                                plan,
+                            )?);
+                        }
+                    }
+                    result
+                }
+                _ => components
+                    .into_iter()
+                    .map(|mut component| {
+                        self.execute_linear(&mut component, &statement.kind)?;
+                        Ok(component)
+                    })
+                    .collect::<Result<_, _>>()?,
+            };
+            // A post-statement discard set denotes the last point at which a
+            // value can influence the selected outputs. For example, after
+            // `cx a, out`, `a` can be traced out when no later live statement
+            // reads it, while its effect on `out` remains represented.
+            let discard = plan.discard_set(statement.ast_id);
+            if let Some(discard) = discard {
+                for component in &mut components {
+                    discard.apply(component);
+                }
+            }
+            // Branch joins, information-destroying resets, and discard
+            // boundaries can make previously distinct components identical.
+            // Merge only at those events instead of rescanning after every
+            // unitary statement.
+            if components.len() > 1 && (is_join || is_reset || discard.is_some()) {
+                components = merge_components(components);
+            }
+        }
+        let removes_locals = !block.classical_registers.is_empty();
         for component in &mut components {
             for bit in classical_cells(&block.classical_registers) {
                 component.output.classical.remove(&bit);
             }
         }
-        Ok(components)
-    }
-
-    /// Executes one statement over every incoming component.
-    ///
-    /// A classical branch is represented as two guarded HPS summands. Every
-    /// other statement is linear and is applied independently to each summand.
-    fn execute_statement(
-        &mut self,
-        components: Vec<Component>,
-        statement: &Statement,
-    ) -> Result<Vec<Component>, SymbolicError> {
-        match statement {
-            Statement::If {
-                condition,
-                then_branch,
-                else_branch,
-            } => {
-                let mut result = Vec::new();
-                for component in components {
-                    let condition = evaluate_classical(condition, &component.output.classical)?;
-                    // ⟦if b then P else Q⟧(h) restricts the two paths by
-                    // b=1 and b=0. Simplifying here removes determined path
-                    // variables before either branch creates more expressions.
-                    let mut then_component = component.clone();
-                    let then_constraint = condition.complement();
-                    if !then_constraint.is_zero() {
-                        then_component.guard.push(then_constraint);
-                    }
-                    let mut else_component = component;
-                    if !condition.is_zero() {
-                        else_component.guard.push(condition);
-                    }
-
-                    if simplify_component(&mut then_component) {
-                        result.extend(self.execute_block(vec![then_component], then_branch)?);
-                    }
-                    if simplify_component(&mut else_component) {
-                        result.extend(self.execute_block(vec![else_component], else_branch)?);
-                    }
-                }
-                Ok(result)
-            }
-            _ => components
-                .into_iter()
-                .map(|mut component| {
-                    self.execute_linear(&mut component, statement)?;
-                    Ok(component)
-                })
-                .collect(),
+        if components.len() > 1 && removes_locals {
+            components = merge_components(components);
         }
+        Ok(components)
     }
 
     /// Applies a non-branching statement to one HPS component.
@@ -286,32 +401,30 @@ impl Executor {
     fn execute_linear(
         &mut self,
         component: &mut Component,
-        statement: &Statement,
+        statement: &StatementKind,
     ) -> Result<(), SymbolicError> {
         // Linear statements transform each existing component independently;
         // only classical `if` forms an explicit sum of components.
         match statement {
-            Statement::Reset(qubit) => {
-                let value = component.output.quantum[qubit].clone();
-                // The discarded outcome separates worlds exactly like an
-                // inaccessible measurement, preventing later interference.
-                // Example: reset maps q=y0 to q=0 and records Discard(y0).
-                component
-                    .output
-                    .history
-                    .push(HistoryEntry::Discard { value });
-                component
+            StatementKind::Reset(qubit) => {
+                let value = component
                     .output
                     .quantum
                     .insert(qubit.clone(), BooleanPolynomial::zero());
+                // The discarded outcome separates worlds exactly like an
+                // inaccessible measurement, preventing later interference.
+                // Example: reset maps q=y0 to q=0 and records Discard(y0).
+                if let Some(value) = value {
+                    component.output.discard(value);
+                }
                 Ok(())
             }
-            Statement::Apply {
+            StatementKind::Apply {
                 gate,
                 parameters,
                 qubits,
             } => self.apply_gate(component, *gate, parameters, qubits),
-            Statement::Measure { qubit, target } => {
+            StatementKind::Measure { qubit, target } => {
                 let value = component.output.quantum[qubit].clone();
                 // Measurement copies the wire expression into classical
                 // history; it does not remove the measured quantum wire.
@@ -326,7 +439,7 @@ impl Executor {
                 });
                 Ok(())
             }
-            Statement::If { .. } => unreachable!(),
+            StatementKind::If { .. } => unreachable!(),
         }
     }
 
@@ -518,7 +631,7 @@ impl Executor {
         let path_index = self.fresh_path();
         let path = BooleanPolynomial::variable(Variable::Path(path_index));
         let flipped = input.xor(&path);
-        let scalar = rotation_scalar(angle, &flipped, control.as_ref());
+        let scalar = self.rotation_scalar(angle, &flipped, control.as_ref());
         component.scalar = component.scalar.clone().multiply(scalar);
 
         let phase_condition = match control {
@@ -548,7 +661,7 @@ impl Executor {
         let path_index = self.fresh_path();
         let path = BooleanPolynomial::variable(Variable::Path(path_index));
         let flipped = input.xor(&path);
-        let scalar = rotation_scalar(angle, &flipped, control.as_ref());
+        let scalar = self.rotation_scalar(angle, &flipped, control.as_ref());
         component.scalar = component.scalar.clone().multiply(scalar);
 
         let mut negative = input.and(&flipped);
@@ -561,34 +674,36 @@ impl Executor {
         component.output.quantum.insert(target, path);
         component.path_support.insert(path_index);
     }
-}
 
-/// Selects the sine or cosine coefficient for a rotation path.
-///
-/// `flipped = input ⊕ output`, so the uncontrolled result is
-/// `if flipped then sin(θ/2) else cos(θ/2)`. Under a false quantum
-/// control it becomes `if flipped then 0 else 1`, i.e. the identity exactly.
-fn rotation_scalar(
-    angle: &NumericExpr,
-    flipped: &BooleanPolynomial,
-    control: Option<&BooleanPolynomial>,
-) -> Scalar {
-    let half_angle = NumericExpr::Div(
-        Box::new(angle.clone()),
-        Box::new(NumericExpr::Rational(ratio(2, 1))),
-    );
-    let rotation = Scalar::select(
-        flipped.clone(),
-        Scalar::sin(half_angle.clone()),
-        Scalar::cos(half_angle),
-    );
-    match control {
-        Some(control) => Scalar::select(
-            control.clone(),
-            rotation,
-            Scalar::select(flipped.clone(), Scalar::zero(), Scalar::one()),
-        ),
-        None => rotation,
+    /// Selects the sine or cosine coefficient for a rotation path.
+    ///
+    /// `flipped = input ⊕ output`, so the uncontrolled result is
+    /// `if flipped then sin(θ/2) else cos(θ/2)`. Under a false quantum
+    /// control it becomes `if flipped then 0 else 1`, i.e. the identity exactly.
+    fn rotation_scalar(
+        &mut self,
+        angle: &NumericExpr,
+        flipped: &BooleanPolynomial,
+        control: Option<&BooleanPolynomial>,
+    ) -> Scalar {
+        let denominator = self.ids.node(NumericExprKind::Rational(ratio(2, 1)));
+        let half_angle = self.ids.node(NumericExprKind::Div(
+            Box::new(angle.clone()),
+            Box::new(denominator),
+        ));
+        let rotation = Scalar::select(
+            flipped.clone(),
+            Scalar::sin(half_angle.clone()),
+            Scalar::cos(half_angle),
+        );
+        match control {
+            Some(control) => Scalar::select(
+                control.clone(),
+                rotation,
+                Scalar::select(flipped.clone(), Scalar::zero(), Scalar::one()),
+            ),
+            None => rotation,
+        }
     }
 }
 
@@ -602,31 +717,31 @@ fn evaluate_classical(
 ) -> Result<BooleanPolynomial, SymbolicError> {
     // Classical values use the same ANF representation as wire values. For
     // example, if c0=x and c1=y, `c0 || c1` becomes x ⊕ y ⊕ xy.
-    match expression {
-        ClassicalExpr::Bool(value) => Ok(BooleanPolynomial::from(*value)),
-        ClassicalExpr::Bit(bit) => memory
+    match &expression.kind {
+        ClassicalExprKind::Bool(value) => Ok(BooleanPolynomial::from(*value)),
+        ClassicalExprKind::Bit(bit) => memory
             .get(bit)
             .cloned()
             .ok_or_else(|| SymbolicError::UninitializedClassical(bit.clone())),
-        ClassicalExpr::Not(inner) => Ok(evaluate_classical(inner, memory)?.complement()),
-        ClassicalExpr::Eq(left, right) => Ok(evaluate_classical(left, memory)?
+        ClassicalExprKind::Not(inner) => Ok(evaluate_classical(inner, memory)?.complement()),
+        ClassicalExprKind::Eq(left, right) => Ok(evaluate_classical(left, memory)?
             .xor(&evaluate_classical(right, memory)?)
             .complement()),
-        ClassicalExpr::And(left, right) => {
+        ClassicalExprKind::And(left, right) => {
             Ok(evaluate_classical(left, memory)?.and(&evaluate_classical(right, memory)?))
         }
-        ClassicalExpr::Or(left, right) => {
+        ClassicalExprKind::Or(left, right) => {
             let left = evaluate_classical(left, memory)?;
             let right = evaluate_classical(right, memory)?;
             Ok(left.xor(&right).xor(&left.and(&right)))
         }
-        ClassicalExpr::Xor(left, right) => {
+        ClassicalExprKind::Xor(left, right) => {
             Ok(evaluate_classical(left, memory)?.xor(&evaluate_classical(right, memory)?))
         }
     }
 }
 
-fn register_cells(registers: &[Register]) -> impl Iterator<Item = Qubit> + '_ {
+pub(crate) fn register_cells(registers: &[Register]) -> impl Iterator<Item = Qubit> + '_ {
     // Flatten `qubit[3] q` into q[0], q[1], q[2].
     registers.iter().flat_map(|register| {
         (0..register.width).map(|index| Qubit {
@@ -636,7 +751,7 @@ fn register_cells(registers: &[Register]) -> impl Iterator<Item = Qubit> + '_ {
     })
 }
 
-fn classical_cells(registers: &[Register]) -> impl Iterator<Item = ClassicalBit> + '_ {
+pub(crate) fn classical_cells(registers: &[Register]) -> impl Iterator<Item = ClassicalBit> + '_ {
     // Classical registers use the same `(symbol, index)` addressing scheme.
     registers.iter().flat_map(|register| {
         (0..register.width).map(|index| ClassicalBit {

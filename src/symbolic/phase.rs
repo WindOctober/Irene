@@ -4,9 +4,42 @@ use std::fmt;
 use num_bigint::BigInt;
 use num_rational::BigRational;
 
-use crate::ir::NumericExpr;
+use crate::ir::{NumericConstant, NumericExpr, NumericExprKind, SymbolId};
 
 use super::{BooleanPolynomial, Monomial, Variable};
+
+/// One basis element in a normalized symbolic angle.
+///
+/// Linear expressions use dedicated atoms, so `theta / 2 + theta / 2`
+/// becomes one `Input(theta)` term. Products and symbolic denominators remain
+/// exact normalized expressions instead of being approximated.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum AngleBasis {
+    /// One radian. Thus the source literal `0.1` contributes `1/10 · rad / τ`.
+    Radian,
+    /// Euler's number as an exact named constant.
+    Euler,
+    /// One symbolic numeric input.
+    Input(SymbolId),
+    /// An expression outside the supported linear fragment.
+    Nonlinear(NumericForm),
+}
+
+/// ID-free canonical syntax for a nonlinear numeric angle expression.
+///
+/// Addition and multiplication are flattened and sorted, subtraction becomes
+/// addition of a negative term, and division becomes multiplication by an
+/// inverse. This proves common syntactic algebraic equalities without making
+/// assumptions such as algebraic independence of `π`, `ℇ`, and inputs.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum NumericForm {
+    Rational(BigRational),
+    Constant(NumericConstant),
+    Input(SymbolId),
+    Add(Vec<NumericForm>),
+    Mul(Vec<NumericForm>),
+    Inverse(Box<NumericForm>),
+}
 
 /// One coefficient in an HPS phase polynomial, measured in turns.
 ///
@@ -17,9 +50,9 @@ use super::{BooleanPolynomial, Monomial, Variable};
 pub struct PhaseCoefficient {
     /// Exact phase already expressed in turns, where one turn is `2π`.
     rational_turns: BigRational,
-    /// Source-preserving angle expressions and their exact multipliers in
-    /// `multiplier * angle / τ`.
-    angle_terms: BTreeMap<NumericExpr, BigRational>,
+    /// Canonical angle atoms and their exact multipliers in
+    /// `multiplier * basis / τ`.
+    angle_terms: BTreeMap<AngleBasis, BigRational>,
 }
 
 impl PhaseCoefficient {
@@ -31,22 +64,83 @@ impl PhaseCoefficient {
     }
 
     pub fn angle(angle: NumericExpr, scale: BigRational) -> Self {
-        let mut angle_terms = BTreeMap::new();
-        if scale != integer(0) {
-            angle_terms.insert(angle, scale);
-        }
-        Self {
+        let mut result = Self {
             rational_turns: integer(0),
-            angle_terms,
-        }
+            angle_terms: BTreeMap::new(),
+        };
+        result.add_angle(&angle, scale);
+        result.rational_turns = modulo_one(result.rational_turns);
+        result
     }
 
     pub fn rational_part(&self) -> BigRational {
         self.rational_turns.clone()
     }
 
-    pub fn angle_terms(&self) -> impl Iterator<Item = (&NumericExpr, &BigRational)> {
-        self.angle_terms.iter()
+    /// Decomposes the linear angle fragment into canonical basis coefficients.
+    ///
+    /// For example, `(theta + pi) / 2` becomes
+    /// `1/4 turn + 1/2 · Input(theta) / τ`. A product such as `theta * phi`
+    /// becomes one [`AngleBasis::Nonlinear`] term.
+    fn add_angle(&mut self, angle: &NumericExpr, scale: BigRational) {
+        if scale == integer(0) {
+            return;
+        }
+        match &angle.kind {
+            NumericExprKind::Rational(value) => {
+                self.add_basis(AngleBasis::Radian, scale * value);
+            }
+            NumericExprKind::Constant(NumericConstant::Pi) => {
+                self.rational_turns += scale * ratio(1, 2);
+            }
+            NumericExprKind::Constant(NumericConstant::Tau) => {
+                self.rational_turns += scale;
+            }
+            NumericExprKind::Constant(NumericConstant::Euler) => {
+                self.add_basis(AngleBasis::Euler, scale);
+            }
+            NumericExprKind::Input(id) => {
+                self.add_basis(AngleBasis::Input(*id), scale);
+            }
+            NumericExprKind::Neg(inner) => self.add_angle(inner, -scale),
+            NumericExprKind::Add(left, right) => {
+                self.add_angle(left, scale.clone());
+                self.add_angle(right, scale);
+            }
+            NumericExprKind::Sub(left, right) => {
+                self.add_angle(left, scale.clone());
+                self.add_angle(right, -scale);
+            }
+            NumericExprKind::Mul(left, right) => {
+                if let Some(value) = exact_rational(left) {
+                    self.add_angle(right, scale * value);
+                } else if let Some(value) = exact_rational(right) {
+                    self.add_angle(left, scale * value);
+                } else {
+                    self.add_basis(AngleBasis::Nonlinear(NumericForm::from(angle)), scale);
+                }
+            }
+            NumericExprKind::Div(numerator, denominator) => {
+                if let Some(value) =
+                    exact_rational(denominator).filter(|value| value != &integer(0))
+                {
+                    self.add_angle(numerator, scale / value);
+                } else {
+                    self.add_basis(AngleBasis::Nonlinear(NumericForm::from(angle)), scale);
+                }
+            }
+        }
+    }
+
+    fn add_basis(&mut self, basis: AngleBasis, coefficient: BigRational) {
+        let coefficient = self
+            .angle_terms
+            .remove(&basis)
+            .unwrap_or_else(|| integer(0))
+            + coefficient;
+        if coefficient != integer(0) {
+            self.angle_terms.insert(basis, coefficient);
+        }
     }
 
     fn is_zero(&self) -> bool {
@@ -86,6 +180,131 @@ impl PhaseCoefficient {
                 self.angle_terms.insert(angle, coefficient);
             }
         }
+    }
+}
+
+impl From<&NumericExpr> for NumericForm {
+    fn from(expression: &NumericExpr) -> Self {
+        match &expression.kind {
+            NumericExprKind::Rational(value) => Self::Rational(value.clone()),
+            NumericExprKind::Constant(NumericConstant::Tau) => normalize_mul(vec![
+                Self::Rational(integer(2)),
+                Self::Constant(NumericConstant::Pi),
+            ]),
+            NumericExprKind::Constant(constant) => Self::Constant(*constant),
+            NumericExprKind::Input(id) => Self::Input(*id),
+            NumericExprKind::Neg(inner) => normalize_mul(vec![
+                Self::Rational(integer(-1)),
+                Self::from(inner.as_ref()),
+            ]),
+            NumericExprKind::Add(left, right) => {
+                normalize_add(vec![Self::from(left.as_ref()), Self::from(right.as_ref())])
+            }
+            NumericExprKind::Sub(left, right) => normalize_add(vec![
+                Self::from(left.as_ref()),
+                normalize_mul(vec![
+                    Self::Rational(integer(-1)),
+                    Self::from(right.as_ref()),
+                ]),
+            ]),
+            NumericExprKind::Mul(left, right) => {
+                normalize_mul(vec![Self::from(left.as_ref()), Self::from(right.as_ref())])
+            }
+            NumericExprKind::Div(left, right) => normalize_mul(vec![
+                Self::from(left.as_ref()),
+                normalize_inverse(Self::from(right.as_ref())),
+            ]),
+        }
+    }
+}
+
+/// Evaluates the purely rational fragment used as a linear scale.
+fn exact_rational(expression: &NumericExpr) -> Option<BigRational> {
+    match &expression.kind {
+        NumericExprKind::Rational(value) => Some(value.clone()),
+        NumericExprKind::Neg(inner) => Some(-exact_rational(inner)?),
+        NumericExprKind::Add(left, right) => Some(exact_rational(left)? + exact_rational(right)?),
+        NumericExprKind::Sub(left, right) => Some(exact_rational(left)? - exact_rational(right)?),
+        NumericExprKind::Mul(left, right) => Some(exact_rational(left)? * exact_rational(right)?),
+        NumericExprKind::Div(left, right) => {
+            let numerator = exact_rational(left)?;
+            let denominator = exact_rational(right)?;
+            (denominator != integer(0)).then(|| numerator / denominator)
+        }
+        NumericExprKind::Constant(_) | NumericExprKind::Input(_) => None,
+    }
+}
+
+fn normalize_add(terms: Vec<NumericForm>) -> NumericForm {
+    let mut flattened = Vec::new();
+    let mut rational = integer(0);
+    for term in terms {
+        collect_addend(term, &mut flattened, &mut rational);
+    }
+    if rational != integer(0) {
+        flattened.push(NumericForm::Rational(rational));
+    }
+    flattened.sort();
+    match flattened.len() {
+        0 => NumericForm::Rational(integer(0)),
+        1 => flattened.pop().unwrap(),
+        _ => NumericForm::Add(flattened),
+    }
+}
+
+fn collect_addend(term: NumericForm, flattened: &mut Vec<NumericForm>, rational: &mut BigRational) {
+    match term {
+        NumericForm::Add(inner) => {
+            for term in inner {
+                collect_addend(term, flattened, rational);
+            }
+        }
+        NumericForm::Rational(value) => *rational += value,
+        term => flattened.push(term),
+    }
+}
+
+fn normalize_mul(factors: Vec<NumericForm>) -> NumericForm {
+    let mut flattened = Vec::new();
+    let mut rational = integer(1);
+    for factor in factors {
+        collect_factor(factor, &mut flattened, &mut rational);
+    }
+    if rational == integer(0) {
+        return NumericForm::Rational(integer(0));
+    }
+    if rational != integer(1) {
+        flattened.push(NumericForm::Rational(rational));
+    }
+    flattened.sort();
+    match flattened.len() {
+        0 => NumericForm::Rational(integer(1)),
+        1 => flattened.pop().unwrap(),
+        _ => NumericForm::Mul(flattened),
+    }
+}
+
+fn collect_factor(
+    factor: NumericForm,
+    flattened: &mut Vec<NumericForm>,
+    rational: &mut BigRational,
+) {
+    match factor {
+        NumericForm::Mul(inner) => {
+            for factor in inner {
+                collect_factor(factor, flattened, rational);
+            }
+        }
+        NumericForm::Rational(value) => *rational *= value,
+        factor => flattened.push(factor),
+    }
+}
+
+fn normalize_inverse(value: NumericForm) -> NumericForm {
+    match value {
+        NumericForm::Rational(value) if value != integer(0) => NumericForm::Rational(value.recip()),
+        NumericForm::Inverse(inner) => *inner,
+        value => NumericForm::Inverse(Box::new(value)),
     }
 }
 
@@ -230,6 +449,51 @@ fn modulo_one(value: BigRational) -> BigRational {
 /// Constructs a `BigRational` integer without repeating BigInt conversions.
 fn integer(value: i64) -> BigRational {
     BigRational::from_integer(BigInt::from(value))
+}
+
+fn ratio(numerator: i64, denominator: i64) -> BigRational {
+    BigRational::new(BigInt::from(numerator), BigInt::from(denominator))
+}
+
+impl fmt::Display for AngleBasis {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Radian => formatter.write_str("rad"),
+            Self::Euler => formatter.write_str("ℇ"),
+            Self::Input(id) => write!(formatter, "input{}", id.0),
+            Self::Nonlinear(expression) => write!(formatter, "{expression}"),
+        }
+    }
+}
+
+impl fmt::Display for NumericForm {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Rational(value) => write!(formatter, "{value}"),
+            Self::Constant(NumericConstant::Pi) => formatter.write_str("π"),
+            Self::Constant(NumericConstant::Tau) => formatter.write_str("τ"),
+            Self::Constant(NumericConstant::Euler) => formatter.write_str("ℇ"),
+            Self::Input(id) => write!(formatter, "input{}", id.0),
+            Self::Add(terms) => display_joined(formatter, terms, " + "),
+            Self::Mul(factors) => display_joined(formatter, factors, " · "),
+            Self::Inverse(value) => write!(formatter, "1/({value})"),
+        }
+    }
+}
+
+fn display_joined(
+    formatter: &mut fmt::Formatter<'_>,
+    values: &[NumericForm],
+    separator: &str,
+) -> fmt::Result {
+    formatter.write_str("(")?;
+    for (index, value) in values.iter().enumerate() {
+        if index > 0 {
+            formatter.write_str(separator)?;
+        }
+        write!(formatter, "{value}")?;
+    }
+    formatter.write_str(")")
 }
 
 impl fmt::Display for PhasePolynomial {

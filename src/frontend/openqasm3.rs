@@ -10,8 +10,9 @@ use oq3_syntax::ast::{
 use thiserror::Error;
 
 use crate::ir::{
-    Block, ClassicalBit, ClassicalExpr, Gate, NumericConstant, NumericExpr, NumericInput,
-    NumericType, OpenQasmVersion, Program, Qubit, Register, Statement,
+    AstIdGenerator, Block, BlockData, ClassicalBit, ClassicalExpr, ClassicalExprKind, Gate,
+    NumericExpr, NumericExprKind, NumericInput, NumericInputData, NumericType, OpenQasmVersion,
+    Program, ProgramData, Qubit, Register, RegisterData, Statement, StatementKind,
 };
 
 use super::scope::{BindingKind, ScopeError, ScopeKind, ScopeStack};
@@ -93,6 +94,7 @@ pub fn parse_str(source: &str, source_name: &str) -> Result<Program, FrontendErr
 }
 
 struct Lowerer {
+    ids: AstIdGenerator,
     version: Option<OpenQasmVersion>,
     scopes: ScopeStack,
     numeric_inputs: Vec<NumericInput>,
@@ -103,6 +105,7 @@ struct Lowerer {
 impl Default for Lowerer {
     fn default() -> Self {
         Self {
+            ids: AstIdGenerator::default(),
             version: None,
             scopes: ScopeStack::new(),
             numeric_inputs: Vec::new(),
@@ -114,7 +117,7 @@ impl Default for Lowerer {
 
 impl Lowerer {
     fn lower(mut self, source: ast::SourceFile) -> Result<Program, FrontendError> {
-        let mut body = Block::default();
+        let mut body = self.ids.node(BlockData::default());
         for statement in source.statements() {
             self.lower_top_level(statement, &mut body)?;
         }
@@ -130,13 +133,14 @@ impl Lowerer {
             });
         }
 
-        Ok(Program {
+        let program = ProgramData {
             version,
             numeric_inputs: self.numeric_inputs,
             quantum_registers: self.quantum_registers,
             classical_registers: self.classical_registers,
             body,
-        })
+        };
+        Ok(self.ids.node(program))
     }
 
     /// Lowers declarations into program metadata and executable statements into the body.
@@ -234,11 +238,11 @@ impl Lowerer {
             .scopes
             .declare(name.clone(), BindingKind::NumericInput(ty))
             .map_err(scope_error)?;
-        Ok(NumericInput {
+        Ok(self.ids.node(NumericInputData {
             id: binding.id,
             name,
             ty,
-        })
+        }))
     }
 
     fn lower_classical_declaration(
@@ -284,11 +288,11 @@ impl Lowerer {
             .scopes
             .declare(name.clone(), kind)
             .map_err(scope_error)?;
-        Ok(Register {
+        Ok(self.ids.node(RegisterData {
             id: binding.id,
             name,
             width,
-        })
+        }))
     }
 
     /// Lowers the executable statement forms currently represented by Irene's IR.
@@ -299,7 +303,8 @@ impl Lowerer {
                 let operand = reset
                     .gate_operand()
                     .ok_or_else(|| expected!("a reset operand", &reset))?;
-                Ok(Statement::Reset(self.lower_qubit(operand)?))
+                let qubit = self.lower_qubit(operand)?;
+                Ok(self.ids.node(StatementKind::Reset(qubit)))
             }
             // Gate applications such as `h q[0];` are parsed as expression statements.
             Stmt::ExprStmt(expression_statement) => {
@@ -323,7 +328,7 @@ impl Lowerer {
     /// Lowers `name(parameters) qubits;` into a gate kind, exact parameters,
     /// and resolved qubit operands. For example, `rz(pi/4) q[0];` retains
     /// `pi/4` as a [`NumericExpr`] rather than evaluating it as a float.
-    fn lower_gate(&self, call: ast::GateCallExpr) -> Result<Statement, FrontendError> {
+    fn lower_gate(&mut self, call: ast::GateCallExpr) -> Result<Statement, FrontendError> {
         // Parenthesized expressions before the qubit list are gate parameters.
         let parameters = call
             .arg_list()
@@ -415,24 +420,26 @@ impl Lowerer {
                 snippet: call.syntax().text().to_string(),
             });
         }
-        Ok(Statement::Apply {
+        Ok(self.ids.node(StatementKind::Apply {
             gate,
             parameters,
             qubits,
-        })
+        }))
     }
 
     /// Preserves the structure of an OpenQASM numeric expression while
     /// normalizing finite literals to exact rationals.
-    fn lower_numeric_expr(&self, expression: Expr) -> Result<NumericExpr, FrontendError> {
+    fn lower_numeric_expr(&mut self, expression: Expr) -> Result<NumericExpr, FrontendError> {
         match expression {
             // `7`, `0.1`, and `1e-1` become exact BigRational values.
             Expr::Literal(literal) => match literal.kind() {
                 ast::LiteralKind::IntNumber(number) => {
-                    Ok(NumericExpr::Rational(exact_integer(number)?))
+                    let value = exact_integer(number)?;
+                    Ok(self.ids.node(NumericExprKind::Rational(value)))
                 }
                 ast::LiteralKind::FloatNumber(number) => {
-                    Ok(NumericExpr::Rational(exact_decimal(number)?))
+                    let value = exact_decimal(number)?;
+                    Ok(self.ids.node(NumericExprKind::Rational(value)))
                 }
                 _ => Err(unsupported!("non-numeric gate parameter", &literal)),
             },
@@ -440,22 +447,19 @@ impl Lowerer {
             // `input angle theta;` or another numeric input declaration.
             Expr::Identifier(identifier) => {
                 let name = identifier.string();
-                match name.as_str() {
-                    "pi" | "π" => Ok(NumericExpr::Constant(NumericConstant::Pi)),
-                    "tau" | "τ" => Ok(NumericExpr::Constant(NumericConstant::Tau)),
-                    "euler" | "ℇ" => Ok(NumericExpr::Constant(NumericConstant::Euler)),
-                    _ => {
-                        let binding = self.scopes.lookup(&name).map_err(scope_error)?;
-                        if matches!(binding.kind, BindingKind::NumericInput(_)) {
-                            Ok(NumericExpr::Input(binding.id))
-                        } else {
-                            Err(FrontendError::WrongIdentifierKind {
-                                name,
-                                expected: "numeric input",
-                                actual: binding.kind.description(),
-                            })
-                        }
+                let binding = self.scopes.lookup(&name).map_err(scope_error)?;
+                match binding.kind {
+                    BindingKind::Constant(constant) => {
+                        Ok(self.ids.node(NumericExprKind::Constant(constant)))
                     }
+                    BindingKind::NumericInput(_) => {
+                        Ok(self.ids.node(NumericExprKind::Input(binding.id)))
+                    }
+                    actual => Err(FrontendError::WrongIdentifierKind {
+                        name,
+                        expected: "numeric value",
+                        actual: actual.description(),
+                    }),
                 }
             }
             // Parentheses affect parsing precedence but need no extra IR node:
@@ -473,7 +477,9 @@ impl Lowerer {
                         .ok_or_else(|| expected!("a numeric prefix operand", &prefix))?,
                 )?;
                 match prefix.op_kind() {
-                    Some(ast::UnaryOp::Neg) => Ok(NumericExpr::Neg(Box::new(operand))),
+                    Some(ast::UnaryOp::Neg) => {
+                        Ok(self.ids.node(NumericExprKind::Neg(Box::new(operand))))
+                    }
                     _ => Err(unsupported!("numeric prefix operator", &prefix)),
                 }
             }
@@ -495,16 +501,16 @@ impl Lowerer {
                 );
                 match binary.op_kind() {
                     Some(ast::BinaryOp::ArithOp(ast::ArithOp::Add)) => {
-                        Ok(NumericExpr::Add(left, right))
+                        Ok(self.ids.node(NumericExprKind::Add(left, right)))
                     }
                     Some(ast::BinaryOp::ArithOp(ast::ArithOp::Sub)) => {
-                        Ok(NumericExpr::Sub(left, right))
+                        Ok(self.ids.node(NumericExprKind::Sub(left, right)))
                     }
                     Some(ast::BinaryOp::ArithOp(ast::ArithOp::Mul)) => {
-                        Ok(NumericExpr::Mul(left, right))
+                        Ok(self.ids.node(NumericExprKind::Mul(left, right)))
                     }
                     Some(ast::BinaryOp::ArithOp(ast::ArithOp::Div)) => {
-                        Ok(NumericExpr::Div(left, right))
+                        Ok(self.ids.node(NumericExprKind::Div(left, right)))
                     }
                     _ => Err(unsupported!("numeric binary operator", &binary)),
                 }
@@ -516,7 +522,7 @@ impl Lowerer {
     /// Lowers the currently supported assignment form, for example
     /// `result = measure q[0];`.
     fn lower_assignment(
-        &self,
+        &mut self,
         assignment: ast::AssignmentStmt,
     ) -> Result<Statement, FrontendError> {
         let target = if let Some(indexed) = assignment.indexed_identifier() {
@@ -540,10 +546,10 @@ impl Lowerer {
         let operand = measurement
             .gate_operand()
             .ok_or_else(|| expected!("a measurement operand", &measurement))?;
-        Ok(Statement::Measure {
+        Ok(self.ids.node(StatementKind::Measure {
             qubit: self.lower_qubit(operand)?,
             target,
-        })
+        }))
     }
 
     /// Lowers an `if` statement and gives each branch its own lexical scope.
@@ -560,13 +566,13 @@ impl Lowerer {
         )?;
         let else_branch = match statement.else_branch() {
             Some(block) => self.lower_block(block)?,
-            None => Block::default(),
+            None => self.ids.node(BlockData::default()),
         };
-        Ok(Statement::If {
+        Ok(self.ids.node(StatementKind::If {
             condition,
             then_branch,
             else_branch,
-        })
+        }))
     }
 
     fn lower_block(&mut self, block: ast::BlockExpr) -> Result<Block, FrontendError> {
@@ -577,7 +583,7 @@ impl Lowerer {
     }
 
     fn lower_block_contents(&mut self, block: ast::BlockExpr) -> Result<Block, FrontendError> {
-        let mut lowered = Block::default();
+        let mut lowered = self.ids.node(BlockData::default());
         for statement in block.statements() {
             match statement {
                 // `bit local;` belongs to this block and is removed on scope exit.
@@ -597,19 +603,21 @@ impl Lowerer {
     }
 
     /// Lowers the Boolean expression used by classical control flow.
-    fn lower_classical_expr(&self, expression: Expr) -> Result<ClassicalExpr, FrontendError> {
+    fn lower_classical_expr(&mut self, expression: Expr) -> Result<ClassicalExpr, FrontendError> {
         match expression {
             // `flag` refers to a scalar bit declaration.
-            Expr::Identifier(identifier) => Ok(ClassicalExpr::Bit(
-                self.checked_classical_bit(identifier.string(), 0)?,
-            )),
+            Expr::Identifier(identifier) => {
+                let bit = self.checked_classical_bit(identifier.string(), 0)?;
+                Ok(self.ids.node(ClassicalExprKind::Bit(bit)))
+            }
             // `flags[2]` resolves one bit from a classical register.
             Expr::IndexedIdentifier(indexed) => {
-                Ok(ClassicalExpr::Bit(self.lower_classical_indexed(indexed)?))
+                let bit = self.lower_classical_indexed(indexed)?;
+                Ok(self.ids.node(ClassicalExprKind::Bit(bit)))
             }
             // `true` and `false` become Boolean constants.
             Expr::Literal(literal) => match literal.kind() {
-                ast::LiteralKind::Bool(value) => Ok(ClassicalExpr::Bool(value)),
+                ast::LiteralKind::Bool(value) => Ok(self.ids.node(ClassicalExprKind::Bool(value))),
                 _ => Err(unsupported!("non-Boolean condition literal", &literal)),
             },
             // Parentheses only determine precedence in the source expression.
@@ -624,9 +632,10 @@ impl Lowerer {
                     .expr()
                     .ok_or_else(|| expected!("a prefix operand", &prefix))?;
                 match prefix.op_kind() {
-                    Some(ast::UnaryOp::LogicNot) => Ok(ClassicalExpr::Not(Box::new(
-                        self.lower_classical_expr(operand)?,
-                    ))),
+                    Some(ast::UnaryOp::LogicNot) => {
+                        let operand = self.lower_classical_expr(operand)?;
+                        Ok(self.ids.node(ClassicalExprKind::Not(Box::new(operand))))
+                    }
                     _ => Err(unsupported!("condition prefix operator", &prefix)),
                 }
             }
@@ -647,16 +656,16 @@ impl Lowerer {
                 let right = Box::new(right);
                 match binary.op_kind() {
                     Some(ast::BinaryOp::CmpOp(ast::CmpOp::Eq { negated: false })) => {
-                        Ok(ClassicalExpr::Eq(left, right))
+                        Ok(self.ids.node(ClassicalExprKind::Eq(left, right)))
                     }
                     Some(ast::BinaryOp::LogicOp(ast::LogicOp::And)) => {
-                        Ok(ClassicalExpr::And(left, right))
+                        Ok(self.ids.node(ClassicalExprKind::And(left, right)))
                     }
                     Some(ast::BinaryOp::LogicOp(ast::LogicOp::Or)) => {
-                        Ok(ClassicalExpr::Or(left, right))
+                        Ok(self.ids.node(ClassicalExprKind::Or(left, right)))
                     }
                     Some(ast::BinaryOp::ArithOp(ast::ArithOp::BitXor)) => {
-                        Ok(ClassicalExpr::Xor(left, right))
+                        Ok(self.ids.node(ClassicalExprKind::Xor(left, right)))
                     }
                     _ => Err(unsupported!("condition binary operator", &binary)),
                 }

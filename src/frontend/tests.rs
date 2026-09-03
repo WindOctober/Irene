@@ -1,12 +1,55 @@
+use std::cell::RefCell;
+use std::collections::BTreeSet;
+
 use num_rational::BigRational;
 
-use crate::ir::{Gate, NumericConstant, NumericExpr, NumericType, Statement};
+use crate::ir::{
+    AstIdGenerator, AstNode, Gate, NumericConstant, NumericExpr, NumericExprKind, NumericType,
+    StatementKind,
+};
 
 use super::openqasm3::{FrontendError, parse_str};
-use super::scope::{BindingKind, ScopeError, ScopeKind, ScopeStack};
 
 fn rational(numerator: i64, denominator: i64) -> NumericExpr {
-    NumericExpr::Rational(BigRational::new(numerator.into(), denominator.into()))
+    node(NumericExprKind::Rational(BigRational::new(
+        numerator.into(),
+        denominator.into(),
+    )))
+}
+
+fn node<T>(kind: T) -> AstNode<T> {
+    thread_local! {
+        static IDS: RefCell<AstIdGenerator> = RefCell::new(AstIdGenerator::default());
+    }
+    IDS.with(|ids| ids.borrow_mut().node(kind))
+}
+
+#[test]
+fn ast_ids_are_unique_and_dense_within_a_program() {
+    let program = parse_str(
+        r#"
+        OPENQASM 3.0;
+        include "stdgates.inc";
+        input angle theta;
+        qubit[2] q;
+        bit c;
+        rz(theta / 2) q[0];
+        c = measure q[0];
+        if (c) { x q[1]; }
+        "#,
+        "ast-ids.qasm",
+    )
+    .unwrap();
+
+    let mut ids = Vec::new();
+    program.visit_ast_ids(|id| ids.push(id));
+    let unique = ids.iter().copied().collect::<BTreeSet<_>>();
+
+    assert_eq!(ids.len(), unique.len());
+    assert_eq!(
+        unique.into_iter().map(|id| id.index()).collect::<Vec<_>>(),
+        (0..program.ast_id_bound()).collect::<Vec<_>>()
+    );
 }
 
 #[test]
@@ -29,20 +72,20 @@ fn block_shadowing_uses_distinct_symbol_ids() {
     .unwrap();
 
     let global = program.classical_registers[0].id;
-    let Statement::If { then_branch, .. } = &program.body.statements[0] else {
+    let StatementKind::If { then_branch, .. } = &program.body.statements[0].kind else {
         panic!("expected the first if statement");
     };
     let local = then_branch.classical_registers[0].id;
-    let Statement::Measure { target, .. } = &then_branch.statements[0] else {
+    let StatementKind::Measure { target, .. } = &then_branch.statements[0].kind else {
         panic!("expected a local measurement");
     };
     assert_eq!(target.register, local);
     assert_ne!(local, global);
 
-    let Statement::If { then_branch, .. } = &program.body.statements[1] else {
+    let StatementKind::If { then_branch, .. } = &program.body.statements[1].kind else {
         panic!("expected the second if statement");
     };
-    let Statement::Measure { target, .. } = &then_branch.statements[0] else {
+    let StatementKind::Measure { target, .. } = &then_branch.statements[0].kind else {
         panic!("expected a global measurement");
     };
     assert_eq!(target.register, global);
@@ -129,77 +172,30 @@ fn rejects_shadowing_a_standard_gate() {
 }
 
 #[test]
-fn registers_the_openqasm_3_standard_gate_names() {
-    let mut scopes = ScopeStack::new();
-    scopes.declare_standard_gates().unwrap();
+fn numeric_constants_respect_local_shadowing() {
+    let error = parse_str(
+        r#"
+        OPENQASM 3.0;
+        include "stdgates.inc";
+        qubit q;
+        if (true) {
+            bit pi;
+            pi = measure q;
+            rz(pi) q;
+        }
+        "#,
+        "constant-shadowing.qasm",
+    )
+    .unwrap_err();
 
-    for name in ["CX", "phase", "cphase", "id", "u1", "u2", "u3"] {
-        assert!(matches!(
-            scopes.lookup(name).unwrap().kind,
-            BindingKind::Gate
-        ));
-    }
-}
-
-#[test]
-fn block_shadowing_restores_the_outer_binding() {
-    let mut scopes = ScopeStack::new();
-    let outer = scopes
-        .declare("value", BindingKind::ClassicalBit { width: 1 })
-        .unwrap();
-    scopes.enter(ScopeKind::Block);
-    let inner = scopes
-        .declare("value", BindingKind::ClassicalBit { width: 2 })
-        .unwrap();
-    assert_eq!(scopes.lookup("value").unwrap(), inner);
-    scopes.exit();
-    assert_eq!(scopes.lookup("value").unwrap(), outer);
-}
-
-#[test]
-fn sibling_blocks_do_not_share_bindings() {
-    let mut scopes = ScopeStack::new();
-    scopes.enter(ScopeKind::Block);
-    scopes
-        .declare("local", BindingKind::ClassicalBit { width: 1 })
-        .unwrap();
-    scopes.exit();
-    scopes.enter(ScopeKind::Block);
-    assert_eq!(
-        scopes.lookup("local"),
-        Err(ScopeError::Unknown("local".to_owned()))
-    );
-}
-
-#[test]
-fn rejects_same_scope_redeclaration_and_local_qubits() {
-    let mut scopes = ScopeStack::new();
-    scopes
-        .declare("flag", BindingKind::ClassicalBit { width: 1 })
-        .unwrap();
-    assert_eq!(
-        scopes.declare("flag", BindingKind::ClassicalBit { width: 1 }),
-        Err(ScopeError::AlreadyDeclared("flag".to_owned()))
-    );
-    scopes.enter(ScopeKind::Block);
     assert!(matches!(
-        scopes.declare("q", BindingKind::QuantumRegister { width: 1 }),
-        Err(ScopeError::IllegalDeclaration {
-            declaration: "qubit",
-            scope: ScopeKind::Block
-        })
+        error,
+        FrontendError::WrongIdentifierKind {
+            expected: "numeric value",
+            actual: "classical bit register",
+            ..
+        }
     ));
-}
-
-#[test]
-fn gates_cannot_be_shadowed() {
-    let mut scopes = ScopeStack::new();
-    scopes.declare("operation", BindingKind::Gate).unwrap();
-    scopes.enter(ScopeKind::Block);
-    assert_eq!(
-        scopes.declare("operation", BindingKind::ClassicalBit { width: 1 }),
-        Err(ScopeError::CannotShadow("operation".to_owned()))
-    );
 }
 
 #[test]
@@ -224,45 +220,45 @@ fn preserves_numeric_gate_parameters_without_float_conversion() {
     assert_eq!(program.numeric_inputs[0].ty, NumericType::Angle(Some(20)));
     assert_eq!(program.numeric_inputs[1].ty, NumericType::Float(Some(64)));
 
-    let Statement::Apply {
+    let StatementKind::Apply {
         gate, parameters, ..
-    } = &program.body.statements[0]
+    } = &program.body.statements[0].kind
     else {
         panic!("expected an rz gate");
     };
     assert_eq!(*gate, Gate::Rz);
     assert_eq!(parameters, &[rational(1, 10)]);
     for statement in &program.body.statements[1..3] {
-        let Statement::Apply { parameters, .. } = statement else {
+        let StatementKind::Apply { parameters, .. } = &statement.kind else {
             panic!("expected an rz gate");
         };
         assert_eq!(parameters, &[rational(1, 10)]);
     }
 
-    let theta = NumericExpr::Input(program.numeric_inputs[0].id);
-    let Statement::Apply { parameters, .. } = &program.body.statements[3] else {
+    let theta = node(NumericExprKind::Input(program.numeric_inputs[0].id));
+    let StatementKind::Apply { parameters, .. } = &program.body.statements[3].kind else {
         panic!("expected a cp gate");
     };
     assert_eq!(
         parameters,
-        &[NumericExpr::Add(
-            Box::new(NumericExpr::Div(
-                Box::new(NumericExpr::Constant(NumericConstant::Pi)),
+        &[node(NumericExprKind::Add(
+            Box::new(node(NumericExprKind::Div(
+                Box::new(node(NumericExprKind::Constant(NumericConstant::Pi))),
                 Box::new(rational(7, 1)),
-            )),
+            ))),
             Box::new(theta),
-        )]
+        ))]
     );
 
-    let delta = NumericExpr::Input(program.numeric_inputs[1].id);
-    let Statement::Apply { parameters, .. } = &program.body.statements[4] else {
+    let delta = node(NumericExprKind::Input(program.numeric_inputs[1].id));
+    let StatementKind::Apply { parameters, .. } = &program.body.statements[4].kind else {
         panic!("expected a crz gate");
     };
     assert_eq!(
         parameters,
-        &[NumericExpr::Mul(
-            Box::new(NumericExpr::Neg(Box::new(rational(1, 800)))),
+        &[node(NumericExprKind::Mul(
+            Box::new(node(NumericExprKind::Neg(Box::new(rational(1, 800))))),
             Box::new(delta),
-        )]
+        ))]
     );
 }

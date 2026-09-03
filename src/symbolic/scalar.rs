@@ -7,7 +7,7 @@ use rug::Float;
 use rug::float::Constant;
 use thiserror::Error;
 
-use crate::ir::{NumericConstant, NumericExpr, SymbolId};
+use crate::ir::{NumericConstant, NumericExpr, NumericExprKind, SymbolId};
 
 use super::{BooleanPolynomial, Variable};
 
@@ -62,6 +62,17 @@ impl Scalar {
         match value {
             Self::Rational(value) if value == rational(0, 1) => Self::zero(),
             Self::Rational(value) if value == rational(1, 1) => Self::one(),
+            Self::Rational(value) if value > rational(0, 1) => {
+                let numerator = value.numer().sqrt();
+                let denominator = value.denom().sqrt();
+                if &numerator * &numerator == *value.numer()
+                    && &denominator * &denominator == *value.denom()
+                {
+                    Self::Rational(BigRational::new(numerator, denominator))
+                } else {
+                    Self::Sqrt(Box::new(Self::Rational(value)))
+                }
+            }
             value => Self::Sqrt(Box::new(value)),
         }
     }
@@ -87,6 +98,8 @@ impl Scalar {
             (Self::Rational(left), Self::Rational(right)) => Self::Rational(left + right),
             (Self::Rational(value), other) if value == rational(0, 1) => other,
             (left, Self::Rational(value)) if value == rational(0, 1) => left,
+            (left, Self::Neg(right)) if left == *right => Self::zero(),
+            (Self::Neg(left), right) if *left == right => Self::zero(),
             (left, right) => Self::Add(Box::new(left), Box::new(right)),
         }
     }
@@ -99,6 +112,17 @@ impl Scalar {
             }
             (Self::Rational(value), other) if value == rational(1, 1) => other,
             (left, Self::Rational(value)) if value == rational(1, 1) => left,
+            (Self::Sqrt(left), Self::Sqrt(right)) => {
+                if let (Self::Rational(left), Self::Rational(right)) =
+                    (left.as_ref(), right.as_ref())
+                    && left >= &rational(0, 1)
+                    && right >= &rational(0, 1)
+                {
+                    Self::sqrt(Self::Rational(left * right))
+                } else {
+                    Self::Mul(Box::new(Self::Sqrt(left)), Box::new(Self::Sqrt(right)))
+                }
+            }
             (left, right) => Self::Mul(Box::new(left), Box::new(right)),
         }
     }
@@ -253,37 +277,41 @@ fn evaluate_numeric(
     precision: u32,
     bindings: &ScalarBindings,
 ) -> Result<Float, ScalarEvaluationError> {
-    match expression {
-        NumericExpr::Rational(value) => Ok(rational_float(value, precision)),
-        NumericExpr::Constant(NumericConstant::Pi) => Ok(Float::with_val(precision, Constant::Pi)),
-        NumericExpr::Constant(NumericConstant::Tau) => {
+    match &expression.kind {
+        NumericExprKind::Rational(value) => Ok(rational_float(value, precision)),
+        NumericExprKind::Constant(NumericConstant::Pi) => {
+            Ok(Float::with_val(precision, Constant::Pi))
+        }
+        NumericExprKind::Constant(NumericConstant::Tau) => {
             let mut value = Float::with_val(precision, Constant::Pi);
             value *= 2;
             Ok(value)
         }
-        NumericExpr::Constant(NumericConstant::Euler) => Ok(Float::with_val(precision, 1).exp()),
-        NumericExpr::Input(id) => bindings
+        NumericExprKind::Constant(NumericConstant::Euler) => {
+            Ok(Float::with_val(precision, 1).exp())
+        }
+        NumericExprKind::Input(id) => bindings
             .numeric_inputs
             .get(id)
             .map(|value| Float::with_val(precision, value))
             .ok_or(ScalarEvaluationError::MissingNumericInput(id.0)),
-        NumericExpr::Neg(value) => Ok(-evaluate_numeric(value, precision, bindings)?),
-        NumericExpr::Add(left, right) => {
+        NumericExprKind::Neg(value) => Ok(-evaluate_numeric(value, precision, bindings)?),
+        NumericExprKind::Add(left, right) => {
             let mut value = evaluate_numeric(left, precision, bindings)?;
             value += evaluate_numeric(right, precision, bindings)?;
             Ok(value)
         }
-        NumericExpr::Sub(left, right) => {
+        NumericExprKind::Sub(left, right) => {
             let mut value = evaluate_numeric(left, precision, bindings)?;
             value -= evaluate_numeric(right, precision, bindings)?;
             Ok(value)
         }
-        NumericExpr::Mul(left, right) => {
+        NumericExprKind::Mul(left, right) => {
             let mut value = evaluate_numeric(left, precision, bindings)?;
             value *= evaluate_numeric(right, precision, bindings)?;
             Ok(value)
         }
-        NumericExpr::Div(left, right) => {
+        NumericExprKind::Div(left, right) => {
             let mut value = evaluate_numeric(left, precision, bindings)?;
             value /= evaluate_numeric(right, precision, bindings)?;
             Ok(value)
@@ -305,7 +333,7 @@ fn rational_float(value: &BigRational, precision: u32) -> Float {
 }
 
 fn numeric_zero(expression: &NumericExpr) -> bool {
-    matches!(expression, NumericExpr::Rational(value) if value == &rational(0, 1))
+    matches!(&expression.kind, NumericExprKind::Rational(value) if value == &rational(0, 1))
 }
 
 fn rational(numerator: i64, denominator: i64) -> BigRational {

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::ir::{NumericType, SymbolId};
+use crate::ir::{NumericConstant, NumericType, SymbolId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ScopeKind {
@@ -14,7 +14,7 @@ pub(super) enum BindingKind {
     ClassicalBit { width: usize },
     NumericInput(NumericType),
     Gate,
-    Constant,
+    Constant(NumericConstant),
 }
 
 impl BindingKind {
@@ -28,7 +28,7 @@ impl BindingKind {
             Self::ClassicalBit { .. } => "classical bit register",
             Self::NumericInput(_) => "numeric input",
             Self::Gate => "gate",
-            Self::Constant => "constant",
+            Self::Constant(_) => "constant",
         }
     }
 }
@@ -77,14 +77,23 @@ impl ScopeStack {
             scopes: vec![Scope::new(ScopeKind::Global)],
             next_symbol: 0,
         };
-        for name in ["pi", "π", "tau", "τ", "euler", "ℇ"] {
+        for (name, constant) in [
+            ("pi", NumericConstant::Pi),
+            ("π", NumericConstant::Pi),
+            ("tau", NumericConstant::Tau),
+            ("τ", NumericConstant::Tau),
+            ("euler", NumericConstant::Euler),
+            ("ℇ", NumericConstant::Euler),
+        ] {
             symbols
-                .declare(name, BindingKind::Constant)
+                .declare(name, BindingKind::Constant(constant))
                 .expect("built-in names are distinct");
         }
-        symbols
-            .declare("U", BindingKind::Gate)
-            .expect("the built-in gate name is distinct");
+        for name in ["U", "gphase"] {
+            symbols
+                .declare(name, BindingKind::Gate)
+                .expect("built-in gate names are distinct");
+        }
         symbols
     }
 

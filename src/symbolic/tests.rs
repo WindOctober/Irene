@@ -1,14 +1,17 @@
+use std::cell::RefCell;
+
 use num_rational::BigRational;
 use rug::Float;
 
 use crate::ir::{
-    Block, ClassicalBit, ClassicalExpr, Gate, NumericConstant, NumericExpr, OpenQasmVersion,
-    Program, Qubit, Register, Statement, SymbolId,
+    AstIdGenerator, AstNode, Block, BlockData, ClassicalBit, ClassicalExpr, ClassicalExprKind,
+    Gate, NumericConstant, NumericExpr, NumericExprKind, OpenQasmVersion, Program, ProgramData,
+    Qubit, RegisterData, Statement, StatementKind, SymbolId,
 };
 
 use super::{
-    BooleanPolynomial, ExecutionConfig, HistoryEntry, Monomial, PhaseCoefficient, Scalar,
-    ScalarBindings, SymbolicError, Variable, execute,
+    BooleanPolynomial, ExecutionConfig, HistoryEntry, HybridPathSum, Monomial, OutputSelection,
+    PhaseCoefficient, Scalar, ScalarBindings, SymbolicError, Variable, execute as execute_observed,
 };
 
 fn qubit(register: usize, index: usize) -> Qubit {
@@ -29,39 +32,81 @@ fn ratio(numerator: i64, denominator: i64) -> BigRational {
     BigRational::new(numerator.into(), denominator.into())
 }
 
+fn node<T>(kind: T) -> AstNode<T> {
+    thread_local! {
+        static IDS: RefCell<AstIdGenerator> = RefCell::new(AstIdGenerator::default());
+    }
+    IDS.with(|ids| ids.borrow_mut().node(kind))
+}
+
+fn statement(kind: StatementKind) -> Statement {
+    node(kind)
+}
+
+fn block(statements: Vec<Statement>) -> Block {
+    node(BlockData {
+        classical_registers: Vec::new(),
+        statements,
+    })
+}
+
+fn classical(kind: ClassicalExprKind) -> ClassicalExpr {
+    node(kind)
+}
+
+fn numeric(kind: NumericExprKind) -> NumericExpr {
+    node(kind)
+}
+
 fn program(qubits: usize, bits: usize, statements: Vec<Statement>) -> Program {
-    Program {
+    node(ProgramData {
         version: OpenQasmVersion { major: 3, minor: 0 },
         numeric_inputs: Vec::new(),
-        quantum_registers: vec![Register {
+        quantum_registers: vec![node(RegisterData {
             id: SymbolId(0),
             name: "q".into(),
             width: qubits,
-        }],
-        classical_registers: vec![Register {
+        })],
+        classical_registers: vec![node(RegisterData {
             id: SymbolId(1),
             name: "c".into(),
             width: bits,
-        }],
-        body: Block {
-            classical_registers: Vec::new(),
-            statements,
-        },
-    }
+        })],
+        body: block(statements),
+    })
+}
+
+fn execute_all_outputs(
+    program: &Program,
+    config: &ExecutionConfig,
+) -> Result<HybridPathSum, SymbolicError> {
+    let quantum = program.quantum_registers.iter().flat_map(|register| {
+        (0..register.width).map(|index| Qubit {
+            register: register.id,
+            index,
+        })
+    });
+    let classical = program.classical_registers.iter().flat_map(|register| {
+        (0..register.width).map(|index| ClassicalBit {
+            register: register.id,
+            index,
+        })
+    });
+    execute_observed(program, config, &OutputSelection::new(quantum, classical))
 }
 
 #[test]
 fn hadamard_introduces_a_path_and_phase() {
     let q = qubit(0, 0);
-    let hps = execute(
+    let hps = execute_all_outputs(
         &program(
             1,
             0,
-            vec![Statement::Apply {
+            vec![statement(StatementKind::Apply {
                 gate: Gate::H,
                 parameters: Vec::new(),
                 qubits: vec![q.clone()],
-            }],
+            })],
         ),
         &ExecutionConfig::all_symbolic(),
     )
@@ -90,32 +135,29 @@ fn measurement_controls_distinct_symbolic_branches() {
     let measured = qubit(0, 0);
     let target = qubit(0, 1);
     let outcome = bit(1, 0);
-    let hps = execute(
+    let hps = execute_all_outputs(
         &program(
             2,
             1,
             vec![
-                Statement::Apply {
+                statement(StatementKind::Apply {
                     gate: Gate::H,
                     parameters: Vec::new(),
                     qubits: vec![measured.clone()],
-                },
-                Statement::Measure {
+                }),
+                statement(StatementKind::Measure {
                     qubit: measured,
                     target: outcome.clone(),
-                },
-                Statement::If {
-                    condition: ClassicalExpr::Bit(outcome.clone()),
-                    then_branch: Block {
-                        classical_registers: Vec::new(),
-                        statements: vec![Statement::Apply {
-                            gate: Gate::H,
-                            parameters: Vec::new(),
-                            qubits: vec![target.clone()],
-                        }],
-                    },
-                    else_branch: Block::default(),
-                },
+                }),
+                statement(StatementKind::If {
+                    condition: classical(ClassicalExprKind::Bit(outcome.clone())),
+                    then_branch: block(vec![statement(StatementKind::Apply {
+                        gate: Gate::H,
+                        parameters: Vec::new(),
+                        qubits: vec![target.clone()],
+                    })]),
+                    else_branch: block(Vec::new()),
+                }),
             ],
         ),
         &ExecutionConfig::all_symbolic(),
@@ -123,59 +165,70 @@ fn measurement_controls_distinct_symbolic_branches() {
     .unwrap();
 
     assert_eq!(hps.components.len(), 2);
-    assert!(hps.components[0].guard.is_empty());
-    assert!(hps.components[1].guard.is_empty());
-    assert_eq!(hps.components[0].path_support, [1].into());
-    assert!(hps.components[1].path_support.is_empty());
-    assert!(matches!(
-        &hps.components[0].output.history[0],
-        HistoryEntry::Write { target, value }
-            if target == &outcome && value.is_one()
-    ));
-    assert!(matches!(
-        &hps.components[1].output.history[0],
-        HistoryEntry::Write { target, value }
-            if target == &outcome && value.is_zero()
-    ));
+    assert!(
+        hps.components
+            .iter()
+            .all(|component| component.guard.is_empty())
+    );
+    assert!(hps.components.iter().any(|component| {
+        component.path_support.len() == 1
+            && matches!(
+                &component.output.history[0],
+                HistoryEntry::Write { target, value }
+                    if target == &outcome && value.is_one()
+            )
+    }));
+    assert!(hps.components.iter().any(|component| {
+        component.path_support.is_empty()
+            && matches!(
+                &component.output.history[0],
+                HistoryEntry::Write { target, value }
+                    if target == &outcome && value.is_zero()
+            )
+    }));
 }
 
 #[test]
-fn affine_branch_relations_are_solved_over_gf2() {
+fn affine_branch_relations_eliminate_path_variables() {
     let q0 = qubit(0, 0);
     let q1 = qubit(0, 1);
     let c0 = bit(1, 0);
     let c1 = bit(1, 1);
-    let hps = execute(
+    let hps = execute_all_outputs(
         &program(
             2,
             2,
             vec![
-                Statement::Apply {
+                statement(StatementKind::Apply {
                     gate: Gate::H,
                     parameters: Vec::new(),
                     qubits: vec![q0.clone()],
-                },
-                Statement::Apply {
+                }),
+                statement(StatementKind::Apply {
                     gate: Gate::H,
                     parameters: Vec::new(),
                     qubits: vec![q1.clone()],
-                },
-                Statement::Measure {
-                    qubit: q0,
+                }),
+                statement(StatementKind::Measure {
+                    qubit: q0.clone(),
                     target: c0.clone(),
-                },
-                Statement::Measure {
+                }),
+                statement(StatementKind::Measure {
                     qubit: q1,
                     target: c1.clone(),
-                },
-                Statement::If {
-                    condition: ClassicalExpr::Xor(
-                        Box::new(ClassicalExpr::Bit(c0)),
-                        Box::new(ClassicalExpr::Bit(c1)),
-                    ),
-                    then_branch: Block::default(),
-                    else_branch: Block::default(),
-                },
+                }),
+                statement(StatementKind::If {
+                    condition: classical(ClassicalExprKind::Xor(
+                        Box::new(classical(ClassicalExprKind::Bit(c0))),
+                        Box::new(classical(ClassicalExprKind::Bit(c1))),
+                    )),
+                    then_branch: block(vec![statement(StatementKind::Apply {
+                        gate: Gate::X,
+                        parameters: Vec::new(),
+                        qubits: vec![q0.clone()],
+                    })]),
+                    else_branch: block(Vec::new()),
+                }),
             ],
         ),
         &ExecutionConfig::zero(),
@@ -190,54 +243,66 @@ fn affine_branch_relations_are_solved_over_gf2() {
 }
 
 #[test]
-fn nonlinear_branch_constraints_are_routed_through_a_bdd() {
+fn nonlinear_branch_constraints_remain_exact() {
     let q0 = qubit(0, 0);
     let q1 = qubit(0, 1);
     let c0 = bit(1, 0);
     let c1 = bit(1, 1);
-    let hps = execute(
+    let hps = execute_all_outputs(
         &program(
             2,
             2,
             vec![
-                Statement::Apply {
+                statement(StatementKind::Apply {
                     gate: Gate::H,
                     parameters: Vec::new(),
                     qubits: vec![q0.clone()],
-                },
-                Statement::Apply {
+                }),
+                statement(StatementKind::Apply {
                     gate: Gate::H,
                     parameters: Vec::new(),
                     qubits: vec![q1.clone()],
-                },
-                Statement::Measure {
-                    qubit: q0,
+                }),
+                statement(StatementKind::Measure {
+                    qubit: q0.clone(),
                     target: c0.clone(),
-                },
-                Statement::Measure {
+                }),
+                statement(StatementKind::Measure {
                     qubit: q1,
                     target: c1.clone(),
-                },
-                Statement::If {
-                    condition: ClassicalExpr::And(
-                        Box::new(ClassicalExpr::Bit(c0)),
-                        Box::new(ClassicalExpr::Bit(c1)),
-                    ),
-                    then_branch: Block::default(),
-                    else_branch: Block::default(),
-                },
+                }),
+                statement(StatementKind::If {
+                    condition: classical(ClassicalExprKind::And(
+                        Box::new(classical(ClassicalExprKind::Bit(c0))),
+                        Box::new(classical(ClassicalExprKind::Bit(c1))),
+                    )),
+                    then_branch: block(vec![statement(StatementKind::Apply {
+                        gate: Gate::X,
+                        parameters: Vec::new(),
+                        qubits: vec![q0.clone()],
+                    })]),
+                    else_branch: block(Vec::new()),
+                }),
             ],
         ),
         &ExecutionConfig::zero(),
     )
     .unwrap();
 
-    let then_component = &hps.components[0];
+    let then_component = hps
+        .components
+        .iter()
+        .find(|component| component.guard.is_empty())
+        .unwrap();
     assert!(then_component.guard.is_empty());
     assert!(then_component.path_support.is_empty());
 
-    let else_component = &hps.components[1];
-    assert_eq!(else_component.path_support, [0, 1].into());
+    let else_component = hps
+        .components
+        .iter()
+        .find(|component| !component.guard.is_empty())
+        .unwrap();
+    assert_eq!(else_component.path_support.len(), 2);
     assert_eq!(else_component.guard.len(), 1);
     assert!(!else_component.guard[0].is_affine());
 }
@@ -245,15 +310,19 @@ fn nonlinear_branch_constraints_are_routed_through_a_bdd() {
 #[test]
 fn reading_an_uninitialized_classical_bit_is_rejected() {
     let condition = bit(1, 0);
-    let error = execute(
+    let error = execute_all_outputs(
         &program(
             1,
             1,
-            vec![Statement::If {
-                condition: ClassicalExpr::Bit(condition.clone()),
-                then_branch: Block::default(),
-                else_branch: Block::default(),
-            }],
+            vec![statement(StatementKind::If {
+                condition: classical(ClassicalExprKind::Bit(condition.clone())),
+                then_branch: block(vec![statement(StatementKind::Apply {
+                    gate: Gate::X,
+                    parameters: Vec::new(),
+                    qubits: vec![qubit(0, 0)],
+                })]),
+                else_branch: block(Vec::new()),
+            })],
         ),
         &ExecutionConfig::zero(),
     )
@@ -263,19 +332,86 @@ fn reading_an_uninitialized_classical_bit_is_rejected() {
 }
 
 #[test]
+fn output_slicing_does_not_hide_an_uninitialized_condition() {
+    let condition = bit(1, 0);
+    let observed = qubit(0, 1);
+    let program = program(
+        2,
+        1,
+        vec![statement(StatementKind::If {
+            condition: classical(ClassicalExprKind::Bit(condition.clone())),
+            then_branch: block(vec![statement(StatementKind::Apply {
+                gate: Gate::X,
+                parameters: Vec::new(),
+                qubits: vec![qubit(0, 0)],
+            })]),
+            else_branch: block(Vec::new()),
+        })],
+    );
+
+    let error = execute_observed(
+        &program,
+        &ExecutionConfig::zero(),
+        &OutputSelection::new([observed], []),
+    )
+    .unwrap_err();
+
+    assert_eq!(error, SymbolicError::UninitializedClassical(condition));
+}
+
+#[test]
+fn a_selected_classical_bit_must_be_assigned_on_every_path() {
+    let output = bit(1, 0);
+    let program = program(1, 1, Vec::new());
+
+    let error = execute_observed(
+        &program,
+        &ExecutionConfig::zero(),
+        &OutputSelection::new([], [output.clone()]),
+    )
+    .unwrap_err();
+
+    assert_eq!(error, SymbolicError::UninitializedClassical(output));
+}
+
+#[test]
+fn a_constant_branch_preserves_definite_assignment() {
+    let output = bit(1, 0);
+    let program = program(
+        1,
+        1,
+        vec![statement(StatementKind::If {
+            condition: classical(ClassicalExprKind::Bool(true)),
+            then_branch: block(vec![statement(StatementKind::Measure {
+                qubit: qubit(0, 0),
+                target: output.clone(),
+            })]),
+            else_branch: block(Vec::new()),
+        })],
+    );
+
+    execute_observed(
+        &program,
+        &ExecutionConfig::zero(),
+        &OutputSelection::new([], [output]),
+    )
+    .unwrap();
+}
+
+#[test]
 fn reset_records_decoherence_before_reinitializing() {
     let q = qubit(0, 0);
-    let hps = execute(
+    let hps = execute_all_outputs(
         &program(
             1,
             0,
             vec![
-                Statement::Apply {
+                statement(StatementKind::Apply {
                     gate: Gate::H,
                     parameters: Vec::new(),
                     qubits: vec![q.clone()],
-                },
-                Statement::Reset(q.clone()),
+                }),
+                statement(StatementKind::Reset(q.clone())),
             ],
         ),
         &ExecutionConfig::all_symbolic(),
@@ -287,8 +423,204 @@ fn reset_records_decoherence_before_reinitializing() {
     assert_eq!(
         component.output.history,
         vec![HistoryEntry::Discard {
+            value: BooleanPolynomial::variable(Variable::Input(q)),
+        }]
+    );
+}
+
+#[test]
+fn output_slice_keeps_an_entangled_discard_as_hidden_history() {
+    let environment = qubit(0, 0);
+    let output = qubit(0, 1);
+    let program = program(
+        2,
+        0,
+        vec![
+            statement(StatementKind::Apply {
+                gate: Gate::H,
+                parameters: Vec::new(),
+                qubits: vec![environment.clone()],
+            }),
+            statement(StatementKind::Apply {
+                gate: Gate::Cx,
+                parameters: Vec::new(),
+                qubits: vec![environment.clone(), output.clone()],
+            }),
+        ],
+    );
+    let projected = execute_observed(
+        &program,
+        &ExecutionConfig::zero(),
+        &OutputSelection::new([output.clone()], []),
+    )
+    .unwrap();
+
+    let component = &projected.components[0];
+    assert_eq!(component.output.quantum.len(), 1);
+    assert_eq!(
+        component.output.quantum[&output],
+        BooleanPolynomial::variable(Variable::Path(0))
+    );
+    assert_eq!(
+        component.output.history,
+        vec![HistoryEntry::Discard {
             value: BooleanPolynomial::variable(Variable::Path(0)),
         }]
+    );
+}
+
+#[test]
+fn output_slice_removes_a_dead_measurement_cone() {
+    let dead = qubit(0, 0);
+    let output = qubit(0, 1);
+    let measured = bit(1, 0);
+    let program = program(
+        2,
+        1,
+        vec![
+            statement(StatementKind::Apply {
+                gate: Gate::H,
+                parameters: Vec::new(),
+                qubits: vec![dead.clone()],
+            }),
+            statement(StatementKind::Measure {
+                qubit: dead,
+                target: measured,
+            }),
+        ],
+    );
+    let projected = execute_observed(
+        &program,
+        &ExecutionConfig::zero(),
+        &OutputSelection::new([output.clone()], []),
+    )
+    .unwrap();
+
+    let component = &projected.components[0];
+    assert!(component.path_support.is_empty());
+    assert!(component.output.history.is_empty());
+    assert_eq!(component.output.quantum.len(), 1);
+    assert_eq!(component.output.quantum[&output], BooleanPolynomial::zero());
+}
+
+#[test]
+fn output_slice_drops_an_unused_measurement_target_after_dephasing() {
+    let output = qubit(0, 0);
+    let unused = bit(1, 0);
+    let program = program(
+        1,
+        1,
+        vec![
+            statement(StatementKind::Apply {
+                gate: Gate::H,
+                parameters: Vec::new(),
+                qubits: vec![output.clone()],
+            }),
+            statement(StatementKind::Measure {
+                qubit: output.clone(),
+                target: unused.clone(),
+            }),
+        ],
+    );
+    let projected = execute_observed(
+        &program,
+        &ExecutionConfig::zero(),
+        &OutputSelection::new([output], []),
+    )
+    .unwrap();
+
+    let component = &projected.components[0];
+    assert!(component.output.classical.is_empty());
+    assert!(matches!(
+        &component.output.history[0],
+        HistoryEntry::Write { target, value }
+            if target == &unused
+                && value == &BooleanPolynomial::variable(Variable::Path(0))
+    ));
+}
+
+#[test]
+fn discarding_a_measured_qubit_reuses_the_measurement_history() {
+    let measured = qubit(0, 0);
+    let output = bit(1, 0);
+    let program = program(
+        1,
+        1,
+        vec![
+            statement(StatementKind::Apply {
+                gate: Gate::H,
+                parameters: Vec::new(),
+                qubits: vec![measured.clone()],
+            }),
+            statement(StatementKind::Measure {
+                qubit: measured,
+                target: output.clone(),
+            }),
+        ],
+    );
+
+    let projected = execute_observed(
+        &program,
+        &ExecutionConfig::zero(),
+        &OutputSelection::new([], [output]),
+    )
+    .unwrap();
+
+    assert_eq!(projected.components[0].output.history.len(), 1);
+    assert!(matches!(
+        projected.components[0].output.history[0],
+        HistoryEntry::Write { .. }
+    ));
+}
+
+#[test]
+fn output_slice_preserves_inputs_that_feed_a_selected_output() {
+    let input = qubit(0, 0);
+    let output = qubit(0, 1);
+    let program = program(
+        2,
+        0,
+        vec![statement(StatementKind::Apply {
+            gate: Gate::Cx,
+            parameters: Vec::new(),
+            qubits: vec![input.clone(), output.clone()],
+        })],
+    );
+    let projected = execute_observed(
+        &program,
+        &ExecutionConfig::with_symbolic_inputs([input.clone()]),
+        &OutputSelection::new([output.clone()], []),
+    )
+    .unwrap();
+
+    assert!(projected.input.quantum.contains_key(&input));
+    assert_eq!(
+        projected.components[0].output.quantum[&output],
+        BooleanPolynomial::variable(Variable::Input(input))
+    );
+}
+
+#[test]
+fn output_slice_records_a_reset_symbolic_input_as_traced_out() {
+    let input = qubit(0, 0);
+    let program = program(1, 0, vec![statement(StatementKind::Reset(input.clone()))]);
+    let projected = execute_observed(
+        &program,
+        &ExecutionConfig::with_symbolic_inputs([input.clone()]),
+        &OutputSelection::new([input.clone()], []),
+    )
+    .unwrap();
+
+    assert!(projected.input.quantum.contains_key(&input));
+    assert_eq!(
+        projected.components[0].output.history,
+        vec![HistoryEntry::Discard {
+            value: BooleanPolynomial::variable(Variable::Input(input.clone())),
+        }]
+    );
+    assert_eq!(
+        projected.components[0].output.quantum[&input],
+        BooleanPolynomial::zero()
     );
 }
 
@@ -296,21 +628,21 @@ fn reset_records_decoherence_before_reinitializing() {
 fn phase_lifting_preserves_xor_semantics() {
     let control = qubit(0, 0);
     let target = qubit(0, 1);
-    let hps = execute(
+    let hps = execute_all_outputs(
         &program(
             2,
             0,
             vec![
-                Statement::Apply {
+                statement(StatementKind::Apply {
                     gate: Gate::Cx,
                     parameters: Vec::new(),
                     qubits: vec![control.clone(), target.clone()],
-                },
-                Statement::Apply {
+                }),
+                statement(StatementKind::Apply {
                     gate: Gate::T,
                     parameters: Vec::new(),
                     qubits: vec![target.clone()],
-                },
+                }),
             ],
         ),
         &ExecutionConfig::all_symbolic(),
@@ -328,16 +660,16 @@ fn phase_lifting_preserves_xor_semantics() {
 #[test]
 fn rz_retains_a_source_angle_in_the_phase() {
     let q = qubit(0, 0);
-    let angle = NumericExpr::Rational(ratio(1, 10));
-    let hps = execute(
+    let angle = numeric(NumericExprKind::Rational(ratio(1, 10)));
+    let hps = execute_all_outputs(
         &program(
             1,
             0,
-            vec![Statement::Apply {
+            vec![statement(StatementKind::Apply {
                 gate: Gate::Rz,
                 parameters: vec![angle.clone()],
                 qubits: vec![q.clone()],
-            }],
+            })],
         ),
         &ExecutionConfig::all_symbolic(),
     )
@@ -355,18 +687,66 @@ fn rz_retains_a_source_angle_in_the_phase() {
 }
 
 #[test]
+fn phase_angles_have_a_linear_canonical_form() {
+    let theta = numeric(NumericExprKind::Input(SymbolId(20)));
+    let half = |value: NumericExpr| {
+        numeric(NumericExprKind::Div(
+            Box::new(value),
+            Box::new(numeric(NumericExprKind::Rational(ratio(2, 1)))),
+        ))
+    };
+    let split_theta = numeric(NumericExprKind::Add(
+        Box::new(half(theta.clone())),
+        Box::new(half(theta.clone())),
+    ));
+    assert_eq!(
+        PhaseCoefficient::angle(split_theta, ratio(1, 1)),
+        PhaseCoefficient::angle(theta, ratio(1, 1))
+    );
+
+    let half_pi = half(numeric(NumericExprKind::Constant(NumericConstant::Pi)));
+    assert_eq!(
+        PhaseCoefficient::angle(half_pi, ratio(1, 1)),
+        PhaseCoefficient::rational(ratio(1, 4))
+    );
+    assert_eq!(
+        PhaseCoefficient::angle(
+            numeric(NumericExprKind::Constant(NumericConstant::Tau)),
+            ratio(1, 1),
+        ),
+        PhaseCoefficient::rational(ratio(0, 1))
+    );
+}
+
+#[test]
+fn nonlinear_angle_products_are_canonical_up_to_operand_order() {
+    let theta = numeric(NumericExprKind::Input(SymbolId(20)));
+    let phi = numeric(NumericExprKind::Input(SymbolId(21)));
+    let left = numeric(NumericExprKind::Mul(
+        Box::new(theta.clone()),
+        Box::new(phi.clone()),
+    ));
+    let right = numeric(NumericExprKind::Mul(Box::new(phi), Box::new(theta)));
+
+    assert_eq!(
+        PhaseCoefficient::angle(left, ratio(1, 1)),
+        PhaseCoefficient::angle(right, ratio(1, 1))
+    );
+}
+
+#[test]
 fn y_and_controlled_y_have_the_standard_phase_and_permutation() {
     let control = qubit(0, 0);
     let target = qubit(0, 1);
-    let hps = execute(
+    let hps = execute_all_outputs(
         &program(
             2,
             0,
-            vec![Statement::Apply {
+            vec![statement(StatementKind::Apply {
                 gate: Gate::Cy,
                 parameters: Vec::new(),
                 qubits: vec![control.clone(), target.clone()],
-            }],
+            })],
         ),
         &ExecutionConfig::all_symbolic(),
     )
@@ -398,16 +778,16 @@ fn y_and_controlled_y_have_the_standard_phase_and_permutation() {
 fn controlled_rz_keeps_the_control_dependent_global_phase() {
     let control = qubit(0, 0);
     let target = qubit(0, 1);
-    let angle = NumericExpr::Constant(NumericConstant::Pi);
-    let hps = execute(
+    let angle = numeric(NumericExprKind::Constant(NumericConstant::Pi));
+    let hps = execute_all_outputs(
         &program(
             2,
             0,
-            vec![Statement::Apply {
+            vec![statement(StatementKind::Apply {
                 gate: Gate::Crz,
                 parameters: vec![angle.clone()],
                 qubits: vec![control.clone(), target.clone()],
-            }],
+            })],
         ),
         &ExecutionConfig::all_symbolic(),
     )
@@ -430,7 +810,7 @@ fn controlled_rz_keeps_the_control_dependent_global_phase() {
 #[test]
 fn default_initial_state_sets_every_qubit_to_zero() {
     let program = program(2, 0, Vec::new());
-    let hps = execute(&program, &ExecutionConfig::default()).unwrap();
+    let hps = execute_all_outputs(&program, &ExecutionConfig::default()).unwrap();
 
     assert_eq!(hps.input.quantum[&qubit(0, 0)], BooleanPolynomial::zero());
     assert_eq!(hps.input.quantum[&qubit(0, 1)], BooleanPolynomial::zero());
@@ -441,7 +821,7 @@ fn selected_inputs_are_symbolic_and_other_qubits_are_zero() {
     let symbolic = qubit(0, 1);
     let program = program(2, 0, Vec::new());
     let config = ExecutionConfig::with_symbolic_inputs([symbolic.clone()]);
-    let hps = execute(&program, &config).unwrap();
+    let hps = execute_all_outputs(&program, &config).unwrap();
 
     assert_eq!(hps.input.quantum[&qubit(0, 0)], BooleanPolynomial::zero());
     assert_eq!(
@@ -453,16 +833,16 @@ fn selected_inputs_are_symbolic_and_other_qubits_are_zero() {
 #[test]
 fn rx_uses_sine_for_flips_and_minus_i_in_the_phase() {
     let q = qubit(0, 0);
-    let angle = NumericExpr::Constant(NumericConstant::Pi);
-    let hps = execute(
+    let angle = numeric(NumericExprKind::Constant(NumericConstant::Pi));
+    let hps = execute_all_outputs(
         &program(
             1,
             0,
-            vec![Statement::Apply {
+            vec![statement(StatementKind::Apply {
                 gate: Gate::Rx,
                 parameters: vec![angle],
                 qubits: vec![q.clone()],
-            }],
+            })],
         ),
         &ExecutionConfig::all_symbolic(),
     )
@@ -489,15 +869,15 @@ fn rx_uses_sine_for_flips_and_minus_i_in_the_phase() {
 #[test]
 fn ry_places_the_minus_sign_only_on_one_to_zero_transitions() {
     let q = qubit(0, 0);
-    let hps = execute(
+    let hps = execute_all_outputs(
         &program(
             1,
             0,
-            vec![Statement::Apply {
+            vec![statement(StatementKind::Apply {
                 gate: Gate::Ry,
-                parameters: vec![NumericExpr::Constant(NumericConstant::Pi)],
+                parameters: vec![numeric(NumericExprKind::Constant(NumericConstant::Pi))],
                 qubits: vec![q.clone()],
-            }],
+            })],
         ),
         &ExecutionConfig::all_symbolic(),
     )
@@ -521,15 +901,15 @@ fn controlled_rotations_have_no_spurious_path_when_disabled() {
     let control = qubit(0, 0);
     let target = qubit(0, 1);
     for gate in [Gate::Crx, Gate::Cry] {
-        let hps = execute(
+        let hps = execute_all_outputs(
             &program(
                 2,
                 0,
-                vec![Statement::Apply {
+                vec![statement(StatementKind::Apply {
                     gate,
-                    parameters: vec![NumericExpr::Constant(NumericConstant::Pi)],
+                    parameters: vec![numeric(NumericExprKind::Constant(NumericConstant::Pi))],
                     qubits: vec![control.clone(), target.clone()],
-                }],
+                })],
             ),
             &ExecutionConfig::all_symbolic(),
         )

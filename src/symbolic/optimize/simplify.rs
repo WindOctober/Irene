@@ -311,18 +311,7 @@ fn simplify_scalar(scalar: &Scalar) -> Scalar {
         Scalar::Rational(_) | Scalar::Sin(_) | Scalar::Cos(_) => scalar.clone(),
         Scalar::Sqrt(value) => Scalar::sqrt(simplify_scalar(value)),
         Scalar::Add(left, right) => simplify_scalar(left).sum(simplify_scalar(right)),
-        Scalar::Mul(left, right) => {
-            let left = simplify_scalar(left);
-            let right = simplify_scalar(right);
-            if let (Scalar::Sqrt(left_root), Scalar::Sqrt(right_root)) = (&left, &right)
-                && left_root == right_root
-                && let Scalar::Rational(value) = left_root.as_ref()
-                && value >= &Default::default()
-            {
-                return Scalar::rational(value.clone());
-            }
-            left.multiply(right)
-        }
+        Scalar::Mul(left, right) => simplify_scalar(left).multiply(simplify_scalar(right)),
         Scalar::Neg(value) => simplify_scalar(value).negate(),
         Scalar::Inverse(value) => simplify_scalar(value).inverse(),
         Scalar::Select {
