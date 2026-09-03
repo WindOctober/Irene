@@ -12,7 +12,7 @@ pub(super) enum ScopeKind {
 /// Source-level shape of a quantum binding.
 ///
 /// OpenQASM distinguishes `qubit q` from `qubit[1] q`. Both contain one
-/// physical wire, but only the former is a scalar operand that may be
+/// quantum wire, but only the former is a scalar operand that may be
 /// broadcast against a register operand.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum QuantumType {
@@ -31,18 +31,20 @@ impl QuantumType {
 
 /// Source-level shape of a classical bit binding.
 ///
-/// `bit c` is a scalar, whereas `bit[1] c` is a one-cell register. The two
-/// have different indexing, measurement, condition, and return-value rules.
+/// `bool b`, `bit c`, and `bit[1] cs` have distinct storage types even though
+/// each stores one binary value. Frontend type checking retains this
+/// distinction while allowing the language's implicit scalar bool/bit casts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum BitType {
-    Scalar,
+    Bool,
+    Bit,
     Register { width: usize },
 }
 
 impl BitType {
     pub(super) fn width(self) -> usize {
         match self {
-            Self::Scalar => 1,
+            Self::Bool | Self::Bit => 1,
             Self::Register { width } => width,
         }
     }
@@ -69,7 +71,8 @@ impl BindingKind {
             Self::QuantumVariable(QuantumType::Scalar) => "qubit",
             Self::QuantumVariable(QuantumType::Register { .. }) => "quantum register",
             Self::QuantumParameter(_) => "quantum parameter",
-            Self::ClassicalBit(BitType::Scalar) => "classical bit",
+            Self::ClassicalBit(BitType::Bool) => "Boolean",
+            Self::ClassicalBit(BitType::Bit) => "classical bit",
             Self::ClassicalBit(BitType::Register { .. }) => "classical bit register",
             Self::NumericInput(_) => "numeric input",
             Self::Gate => "gate",
@@ -157,6 +160,8 @@ impl ScopeStack {
         self.scopes.last().expect("global scope exists").kind
     }
 
+    /// Declares a name in the innermost scope and allocates its program-local
+    /// symbol ID. Declaration-site restrictions are checked before insertion.
     pub(super) fn declare(
         &mut self,
         name: impl Into<String>,
@@ -217,6 +222,11 @@ impl ScopeStack {
         Ok(binding)
     }
 
+    /// Resolves the nearest lexically visible binding.
+    ///
+    /// During call-site specialization, a callee may see its own parameters
+    /// and callable global names, but cannot capture caller locals or global
+    /// mutable storage.
     pub(super) fn lookup(&self, name: &str) -> Result<Binding, ScopeError> {
         let subroutine_scope = self
             .scopes
@@ -248,6 +258,7 @@ impl ScopeStack {
         Err(ScopeError::Unknown(name.to_owned()))
     }
 
+    /// Adds the names made visible by `include "stdgates.inc"`.
     pub(super) fn declare_standard_gates(&mut self) -> Result<(), ScopeError> {
         for name in [
             "p", "x", "y", "z", "h", "s", "sdg", "t", "tdg", "sx", "rx", "ry", "rz", "cx", "cy",

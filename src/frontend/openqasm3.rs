@@ -14,7 +14,7 @@ use thiserror::Error;
 use crate::ir::{
     AstIdGenerator, Block, BlockData, ClassicalBit, ClassicalExpr, ClassicalExprKind, Gate,
     NumericExpr, NumericExprKind, NumericInput, NumericInputData, NumericType, OpenQasmVersion,
-    Program, ProgramData, Qubit, Register, RegisterData, Statement, StatementKind,
+    Program, ProgramData, Qubit, Register, RegisterData, Statement, StatementKind, SymbolId,
 };
 
 use super::scope::{Binding, BindingKind, BitType, QuantumType, ScopeError, ScopeKind, ScopeStack};
@@ -79,6 +79,11 @@ macro_rules! expected {
     }};
 }
 
+/// Parses one OpenQASM 3 source file and lowers its supported subset to Irene IR.
+///
+/// `source_name` is used only in parser diagnostics. Includes other than
+/// `stdgates.inc` are not followed, so the returned [`Program`] is always
+/// derived from this source string alone.
 pub fn parse_str(source: &str, source_name: &str) -> Result<Program, FrontendError> {
     let parsed = parse_source_string(source, Some(source_name), None::<&[PathBuf]>);
     let syntax = parsed
@@ -97,6 +102,11 @@ pub fn parse_str(source: &str, source_name: &str) -> Result<Program, FrontendErr
     Lowerer::default().lower(syntax.tree())
 }
 
+/// Mutable context shared by one source-to-IR lowering pass.
+///
+/// It owns the lexical symbol table and the single [`AstIdGenerator`] used by
+/// all emitted nodes. Subroutine definitions remain as syntax until a call is
+/// specialized to concrete caller-owned qubits.
 struct Lowerer {
     ids: AstIdGenerator,
     version: Option<OpenQasmVersion>,
@@ -109,6 +119,10 @@ struct Lowerer {
     active_subroutines: BTreeSet<usize>,
 }
 
+/// Parsed information retained for lowering a later subroutine call.
+///
+/// For example, `def reset_one(qubit q) { reset q; }` stores the formal `q`
+/// and its body; calling `reset_one(data[2])` lowers that body for `data[2]`.
 #[derive(Clone)]
 struct SubroutineTemplate {
     definition: ast::Def,
@@ -116,6 +130,7 @@ struct SubroutineTemplate {
     return_type: Option<BitType>,
 }
 
+/// Name and scalar/register shape of a quantum subroutine parameter.
 #[derive(Clone)]
 struct QuantumParameter {
     name: String,
@@ -131,6 +146,7 @@ enum QuantumOperand {
 }
 
 impl QuantumOperand {
+    /// Views either operand shape as the quantum wires it denotes.
     fn cells(&self) -> &[Qubit] {
         match self {
             Self::Scalar(qubit) => std::slice::from_ref(qubit),
@@ -138,6 +154,7 @@ impl QuantumOperand {
         }
     }
 
+    /// Consumes the source shape after an operation has been scalarized.
     fn into_cells(self) -> Vec<Qubit> {
         match self {
             Self::Scalar(qubit) => vec![qubit],
@@ -145,6 +162,10 @@ impl QuantumOperand {
         }
     }
 
+    /// Selects one wire while expanding a register-wide gate call.
+    ///
+    /// In `cx control, targets`, a scalar `control` is reused for every index,
+    /// while a register operand contributes its wire at `index`.
     fn broadcast_at(&self, index: usize) -> Qubit {
         match self {
             Self::Scalar(qubit) => qubit.clone(),
@@ -152,6 +173,7 @@ impl QuantumOperand {
         }
     }
 
+    /// Recovers the source-level scalar/register distinction.
     fn ty(&self) -> QuantumType {
         match self {
             Self::Scalar(_) => QuantumType::Scalar,
@@ -162,25 +184,81 @@ impl QuantumOperand {
     }
 }
 
-/// A resolved classical lvalue or value before scalar/register type checking.
+/// A resolved classical storage operand before scalar/register type checking.
+///
+/// `bit result` denotes one [`ClassicalBit`], while `bit[n] results` denotes
+/// every cell of a register. Computed values such as `results ^ mask` use
+/// [`TypedClassicalExpr`] instead.
 #[derive(Clone)]
 enum BitOperand {
-    Scalar(ClassicalBit),
+    Bool(ClassicalBit),
+    Bit(ClassicalBit),
     Register(Vec<ClassicalBit>),
 }
 
 impl BitOperand {
+    /// Consumes the operand after shape checking and returns its storage cells.
     fn into_cells(self) -> Vec<ClassicalBit> {
         match self {
-            Self::Scalar(bit) => vec![bit],
+            Self::Bool(bit) | Self::Bit(bit) => vec![bit],
             Self::Register(bits) => bits,
         }
     }
 
+    /// Returns whether the source operand was `bool`, `bit`, or `bit[n]`.
     fn ty(&self) -> BitType {
         match self {
-            Self::Scalar(_) => BitType::Scalar,
+            Self::Bool(_) => BitType::Bool,
+            Self::Bit(_) => BitType::Bit,
             Self::Register(bits) => BitType::Register { width: bits.len() },
+        }
+    }
+}
+
+/// A typed classical expression before it is lowered to Boolean core IR.
+///
+/// Bit registers and integer casts share the same little-endian Boolean cells,
+/// but integer values additionally retain signedness. Integer literals remain
+/// exact until an operation supplies the width and signedness needed to encode
+/// them. For example, `int[3](bits)` is a signed three-cell `Integer`, while
+/// `-2` remains `IntegerLiteral(-2)` until the comparison is lowered. After
+/// type checking, scalar `bool` and `bit` intentionally share the Boolean IR.
+enum TypedClassicalExpr {
+    Bool(ClassicalExpr),
+    Bit(ClassicalExpr),
+    Register(Vec<ClassicalExpr>),
+    Integer {
+        bits: Vec<ClassicalExpr>,
+        signedness: Signedness,
+    },
+    IntegerLiteral(BigInt),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Signedness {
+    Signed,
+    Unsigned,
+}
+
+impl TypedClassicalExpr {
+    /// Returns the source storage type when this is a bool/bit value.
+    fn bit_type(&self) -> Option<BitType> {
+        match self {
+            Self::Bool(_) => Some(BitType::Bool),
+            Self::Bit(_) => Some(BitType::Bit),
+            Self::Register(values) => Some(BitType::Register {
+                width: values.len(),
+            }),
+            Self::Integer { .. } | Self::IntegerLiteral(_) => None,
+        }
+    }
+
+    /// Consumes a value already checked to be scalar or register bits.
+    fn into_bit_cells(self) -> Option<Vec<ClassicalExpr>> {
+        match self {
+            Self::Bool(value) | Self::Bit(value) => Some(vec![value]),
+            Self::Register(values) => Some(values),
+            Self::Integer { .. } | Self::IntegerLiteral(_) => None,
         }
     }
 }
@@ -202,6 +280,7 @@ impl Default for Lowerer {
 }
 
 impl Lowerer {
+    /// Lowers the complete source and assembles declarations plus executable body.
     fn lower(mut self, source: ast::SourceFile) -> Result<Program, FrontendError> {
         let mut body = self.ids.node(BlockData::default());
         for statement in source.statements() {
@@ -236,8 +315,11 @@ impl Lowerer {
             Stmt::VersionString(version) => self.lower_version(version),
             // `include "stdgates.inc";` makes the standard gate names visible.
             Stmt::Include(include) => {
-                let text = include.syntax().text().to_string();
-                if text.contains("\"stdgates.inc\"") {
+                let path = include
+                    .file()
+                    .and_then(|path| path.to_string())
+                    .ok_or_else(|| expected!("an include path", &include))?;
+                if path == "stdgates.inc" {
                     self.scopes.declare_standard_gates().map_err(scope_error)
                 } else {
                     Err(unsupported!("include", &include))
@@ -255,10 +337,14 @@ impl Lowerer {
                 self.quantum_registers.push(register);
                 Ok(())
             }
-            // `bit[4] c;` allocates a four-bit classical register.
+            // `bit[4] c;` records the register; `bit c = true;` additionally
+            // emits an assignment that initializes its storage at this point.
             Stmt::ClassicalDeclarationStatement(declaration) => {
-                let register = self.lower_classical_declaration(declaration)?;
+                let (register, initializer) = self.lower_classical_declaration(declaration)?;
                 self.classical_registers.push(register);
+                if let Some(initializer) = initializer {
+                    body.statements.push(initializer);
+                }
                 Ok(())
             }
             // `def f(qubit q) { ... }` registers a callable template. Calls
@@ -273,14 +359,27 @@ impl Lowerer {
         }
     }
 
+    /// Records `OPENQASM 3.x;`; the completed program later rejects other majors.
     fn lower_version(&mut self, version: ast::VersionString) -> Result<(), FrontendError> {
-        let text = version.syntax().text().to_string();
-        let number = text
-            .split_whitespace()
-            .nth(1)
-            .map(|part| part.trim_end_matches(';'))
+        let typed_number = version
+            .version()
+            .map(|number| number.syntax().text().to_string());
+        // The current parser may represent the complete header as one
+        // VERSION_STRING token instead of exposing the generated Version child.
+        let fallback_number = || {
+            version
+                .syntax()
+                .text()
+                .to_string()
+                .strip_prefix("OPENQASM")
+                .and_then(|text| text.strip_suffix(';'))
+                .map(str::trim)
+                .map(str::to_owned)
+        };
+        let text = typed_number
+            .or_else(fallback_number)
             .ok_or_else(|| expected!("an OpenQASM version number", &version))?;
-        let (major, minor) = number.split_once('.').unwrap_or((number, "0"));
+        let (major, minor) = text.split_once('.').unwrap_or((&text, "0"));
         let parse = |part: &str| {
             part.parse::<u32>()
                 .map_err(|_| expected!("an integer version component", &version))
@@ -296,7 +395,7 @@ impl Lowerer {
     /// call-site specialization.
     ///
     /// Quantum parameters are references to caller-owned wires. The supported
-    /// return type is `bit` or `bit[n]`, matching the dynamic-program
+    /// return type is `bool`, `bit`, or `bit[n]`, matching the dynamic-program
     /// benchmarks that return measurement results.
     fn register_subroutine(&mut self, definition: ast::Def) -> Result<(), FrontendError> {
         let name = declaration_name(&definition)?;
@@ -331,10 +430,19 @@ impl Lowerer {
                 let ty = signature
                     .scalar_type()
                     .ok_or_else(|| expected!("a subroutine return type", &signature))?;
-                if ty.bit_token().is_none() {
-                    return Err(unsupported!("subroutine return type other than bit", &ty));
+                if ty.bool_token().is_some() {
+                    if ty.designator().is_some() {
+                        return Err(expected!("a scalar bool return type", &ty));
+                    }
+                    Ok(BitType::Bool)
+                } else if ty.bit_token().is_some() {
+                    bit_type(ty.designator(), "a subroutine return width")
+                } else {
+                    Err(unsupported!(
+                        "subroutine return type other than bool or bit",
+                        &ty
+                    ))
                 }
-                bit_type(ty.designator(), "a subroutine return width")
             })
             .transpose()?;
         let index = self.subroutines.len();
@@ -351,6 +459,7 @@ impl Lowerer {
         Ok(())
     }
 
+    /// Declares `qubit q;` or `qubit[n] q;` and allocates its IR register.
     fn lower_quantum_declaration(
         &mut self,
         declaration: ast::QuantumDeclarationStatement,
@@ -371,6 +480,10 @@ impl Lowerer {
         }))
     }
 
+    /// Declares a symbolic numeric input such as `input angle theta;`.
+    ///
+    /// Output declarations and nonnumeric input types are outside the current
+    /// frontend subset.
     fn lower_numeric_input(
         &mut self,
         declaration: ast::IODeclarationStatement,
@@ -394,10 +507,14 @@ impl Lowerer {
         }))
     }
 
+    /// Declares `bool`, `bit`, or `bit[n]` and lowers an optional initializer.
+    ///
+    /// For `bit c = true;`, the register metadata is returned together with
+    /// `Some(Assign(c, true))`; `bit c;` has no executable initializer.
     fn lower_classical_declaration(
         &mut self,
         declaration: ast::ClassicalDeclarationStatement,
-    ) -> Result<Register, FrontendError> {
+    ) -> Result<(Register, Option<Statement>), FrontendError> {
         if declaration.const_token().is_some() {
             return Err(unsupported!("const declaration", &declaration));
         }
@@ -405,22 +522,39 @@ impl Lowerer {
         let scalar_type = declaration
             .scalar_type()
             .ok_or_else(|| expected!("a classical scalar type", &declaration))?;
-        if scalar_type.bit_token().is_none() {
-            return Err(unsupported!("classical type other than bit", &scalar_type));
-        }
-        let ty = bit_type(scalar_type.designator(), "a bit array width")?;
-        if declaration.expr().is_some() {
-            return Err(unsupported!("classical initializer", &declaration));
-        }
+        let ty = if scalar_type.bool_token().is_some() {
+            if scalar_type.designator().is_some() {
+                return Err(expected!("a scalar bool type", &scalar_type));
+            }
+            BitType::Bool
+        } else if scalar_type.bit_token().is_some() {
+            bit_type(scalar_type.designator(), "a bit array width")?
+        } else {
+            return Err(unsupported!(
+                "classical type other than bool or bit",
+                &scalar_type
+            ));
+        };
         let binding = self
             .scopes
             .declare(name.clone(), BindingKind::ClassicalBit(ty))
             .map_err(scope_error)?;
-        Ok(self.ids.node(RegisterData {
+        let register = self.ids.node(RegisterData {
             id: binding.id,
             name,
             width: ty.width(),
-        }))
+        });
+        let initializer = declaration
+            .expr()
+            .map(|expression| {
+                self.lower_assigned_value(
+                    bit_operand(binding.id, ty),
+                    expression,
+                    declaration.syntax().text().to_string(),
+                )
+            })
+            .transpose()?;
+        Ok((register, initializer))
     }
 
     /// Lowers the executable statement forms currently represented by Irene's IR.
@@ -447,6 +581,11 @@ impl Lowerer {
                 match expression {
                     Expr::GateCallExpr(call) => self.lower_gate(call),
                     Expr::CallExpr(call) => self.lower_subroutine_call(call, None),
+                    Expr::BinExpr(binary)
+                        if matches!(binary.op_kind(), Some(ast::BinaryOp::Assignment { .. })) =>
+                    {
+                        self.lower_compound_assignment(binary)
+                    }
                     _ => Err(unsupported!("expression statement", &expression_statement)),
                 }
             }
@@ -613,7 +752,7 @@ impl Lowerer {
             // `7`, `0.1`, and `1e-1` become exact BigRational values.
             Expr::Literal(literal) => match literal.kind() {
                 ast::LiteralKind::IntNumber(number) => {
-                    let value = exact_integer(number)?;
+                    let value = BigRational::from_integer(exact_integer_value(number)?);
                     Ok(self.ids.node(NumericExprKind::Rational(value)))
                 }
                 ast::LiteralKind::FloatNumber(number) => {
@@ -698,7 +837,7 @@ impl Lowerer {
         }
     }
 
-    /// Lowers measurement, Boolean, and subroutine-result assignments.
+    /// Lowers measurement, classical-expression, and subroutine-result assignments.
     fn lower_assignment(
         &mut self,
         assignment: ast::AssignmentStmt,
@@ -707,7 +846,18 @@ impl Lowerer {
         let rhs = assignment
             .rhs()
             .ok_or_else(|| expected!("an assignment value", &assignment))?;
+        self.lower_assigned_value(targets, rhs, assignment.syntax().text().to_string())
+    }
+
+    fn lower_assigned_value(
+        &mut self,
+        targets: BitOperand,
+        rhs: Expr,
+        snippet: String,
+    ) -> Result<Statement, FrontendError> {
         match rhs {
+            // `c = measure q;` produces a quantum measurement for each
+            // matching scalar/register cell rather than a classical Assign.
             Expr::MeasureExpression(measurement) => {
                 let operand = measurement
                     .gate_operand()
@@ -716,7 +866,7 @@ impl Lowerer {
                 if !measurement_types_match(qubits.ty(), targets.ty()) {
                     return Err(FrontendError::Expected {
                         expected: "matching scalar or register measurement operands",
-                        snippet: assignment.syntax().text().to_string(),
+                        snippet,
                     });
                 }
                 let statements = qubits
@@ -727,24 +877,102 @@ impl Lowerer {
                     .collect();
                 Ok(self.sequence(statements))
             }
+            // `c = parity(q);` binds the subroutine's classical return value
+            // directly to `c` while specializing its quantum parameters.
             Expr::CallExpr(call) => self.lower_subroutine_call(call, Some(targets)),
-            expression if matches!(targets, BitOperand::Scalar(_)) => {
-                let value = self.lower_classical_expr(expression)?;
-                let BitOperand::Scalar(target) = targets else {
-                    unreachable!()
-                };
-                Ok(self.ids.node(StatementKind::Assign { target, value }))
+            // `c = a ^ b;` lowers the RHS as a typed bit value, then checks
+            // that its scalar/register shape matches the assignment target.
+            expression => {
+                let values = self.lower_bit_expr(expression)?;
+                self.assign_bit_values(targets, values, snippet)
             }
-            expression => Err(unsupported!("register-valued assignment", &expression)),
         }
     }
 
+    /// Expands a shape-compatible classical assignment into scalar IR writes.
+    ///
+    /// For example, `dst = src ^ "01";` on two-bit registers becomes two
+    /// [`StatementKind::Assign`] nodes, one for each register index.
+    fn assign_bit_values(
+        &mut self,
+        targets: BitOperand,
+        values: TypedClassicalExpr,
+        snippet: String,
+    ) -> Result<Statement, FrontendError> {
+        if values
+            .bit_type()
+            .is_none_or(|value_type| !bit_types_compatible(targets.ty(), value_type))
+        {
+            return Err(FrontendError::Expected {
+                expected: "matching scalar or register assignment operands",
+                snippet,
+            });
+        }
+        let statements = targets
+            .into_cells()
+            .into_iter()
+            .zip(values.into_bit_cells().expect("checked bit value"))
+            .map(|(target, value)| self.ids.node(StatementKind::Assign { target, value }))
+            .collect();
+        Ok(self.sequence(statements))
+    }
+
+    /// Lowers bitwise compound assignment to an ordinary read-modify-write.
+    /// For example, `flag ^= measured` becomes `flag = flag ^ measured`.
+    fn lower_compound_assignment(
+        &mut self,
+        assignment: ast::BinExpr,
+    ) -> Result<Statement, FrontendError> {
+        let operation = match assignment.op_kind() {
+            Some(ast::BinaryOp::Assignment {
+                op: Some(ast::ArithOp::BitAnd),
+            }) => ast::ArithOp::BitAnd,
+            Some(ast::BinaryOp::Assignment {
+                op: Some(ast::ArithOp::BitOr),
+            }) => ast::ArithOp::BitOr,
+            Some(ast::BinaryOp::Assignment {
+                op: Some(ast::ArithOp::BitXor),
+            }) => ast::ArithOp::BitXor,
+            _ => return Err(unsupported!("classical compound assignment", &assignment)),
+        };
+        let target_expression = assignment
+            .lhs()
+            .ok_or_else(|| expected!("a compound-assignment target", &assignment))?;
+        let targets = self.lower_bit_operand(target_expression)?;
+        let values = self.lower_bit_expr(
+            assignment
+                .rhs()
+                .ok_or_else(|| expected!("a compound-assignment value", &assignment))?,
+        )?;
+        if values
+            .bit_type()
+            .is_none_or(|value_type| !bit_types_compatible(targets.ty(), value_type))
+        {
+            return Err(expected!(
+                "matching scalar or register compound-assignment operands",
+                &assignment
+            ));
+        }
+        let statements = targets
+            .into_cells()
+            .into_iter()
+            .zip(values.into_bit_cells().expect("checked bit value"))
+            .map(|(target, right)| {
+                let left = self.ids.node(ClassicalExprKind::Bit(target.clone()));
+                let value = self.bitwise_scalar(operation, left, right);
+                self.ids.node(StatementKind::Assign { target, value })
+            })
+            .collect();
+        Ok(self.sequence(statements))
+    }
+
+    /// Resolves an assignment destination such as `flag` or `bits[2]`.
     fn lower_assignment_targets(
         &self,
         assignment: &ast::AssignmentStmt,
     ) -> Result<BitOperand, FrontendError> {
         if let Some(indexed) = assignment.indexed_identifier() {
-            return Ok(BitOperand::Scalar(self.lower_classical_indexed(indexed)?));
+            return Ok(BitOperand::Bit(self.lower_classical_indexed(indexed)?));
         }
         let name = assignment
             .identifier()
@@ -763,6 +991,7 @@ impl Lowerer {
         call: ast::CallExpr,
         targets: Option<BitOperand>,
     ) -> Result<Statement, FrontendError> {
+        // Resolve `prepare(q)` to the previously registered definition.
         let callee = match call
             .expr()
             .ok_or_else(|| expected!("a subroutine name", &call))?
@@ -782,6 +1011,8 @@ impl Lowerer {
             return Err(unsupported!("recursive subroutine call", &call));
         }
         let template = self.subroutines[index].clone();
+        // Quantum arguments preserve scalar/register shape, so `qubit q` and
+        // `qubit[1] q` cannot be interchanged merely because both have width one.
         let arguments = call
             .arg_list()
             .and_then(|arguments| arguments.expression_list())
@@ -807,6 +1038,8 @@ impl Lowerer {
                 });
             }
         }
+        // The same physical qubit cannot occupy two formal parameters because
+        // that would alias operands within the specialized body.
         let unique_arguments = arguments
             .iter()
             .flat_map(QuantumOperand::cells)
@@ -823,6 +1056,8 @@ impl Lowerer {
                 snippet: call.syntax().text().to_string(),
             });
         }
+        // Calls returning classical data must appear with a compatible
+        // assignment target; void calls must not have one.
         match (template.return_type, targets.as_ref()) {
             (None, Some(_)) => {
                 return Err(FrontendError::Expected {
@@ -836,7 +1071,9 @@ impl Lowerer {
                     snippet: call.syntax().text().to_string(),
                 });
             }
-            (Some(return_type), Some(targets)) if return_type != targets.ty() => {
+            (Some(return_type), Some(targets))
+                if !bit_types_compatible(return_type, targets.ty()) =>
+            {
                 return Err(FrontendError::Expected {
                     expected: "a call target matching the subroutine return type",
                     snippet: call.syntax().text().to_string(),
@@ -845,6 +1082,8 @@ impl Lowerer {
             _ => {}
         }
 
+        // Bind formal quantum names to caller wires, lower the body, and then
+        // restore the surrounding lexical environment.
         self.active_subroutines.insert(index);
         self.scopes.enter(ScopeKind::Subroutine);
         let mut parameter_ids = Vec::new();
@@ -875,6 +1114,11 @@ impl Lowerer {
         Ok(self.ids.node(StatementKind::Scope(result?)))
     }
 
+    /// Lowers a called subroutine body in its call-site parameter environment.
+    ///
+    /// A final `return` writes into `targets`; local classical declarations are
+    /// retained in this block. Definitions that are never called never reach
+    /// this function.
     fn lower_subroutine_body(
         &mut self,
         body: ast::BlockExpr,
@@ -886,9 +1130,13 @@ impl Lowerer {
         let mut saw_return = false;
         for (index, statement) in source_statements.iter().cloned().enumerate() {
             match statement {
-                Stmt::ClassicalDeclarationStatement(declaration) => lowered
-                    .classical_registers
-                    .push(self.lower_classical_declaration(declaration)?),
+                Stmt::ClassicalDeclarationStatement(declaration) => {
+                    let (register, initializer) = self.lower_classical_declaration(declaration)?;
+                    lowered.classical_registers.push(register);
+                    if let Some(initializer) = initializer {
+                        lowered.statements.push(initializer);
+                    }
+                }
                 Stmt::QuantumDeclarationStatement(declaration) => {
                     self.lower_quantum_declaration(declaration)?;
                 }
@@ -925,6 +1173,12 @@ impl Lowerer {
         Ok(lowered)
     }
 
+    /// Connects a subroutine's classical return value to the caller target.
+    ///
+    /// `return measure q;` emits measurement statements. A classical
+    /// expression such as `return left ^ right;` is evaluated and copied into
+    /// the caller target. Quantum state is returned through referenced qubit
+    /// parameters, never through an OpenQASM return value.
     fn lower_return(
         &mut self,
         return_expression: ast::ReturnExpr,
@@ -934,19 +1188,23 @@ impl Lowerer {
     ) -> Result<(), FrontendError> {
         let value = return_expression.expr();
         match (return_type, value) {
+            // `return;` is the only valid return from a void subroutine.
             (None, None) => Ok(()),
             (None, Some(_)) => Err(unsupported!(
                 "value returned from void subroutine",
                 &return_expression
             )),
             (Some(_), None) => Err(expected!("a subroutine return value", &return_expression)),
+            // `return measure q;` writes measurement results directly into
+            // the caller's assignment target.
             (Some(return_type), Some(Expr::MeasureExpression(measurement))) => {
                 let qubits =
                     self.lower_qubits(measurement.gate_operand().ok_or_else(|| {
                         expected!("a returned measurement operand", &measurement)
                     })?)?;
                 if !measurement_types_match(qubits.ty(), return_type)
-                    || targets.is_some_and(|targets| targets.ty() != return_type)
+                    || targets
+                        .is_some_and(|targets| !bit_types_compatible(targets.ty(), return_type))
                 {
                     return Err(expected!(
                         "a return value matching its declared type",
@@ -966,10 +1224,16 @@ impl Lowerer {
                 }
                 Ok(())
             }
+            // Evaluate a classical return expression and copy it into the
+            // caller-provided target.
             (Some(return_type), Some(value)) => {
-                let values = self.lower_classical_value(value)?;
-                if values.ty() != return_type
-                    || targets.is_some_and(|targets| targets.ty() != return_type)
+                let snippet = return_expression.syntax().text().to_string();
+                let values = self.lower_bit_expr(value)?;
+                if values
+                    .bit_type()
+                    .is_none_or(|value_type| !bit_types_compatible(return_type, value_type))
+                    || targets
+                        .is_some_and(|targets| !bit_types_compatible(targets.ty(), return_type))
                 {
                     return Err(expected!(
                         "a return value matching its declared type",
@@ -977,16 +1241,11 @@ impl Lowerer {
                     ));
                 }
                 if let Some(targets) = targets {
-                    body.statements.extend(
-                        values
-                            .into_cells()
-                            .into_iter()
-                            .zip(targets.clone().into_cells())
-                            .map(|(value, target)| {
-                                let value = self.ids.node(ClassicalExprKind::Bit(value));
-                                self.ids.node(StatementKind::Assign { target, value })
-                            }),
-                    );
+                    body.statements.push(self.assign_bit_values(
+                        targets.clone(),
+                        values,
+                        snippet,
+                    )?);
                 }
                 Ok(())
             }
@@ -995,22 +1254,13 @@ impl Lowerer {
 
     /// Lowers an `if` statement and gives each branch its own lexical scope.
     fn lower_if(&mut self, statement: ast::IfStmt) -> Result<Statement, FrontendError> {
-        let condition = self.lower_classical_expr(
+        let condition = self.lower_scalar_bit_expression(
             statement
                 .condition()
                 .ok_or_else(|| expected!("an if condition", &statement))?,
         )?;
-        let mut branches = statement.syntax().children().filter_map(|node| {
-            ast::BlockExpr::cast(node.clone())
-                .map(BlockOrStmt::BlockExpr)
-                .or_else(|| Stmt::cast(node).map(BlockOrStmt::Stmt))
-        });
-        let then_branch = self.lower_branch(
-            branches
-                .next()
-                .ok_or_else(|| expected!("an if body", &statement))?,
-        )?;
-        let else_branch = match branches.next() {
+        let then_branch = self.lower_branch(statement.true_body_block_or_stmt())?;
+        let else_branch = match statement.false_body_block_or_stmt() {
             Some(branch) => self.lower_branch(branch)?,
             None => self.ids.node(BlockData::default()),
         };
@@ -1038,6 +1288,7 @@ impl Lowerer {
         }
     }
 
+    /// Lowers a braced block inside a fresh lexical scope.
     fn lower_block(&mut self, block: ast::BlockExpr) -> Result<Block, FrontendError> {
         self.scopes.enter(ScopeKind::Block);
         let result = self.lower_block_contents(block);
@@ -1045,14 +1296,19 @@ impl Lowerer {
         result
     }
 
+    /// Lowers declarations and statements after the caller has entered a scope.
     fn lower_block_contents(&mut self, block: ast::BlockExpr) -> Result<Block, FrontendError> {
         let mut lowered = self.ids.node(BlockData::default());
         for statement in block.statements() {
             match statement {
                 // `bit local;` belongs to this block and is removed on scope exit.
-                Stmt::ClassicalDeclarationStatement(declaration) => lowered
-                    .classical_registers
-                    .push(self.lower_classical_declaration(declaration)?),
+                Stmt::ClassicalDeclarationStatement(declaration) => {
+                    let (register, initializer) = self.lower_classical_declaration(declaration)?;
+                    lowered.classical_registers.push(register);
+                    if let Some(initializer) = initializer {
+                        lowered.statements.push(initializer);
+                    }
+                }
                 // A block-local qubit declaration is forwarded to the common
                 // declaration logic, which rejects it according to the language rules.
                 Stmt::QuantumDeclarationStatement(declaration) => {
@@ -1065,53 +1321,128 @@ impl Lowerer {
         Ok(lowered)
     }
 
-    /// Lowers the Boolean expression used by classical control flow.
-    fn lower_classical_expr(&mut self, expression: Expr) -> Result<ClassicalExpr, FrontendError> {
+    /// Lowers a scalar Boolean expression used by control flow.
+    fn lower_scalar_bit_expression(
+        &mut self,
+        expression: Expr,
+    ) -> Result<ClassicalExpr, FrontendError> {
+        let snippet = expression.syntax().text().to_string();
+        let expression = match self.lower_bit_expr(expression)? {
+            TypedClassicalExpr::Bool(expression) | TypedClassicalExpr::Bit(expression) => {
+                expression
+            }
+            _ => {
+                return Err(FrontendError::Expected {
+                    expected: "a scalar Boolean or bit expression",
+                    snippet,
+                });
+            }
+        };
+        Ok(expression)
+    }
+
+    /// Lowers a value used in a bool/bit context, including the literals 0 and 1.
+    fn lower_bit_expr(&mut self, expression: Expr) -> Result<TypedClassicalExpr, FrontendError> {
+        let snippet = expression.syntax().text().to_string();
+        let value = self.lower_typed_classical_expr(expression)?;
+        self.coerce_bit_expr(value, snippet)
+    }
+
+    /// Retains the expression's source type before operator dispatch.
+    fn lower_typed_classical_expr(
+        &mut self,
+        expression: Expr,
+    ) -> Result<TypedClassicalExpr, FrontendError> {
         match expression {
-            // `flag` refers to a scalar bit declaration.
+            // An unindexed name preserves its declared type and shape:
+            // `bool ready` and `bit flag` are scalar; `bit[n] bits` is a register.
             Expr::Identifier(identifier) => {
                 let name = identifier.string();
-                let operand = self.classical_cells(name.clone())?;
-                let BitOperand::Scalar(bit) = operand else {
-                    return Err(FrontendError::WrongIdentifierKind {
-                        name,
-                        expected: "classical bit",
-                        actual: "classical bit register",
-                    });
-                };
-                Ok(self.ids.node(ClassicalExprKind::Bit(bit)))
+                let operand = self.classical_cells(name)?;
+                Ok(self.bit_operand_expr(operand))
             }
-            // `flags[2]` resolves one bit from a classical register.
+            // `bits[2]` selects one checked cell and is therefore scalar `bit`.
             Expr::IndexedIdentifier(indexed) => {
                 let bit = self.lower_classical_indexed(indexed)?;
-                Ok(self.ids.node(ClassicalExprKind::Bit(bit)))
+                Ok(TypedClassicalExpr::Bit(
+                    self.ids.node(ClassicalExprKind::Bit(bit)),
+                ))
             }
-            // `true` and `false` become Boolean constants.
             Expr::Literal(literal) => match literal.kind() {
-                ast::LiteralKind::Bool(value) => Ok(self.ids.node(ClassicalExprKind::Bool(value))),
-                _ => Err(unsupported!("non-Boolean condition literal", &literal)),
+                // `true` and `false` are scalar Boolean values.
+                ast::LiteralKind::Bool(value) => Ok(TypedClassicalExpr::Bool(
+                    self.ids.node(ClassicalExprKind::Bool(value)),
+                )),
+                // Integer literals retain arbitrary precision until a bit or
+                // integer operation supplies the required type and width.
+                ast::LiteralKind::IntNumber(number) => Ok(TypedClassicalExpr::IntegerLiteral(
+                    exact_integer_value(number)?,
+                )),
+                // A bit string such as `"101"` is a width-three register
+                // value. Reverse source order gives the IR its bit-zero-first
+                // convention: `[true, false, true]`.
+                ast::LiteralKind::BitString(value) => {
+                    let bits = value
+                        .str()
+                        .ok_or_else(|| expected!("a bit-string literal", &literal))?
+                        .chars()
+                        .filter(|character| *character != '_')
+                        .rev()
+                        .map(|bit| {
+                            self.ids.node(ClassicalExprKind::Bool(match bit {
+                                '0' => false,
+                                '1' => true,
+                                _ => unreachable!(),
+                            }))
+                        })
+                        .collect();
+                    Ok(TypedClassicalExpr::Register(bits))
+                }
+                _ => Err(unsupported!("classical bit literal", &literal)),
             },
-            // Parentheses only determine precedence in the source expression.
-            Expr::ParenExpr(paren) => self.lower_classical_expr(
+            // Parentheses affect parsing precedence but do not add an IR node:
+            // `(a ^ b)` has the same lowered form as `a ^ b`.
+            Expr::ParenExpr(paren) => self.lower_typed_classical_expr(
                 paren
                     .expr()
                     .ok_or_else(|| expected!("a parenthesized expression", &paren))?,
             ),
-            // `!flag` becomes Boolean negation.
+            // Casts produce typed expressions before any surrounding comparison.
+            // Thus both sides of `int[3](a) == int[3](b)` lower uniformly.
+            Expr::CastExpression(cast) => self.lower_classical_cast(cast),
             Expr::PrefixExpr(prefix) => {
                 let operand = prefix
                     .expr()
                     .ok_or_else(|| expected!("a prefix operand", &prefix))?;
                 match prefix.op_kind() {
+                    // Logical `!flag` requires one scalar truth value.
                     Some(ast::UnaryOp::LogicNot) => {
-                        let operand = self.lower_classical_expr(operand)?;
-                        Ok(self.ids.node(ClassicalExprKind::Not(Box::new(operand))))
+                        let operand = match self.lower_bit_expr(operand)? {
+                            TypedClassicalExpr::Bool(operand)
+                            | TypedClassicalExpr::Bit(operand) => operand,
+                            _ => return Err(expected!("a scalar logical-not operand", &prefix)),
+                        };
+                        Ok(TypedClassicalExpr::Bool(
+                            self.ids.node(ClassicalExprKind::Not(Box::new(operand))),
+                        ))
                     }
-                    _ => Err(unsupported!("condition prefix operator", &prefix)),
+                    // Bitwise `~value` applies Not to one scalar or to every
+                    // cell of a register, e.g. `~"001"` becomes `"110"`.
+                    Some(ast::UnaryOp::Not) => {
+                        let operand = self.lower_typed_classical_expr(operand)?;
+                        self.negate_classical_expr(operand, &prefix)
+                    }
+                    // A leading minus is retained on an integer literal so a
+                    // later typed comparison can encode it in two's complement.
+                    Some(ast::UnaryOp::Neg) => match self.lower_typed_classical_expr(operand)? {
+                        TypedClassicalExpr::IntegerLiteral(value) => {
+                            Ok(TypedClassicalExpr::IntegerLiteral(-value))
+                        }
+                        _ => Err(unsupported!("non-literal integer negation", &prefix)),
+                    },
+                    _ => Err(unsupported!("classical prefix operator", &prefix)),
                 }
             }
-            // Comparisons and Boolean operators recursively combine their operands;
-            // for example, `a && !b` becomes `And(Bit(a), Not(Bit(b)))`.
             Expr::BinExpr(binary) => {
                 let left_source = binary
                     .lhs()
@@ -1119,92 +1450,590 @@ impl Lowerer {
                 let right_source = binary
                     .rhs()
                     .ok_or_else(|| expected!("a right operand", &binary))?;
-                if matches!(
-                    binary.op_kind(),
-                    Some(ast::BinaryOp::CmpOp(ast::CmpOp::Eq { negated: false }))
-                ) && let Some(expression) =
-                    self.lower_integer_register_equality(&left_source, &right_source)?
-                {
-                    return Ok(expression);
-                }
-                let left = self.lower_classical_expr(left_source)?;
-                let right = self.lower_classical_expr(right_source)?;
-                let left = Box::new(left);
-                let right = Box::new(right);
+                let left = self.lower_typed_classical_expr(left_source)?;
+                let right = self.lower_typed_classical_expr(right_source)?;
                 match binary.op_kind() {
-                    Some(ast::BinaryOp::CmpOp(ast::CmpOp::Eq { negated: false })) => {
-                        Ok(self.ids.node(ClassicalExprKind::Eq(left, right)))
+                    // Equality dispatches after both operand types are known.
+                    Some(ast::BinaryOp::CmpOp(ast::CmpOp::Eq { negated })) => {
+                        let equality = self.lower_classical_equality(left, right, &binary)?;
+                        if negated {
+                            Ok(TypedClassicalExpr::Bool(
+                                self.ids.node(ClassicalExprKind::Not(Box::new(equality))),
+                            ))
+                        } else {
+                            Ok(TypedClassicalExpr::Bool(equality))
+                        }
                     }
+                    // Ordering uses unsigned order for bits and the retained
+                    // signedness for integer casts.
+                    Some(ast::BinaryOp::CmpOp(ast::CmpOp::Ord { ordering, strict })) => {
+                        Ok(TypedClassicalExpr::Bool(self.lower_classical_order(
+                            left, right, ordering, strict, &binary,
+                        )?))
+                    }
+                    // Logical `a && b` accepts scalar truth values only.
                     Some(ast::BinaryOp::LogicOp(ast::LogicOp::And)) => {
-                        Ok(self.ids.node(ClassicalExprKind::And(left, right)))
+                        let (left, right) = self.scalar_operands(left, right, &binary)?;
+                        Ok(TypedClassicalExpr::Bool(self.ids.node(
+                            ClassicalExprKind::And(Box::new(left), Box::new(right)),
+                        )))
                     }
+                    // Logical `a || b` likewise rejects register operands.
                     Some(ast::BinaryOp::LogicOp(ast::LogicOp::Or)) => {
-                        Ok(self.ids.node(ClassicalExprKind::Or(left, right)))
+                        let (left, right) = self.scalar_operands(left, right, &binary)?;
+                        Ok(TypedClassicalExpr::Bool(self.ids.node(
+                            ClassicalExprKind::Or(Box::new(left), Box::new(right)),
+                        )))
                     }
-                    Some(ast::BinaryOp::ArithOp(ast::ArithOp::BitXor)) => {
-                        Ok(self.ids.node(ClassicalExprKind::Xor(left, right)))
-                    }
-                    _ => Err(unsupported!("condition binary operator", &binary)),
+                    // Bitwise operations preserve the common typed shape.
+                    Some(ast::BinaryOp::ArithOp(
+                        operation @ (ast::ArithOp::BitAnd
+                        | ast::ArithOp::BitOr
+                        | ast::ArithOp::BitXor),
+                    )) => self.lower_bitwise_expr(operation, left, right, &binary),
+                    _ => Err(unsupported!("classical binary operator", &binary)),
                 }
             }
-            _ => Err(unsupported!("classical condition", &expression)),
+            // Arithmetic, shifts, concatenation, and other classical value
+            // forms require IR semantics beyond the current Boolean subset.
+            _ => Err(unsupported!("classical bit expression", &expression)),
         }
     }
 
-    /// Lowers `int[n](bits) == k` or `uint[n](bits) == k` to individual bit
-    /// equalities. OpenQASM bit zero is the least-significant integer bit;
-    /// signed integers use two's-complement representation.
+    /// Turns storage cells into read expressions without changing their shape.
     ///
-    /// For example, `int[3](bits) == -2` matches the little-endian pattern
-    /// `bits[0..3] = 0, 1, 1`, whereas `uint[3](bits) == 6` matches the same
-    /// bits but denotes the unsigned value six.
-    fn lower_integer_register_equality(
+    /// For example, reading `bit[2] c` produces `[Bit(c[0]), Bit(c[1])]`.
+    fn bit_operand_expr(&mut self, operand: BitOperand) -> TypedClassicalExpr {
+        match operand {
+            BitOperand::Bool(bit) => {
+                TypedClassicalExpr::Bool(self.ids.node(ClassicalExprKind::Bit(bit)))
+            }
+            BitOperand::Bit(bit) => {
+                TypedClassicalExpr::Bit(self.ids.node(ClassicalExprKind::Bit(bit)))
+            }
+            BitOperand::Register(bits) => TypedClassicalExpr::Register(
+                bits.into_iter()
+                    .map(|bit| self.ids.node(ClassicalExprKind::Bit(bit)))
+                    .collect(),
+            ),
+        }
+    }
+
+    /// Lowers a bool, bit, int, or uint cast to one typed expression.
+    ///
+    /// For example, `bool(bit[3](bits))` is true exactly when at least one
+    /// source bit is one; `int[3](bits)` retains the same cells as signed data.
+    fn lower_classical_cast(
         &mut self,
-        left: &Expr,
-        right: &Expr,
-    ) -> Result<Option<ClassicalExpr>, FrontendError> {
-        let (cast, literal) = match (left, right) {
-            (Expr::CastExpression(cast), literal) => (cast, literal),
-            (literal, Expr::CastExpression(cast)) => (cast, literal),
-            _ => return Ok(None),
-        };
-        let Some(ty) = cast.scalar_type() else {
-            return Ok(None);
-        };
-        let signed = if ty.int_token().is_some() {
-            true
-        } else if ty.uint_token().is_some() {
-            false
-        } else {
-            return Ok(None);
-        };
-        let Some(value) = exact_integer_literal(literal)? else {
-            return Ok(None);
-        };
-        let width = ty
-            .designator()
-            .ok_or_else(|| expected!("an explicitly sized integer cast", cast))?
+        cast: ast::CastExpression,
+    ) -> Result<TypedClassicalExpr, FrontendError> {
+        let ty = cast
+            .scalar_type()
+            .ok_or_else(|| expected!("a classical cast type", &cast))?;
+        let operand = cast
             .expr()
-            .ok_or_else(|| expected!("an integer cast width", cast))
-            .and_then(literal_usize)?;
-        if width == 0 {
-            return Err(expected!("a non-empty integer cast", cast));
+            .ok_or_else(|| expected!("a classical cast operand", &cast))?;
+
+        if ty.int_token().is_some() || ty.uint_token().is_some() {
+            let signedness = if ty.int_token().is_some() {
+                Signedness::Signed
+            } else {
+                Signedness::Unsigned
+            };
+            let width = ty
+                .designator()
+                .ok_or_else(|| expected!("an explicitly sized integer cast", &cast))?
+                .expr()
+                .ok_or_else(|| expected!("an integer cast width", &cast))
+                .and_then(literal_usize)?;
+            if width == 0 {
+                return Err(expected!("a non-empty integer cast", &cast));
+            }
+            let value = self.lower_typed_classical_expr(operand)?;
+            let bits = match value {
+                TypedClassicalExpr::Register(bits) | TypedClassicalExpr::Integer { bits, .. }
+                    if bits.len() == width =>
+                {
+                    bits
+                }
+                _ => return Err(expected!("an integer cast matching its bit width", &cast)),
+            };
+            return Ok(TypedClassicalExpr::Integer { bits, signedness });
         }
-        let bits = self.lower_classical_value(
-            cast.expr()
-                .ok_or_else(|| expected!("an integer cast operand", cast))?,
-        )?;
-        if bits.ty() != (BitType::Register { width }) {
-            return Err(expected!("an integer cast matching its bit width", cast));
+
+        if ty.bool_token().is_some() {
+            if ty.designator().is_some() {
+                return Err(expected!("a scalar bool cast type", &cast));
+            }
+            let value = self.lower_typed_classical_expr(operand)?;
+            return Ok(TypedClassicalExpr::Bool(self.truth_expr(value)));
         }
+
+        if ty.bit_token().is_some() {
+            let value = self.lower_typed_classical_expr(operand)?;
+            if let Some(designator) = ty.designator() {
+                let width = designator
+                    .expr()
+                    .ok_or_else(|| expected!("a bit cast width", &designator))
+                    .and_then(literal_usize)?;
+                let bits = match value {
+                    TypedClassicalExpr::Register(bits)
+                    | TypedClassicalExpr::Integer { bits, .. }
+                        if bits.len() == width =>
+                    {
+                        bits
+                    }
+                    TypedClassicalExpr::Bool(value) | TypedClassicalExpr::Bit(value)
+                        if width == 1 =>
+                    {
+                        vec![value]
+                    }
+                    _ => return Err(expected!("a bit cast matching its width", &cast)),
+                };
+                return Ok(TypedClassicalExpr::Register(bits));
+            };
+            let value = self.coerce_bit_expr(value, cast.syntax().text().to_string())?;
+            return match value {
+                TypedClassicalExpr::Bool(value) | TypedClassicalExpr::Bit(value) => {
+                    Ok(TypedClassicalExpr::Bit(value))
+                }
+                _ => Err(expected!("a scalar bool or bit cast operand", &cast)),
+            };
+        }
+
+        Err(unsupported!("classical cast type", &ty))
+    }
+
+    /// Accepts a bool/bit value and converts the untyped literals `0` and `1`
+    /// to scalar bits. Other integer literals still need an explicit cast.
+    fn coerce_bit_expr(
+        &mut self,
+        value: TypedClassicalExpr,
+        snippet: String,
+    ) -> Result<TypedClassicalExpr, FrontendError> {
+        match value {
+            TypedClassicalExpr::Bool(_)
+            | TypedClassicalExpr::Bit(_)
+            | TypedClassicalExpr::Register(_) => Ok(value),
+            TypedClassicalExpr::IntegerLiteral(value)
+                if value == BigInt::from(0_u8) || value == BigInt::from(1_u8) =>
+            {
+                Ok(TypedClassicalExpr::Bit(self.ids.node(
+                    ClassicalExprKind::Bool(value == BigInt::from(1_u8)),
+                )))
+            }
+            TypedClassicalExpr::IntegerLiteral(_) => Err(FrontendError::Expected {
+                expected: "the scalar bit literal 0 or 1",
+                snippet,
+            }),
+            TypedClassicalExpr::Integer { .. } => Err(FrontendError::Expected {
+                expected: "a bit value",
+                snippet,
+            }),
+        }
+    }
+
+    /// Extracts two scalar operands for `&&` and `||`.
+    fn scalar_operands(
+        &mut self,
+        left: TypedClassicalExpr,
+        right: TypedClassicalExpr,
+        source: &ast::BinExpr,
+    ) -> Result<(ClassicalExpr, ClassicalExpr), FrontendError> {
+        let snippet = source.syntax().text().to_string();
+        match (
+            self.coerce_bit_expr(left, snippet.clone())?,
+            self.coerce_bit_expr(right, snippet)?,
+        ) {
+            (
+                TypedClassicalExpr::Bool(left) | TypedClassicalExpr::Bit(left),
+                TypedClassicalExpr::Bool(right) | TypedClassicalExpr::Bit(right),
+            ) => Ok((left, right)),
+            _ => Err(expected!("scalar logical operands", source)),
+        }
+    }
+
+    /// Converts a scalar bool/bit, bit register, or integer to one Boolean.
+    ///
+    /// A multi-bit value follows `value != 0`: `bool(bits)` becomes the OR of
+    /// all cells, while a scalar `bool` or `bit` is already a truth value.
+    fn truth_expr(&mut self, value: TypedClassicalExpr) -> ClassicalExpr {
+        match value {
+            TypedClassicalExpr::Bool(value) | TypedClassicalExpr::Bit(value) => value,
+            TypedClassicalExpr::Register(bits) | TypedClassicalExpr::Integer { bits, .. } => {
+                let mut bits = bits.into_iter();
+                let Some(mut value) = bits.next() else {
+                    return self.ids.node(ClassicalExprKind::Bool(false));
+                };
+                for bit in bits {
+                    value = self
+                        .ids
+                        .node(ClassicalExprKind::Or(Box::new(value), Box::new(bit)));
+                }
+                value
+            }
+            TypedClassicalExpr::IntegerLiteral(value) => self
+                .ids
+                .node(ClassicalExprKind::Bool(value != BigInt::from(0_u8))),
+        }
+    }
+
+    /// Applies bitwise complement while preserving bit shape or integer type.
+    fn negate_classical_expr<T: AstNode>(
+        &mut self,
+        value: TypedClassicalExpr,
+        source: &T,
+    ) -> Result<TypedClassicalExpr, FrontendError> {
+        let negate =
+            |this: &mut Self, value| this.ids.node(ClassicalExprKind::Not(Box::new(value)));
+        match value {
+            TypedClassicalExpr::Bool(value) | TypedClassicalExpr::Bit(value) => {
+                Ok(TypedClassicalExpr::Bit(negate(self, value)))
+            }
+            TypedClassicalExpr::Register(values) => Ok(TypedClassicalExpr::Register(
+                values
+                    .into_iter()
+                    .map(|value| negate(self, value))
+                    .collect(),
+            )),
+            TypedClassicalExpr::Integer { bits, signedness } => Ok(TypedClassicalExpr::Integer {
+                bits: bits.into_iter().map(|value| negate(self, value)).collect(),
+                signedness,
+            }),
+            TypedClassicalExpr::IntegerLiteral(_) => {
+                Err(expected!("a width-bearing bitwise-not operand", source))
+            }
+        }
+    }
+
+    /// Lowers shape-compatible `&`, `|`, or `^` after resolving operand types.
+    ///
+    /// `a ^ b` on `bit[2]` values becomes the pair `a[0] ^ b[0]` and
+    /// `a[1] ^ b[1]`; scalar/register mixing is rejected.
+    fn lower_bitwise_expr(
+        &mut self,
+        operation: ast::ArithOp,
+        left: TypedClassicalExpr,
+        right: TypedClassicalExpr,
+        source: &ast::BinExpr,
+    ) -> Result<TypedClassicalExpr, FrontendError> {
+        if matches!(&left, TypedClassicalExpr::Integer { .. })
+            || matches!(&right, TypedClassicalExpr::Integer { .. })
+        {
+            return match (left, right) {
+                (
+                    TypedClassicalExpr::Integer {
+                        bits: left,
+                        signedness: left_signedness,
+                    },
+                    TypedClassicalExpr::Integer {
+                        bits: right,
+                        signedness: right_signedness,
+                    },
+                ) if left_signedness == right_signedness && left.len() == right.len() => {
+                    Ok(TypedClassicalExpr::Integer {
+                        bits: left
+                            .into_iter()
+                            .zip(right)
+                            .map(|(left, right)| self.bitwise_scalar(operation, left, right))
+                            .collect(),
+                        signedness: left_signedness,
+                    })
+                }
+                _ => Err(expected!(
+                    "integer bitwise operands with matching type and width",
+                    source
+                )),
+            };
+        }
+
+        let snippet = source.syntax().text().to_string();
+        let left = self.coerce_bit_expr(left, snippet.clone())?;
+        let right = self.coerce_bit_expr(right, snippet)?;
+        match (left, right) {
+            (
+                TypedClassicalExpr::Bool(left) | TypedClassicalExpr::Bit(left),
+                TypedClassicalExpr::Bool(right) | TypedClassicalExpr::Bit(right),
+            ) => Ok(TypedClassicalExpr::Bit(
+                self.bitwise_scalar(operation, left, right),
+            )),
+            (TypedClassicalExpr::Register(left), TypedClassicalExpr::Register(right))
+                if left.len() == right.len() =>
+            {
+                Ok(TypedClassicalExpr::Register(
+                    left.into_iter()
+                        .zip(right)
+                        .map(|(left, right)| self.bitwise_scalar(operation, left, right))
+                        .collect(),
+                ))
+            }
+            _ => Err(expected!(
+                "matching scalar or register bitwise operands",
+                source
+            )),
+        }
+    }
+
+    /// Constructs one scalar Boolean node for a bitwise operator.
+    fn bitwise_scalar(
+        &mut self,
+        operation: ast::ArithOp,
+        left: ClassicalExpr,
+        right: ClassicalExpr,
+    ) -> ClassicalExpr {
+        let left = Box::new(left);
+        let right = Box::new(right);
+        match operation {
+            ast::ArithOp::BitAnd => self.ids.node(ClassicalExprKind::And(left, right)),
+            ast::ArithOp::BitOr => self.ids.node(ClassicalExprKind::Or(left, right)),
+            ast::ArithOp::BitXor => self.ids.node(ClassicalExprKind::Xor(left, right)),
+            _ => unreachable!(),
+        }
+    }
+
+    /// Compares two typed expressions after resolving literal width and signedness.
+    fn lower_classical_equality(
+        &mut self,
+        left: TypedClassicalExpr,
+        right: TypedClassicalExpr,
+        source: &ast::BinExpr,
+    ) -> Result<ClassicalExpr, FrontendError> {
+        if let (
+            TypedClassicalExpr::IntegerLiteral(left),
+            TypedClassicalExpr::IntegerLiteral(right),
+        ) = (&left, &right)
+        {
+            return Ok(self.ids.node(ClassicalExprKind::Bool(left == right)));
+        }
+        let integer_comparison = matches!(&left, TypedClassicalExpr::Integer { .. })
+            || matches!(&right, TypedClassicalExpr::Integer { .. });
+        let (left, right) = if integer_comparison {
+            let (left, right, _) = self.integer_operands(left, right, source)?;
+            (left, right)
+        } else {
+            self.bit_operands(
+                left,
+                right,
+                source,
+                "matching scalar or register equality operands",
+            )?
+        };
+        Ok(self.equal_cells(left, right))
+    }
+
+    /// Conjoins equality of two equally sized little-endian cell vectors.
+    fn equal_cells(
+        &mut self,
+        left: Vec<ClassicalExpr>,
+        right: Vec<ClassicalExpr>,
+    ) -> ClassicalExpr {
+        let mut equalities = Vec::with_capacity(left.len());
+        for (left, right) in left.into_iter().zip(right) {
+            equalities.push(
+                self.ids
+                    .node(ClassicalExprKind::Eq(Box::new(left), Box::new(right))),
+            );
+        }
+        let mut equalities = equalities.into_iter();
+        let Some(mut equality) = equalities.next() else {
+            return self.ids.node(ClassicalExprKind::Bool(true));
+        };
+        for next in equalities {
+            equality = self
+                .ids
+                .node(ClassicalExprKind::And(Box::new(equality), Box::new(next)));
+        }
+        equality
+    }
+
+    /// Orders bit values as unsigned and integer casts according to signedness.
+    ///
+    /// Bits are visited from low to high. A newly visited bit therefore takes
+    /// precedence when it differs; only equal bits preserve the comparison of
+    /// the lower suffix. For `<`, the recurrence is
+    /// `less = (!left & right) | ((left == right) & less)`.
+    fn lower_classical_order(
+        &mut self,
+        left: TypedClassicalExpr,
+        right: TypedClassicalExpr,
+        ordering: ast::Ordering,
+        strict: bool,
+        source: &ast::BinExpr,
+    ) -> Result<ClassicalExpr, FrontendError> {
+        if let (
+            TypedClassicalExpr::IntegerLiteral(left),
+            TypedClassicalExpr::IntegerLiteral(right),
+        ) = (&left, &right)
+        {
+            let result = match (ordering, strict) {
+                (ast::Ordering::Less, true) => left < right,
+                (ast::Ordering::Less, false) => left <= right,
+                (ast::Ordering::Greater, true) => left > right,
+                (ast::Ordering::Greater, false) => left >= right,
+            };
+            return Ok(self.ids.node(ClassicalExprKind::Bool(result)));
+        }
+        let integer_comparison = matches!(&left, TypedClassicalExpr::Integer { .. })
+            || matches!(&right, TypedClassicalExpr::Integer { .. });
+        let (mut left, mut right, signedness) = if integer_comparison {
+            self.integer_operands(left, right, source)?
+        } else {
+            let (left, right) = self.bit_operands(
+                left,
+                right,
+                source,
+                "matching scalar or register comparison operands",
+            )?;
+            (left, right, Signedness::Unsigned)
+        };
+
+        // Flipping the sign bit maps two's-complement order to unsigned order.
+        if signedness == Signedness::Signed {
+            let left_sign = left.pop().expect("integer width is nonzero");
+            let right_sign = right.pop().expect("integer width is nonzero");
+            left.push(self.ids.node(ClassicalExprKind::Not(Box::new(left_sign))));
+            right.push(self.ids.node(ClassicalExprKind::Not(Box::new(right_sign))));
+        }
+        Ok(self.order_cells(left, right, ordering, strict))
+    }
+
+    /// Applies unsigned lexicographic order to little-endian Boolean cells.
+    fn order_cells(
+        &mut self,
+        left: Vec<ClassicalExpr>,
+        right: Vec<ClassicalExpr>,
+        ordering: ast::Ordering,
+        strict: bool,
+    ) -> ClassicalExpr {
+        let ordering = if strict {
+            ordering
+        } else {
+            match ordering {
+                ast::Ordering::Less => ast::Ordering::Greater,
+                ast::Ordering::Greater => ast::Ordering::Less,
+            }
+        };
+        let mut ordered = self.ids.node(ClassicalExprKind::Bool(false));
+        for (left, right) in left.into_iter().zip(right) {
+            let equal_left = self.clone_classical_expr(&left);
+            let equal_right = self.clone_classical_expr(&right);
+            let preferred = match ordering {
+                ast::Ordering::Less => {
+                    let left = self.ids.node(ClassicalExprKind::Not(Box::new(left)));
+                    self.ids
+                        .node(ClassicalExprKind::And(Box::new(left), Box::new(right)))
+                }
+                ast::Ordering::Greater => {
+                    let right = self.ids.node(ClassicalExprKind::Not(Box::new(right)));
+                    self.ids
+                        .node(ClassicalExprKind::And(Box::new(left), Box::new(right)))
+                }
+            };
+            let bit_equal = self.ids.node(ClassicalExprKind::Eq(
+                Box::new(equal_left),
+                Box::new(equal_right),
+            ));
+            let lower_ordered = self.ids.node(ClassicalExprKind::And(
+                Box::new(bit_equal),
+                Box::new(ordered),
+            ));
+            ordered = self.ids.node(ClassicalExprKind::Or(
+                Box::new(preferred),
+                Box::new(lower_ordered),
+            ));
+        }
+        if strict {
+            ordered
+        } else {
+            self.ids.node(ClassicalExprKind::Not(Box::new(ordered)))
+        }
+    }
+
+    /// Aligns two scalar/register bit values and checks their source shape.
+    fn bit_operands(
+        &mut self,
+        left: TypedClassicalExpr,
+        right: TypedClassicalExpr,
+        source: &ast::BinExpr,
+        expected: &'static str,
+    ) -> Result<(Vec<ClassicalExpr>, Vec<ClassicalExpr>), FrontendError> {
+        let snippet = source.syntax().text().to_string();
+        let left = self.coerce_bit_expr(left, snippet.clone())?;
+        let right = self.coerce_bit_expr(right, snippet)?;
+        match (left, right) {
+            (
+                TypedClassicalExpr::Bool(left) | TypedClassicalExpr::Bit(left),
+                TypedClassicalExpr::Bool(right) | TypedClassicalExpr::Bit(right),
+            ) => Ok((vec![left], vec![right])),
+            (TypedClassicalExpr::Register(left), TypedClassicalExpr::Register(right))
+                if left.len() == right.len() =>
+            {
+                Ok((left, right))
+            }
+            _ => Err(expected!(expected, source)),
+        }
+    }
+
+    /// Aligns typed integers, encoding one literal at the other operand's type.
+    fn integer_operands(
+        &mut self,
+        left: TypedClassicalExpr,
+        right: TypedClassicalExpr,
+        source: &ast::BinExpr,
+    ) -> Result<(Vec<ClassicalExpr>, Vec<ClassicalExpr>, Signedness), FrontendError> {
+        match (left, right) {
+            (
+                TypedClassicalExpr::Integer {
+                    bits: left,
+                    signedness: left_signedness,
+                },
+                TypedClassicalExpr::Integer {
+                    bits: right,
+                    signedness: right_signedness,
+                },
+            ) if left_signedness == right_signedness && left.len() == right.len() => {
+                Ok((left, right, left_signedness))
+            }
+            (
+                TypedClassicalExpr::Integer { bits, signedness },
+                TypedClassicalExpr::IntegerLiteral(value),
+            ) => {
+                let literal = self.integer_literal_bits(value, bits.len(), signedness, source)?;
+                Ok((bits, literal, signedness))
+            }
+            (
+                TypedClassicalExpr::IntegerLiteral(value),
+                TypedClassicalExpr::Integer { bits, signedness },
+            ) => {
+                let literal = self.integer_literal_bits(value, bits.len(), signedness, source)?;
+                Ok((literal, bits, signedness))
+            }
+            _ => Err(expected!(
+                "integer operands with matching signedness and width",
+                source
+            )),
+        }
+    }
+
+    /// Encodes an exact literal using the target integer's little-endian bits.
+    ///
+    /// For example, `-2` at type `int[3]` becomes `[0, 1, 1]`, with the least
+    /// significant bit first.
+    fn integer_literal_bits(
+        &mut self,
+        value: BigInt,
+        width: usize,
+        signedness: Signedness,
+        source: &ast::BinExpr,
+    ) -> Result<Vec<ClassicalExpr>, FrontendError> {
         let modulus = BigInt::from(1_u8) << width;
-        let bit_pattern = if signed {
+        let bit_pattern = if signedness == Signedness::Signed {
             let magnitude = BigInt::from(1_u8) << (width - 1);
             if value < -&magnitude || value >= magnitude {
-                return Err(expected!(
-                    "a signed integer literal representable at the cast width",
-                    literal
-                ));
+                return Err(FrontendError::Expected {
+                    expected: "a signed integer literal representable at the cast width",
+                    snippet: source.syntax().text().to_string(),
+                });
             }
             if value < BigInt::from(0_u8) {
                 modulus + value
@@ -1213,38 +2042,19 @@ impl Lowerer {
             }
         } else {
             if value < BigInt::from(0_u8) || value >= modulus {
-                return Err(expected!(
-                    "an unsigned integer literal representable at the cast width",
-                    literal
-                ));
+                return Err(FrontendError::Expected {
+                    expected: "an unsigned integer literal representable at the cast width",
+                    snippet: source.syntax().text().to_string(),
+                });
             }
             value
         };
-        let mut terms = bits
-            .into_cells()
-            .into_iter()
-            .enumerate()
-            .map(|(index, bit)| {
-                let bit = self.ids.node(ClassicalExprKind::Bit(bit));
-                let expected_one =
-                    ((&bit_pattern >> index) & BigInt::from(1_u8)) == BigInt::from(1_u8);
-                if !expected_one {
-                    self.ids.node(ClassicalExprKind::Not(Box::new(bit)))
-                } else {
-                    bit
-                }
+        Ok((0..width)
+            .map(|index| {
+                let value = ((&bit_pattern >> index) & BigInt::from(1_u8)) == BigInt::from(1_u8);
+                self.ids.node(ClassicalExprKind::Bool(value))
             })
-            .collect::<Vec<_>>()
-            .into_iter();
-        let mut expression = terms
-            .next()
-            .ok_or_else(|| expected!("a non-empty integer cast", cast))?;
-        for term in terms {
-            expression = self
-                .ids
-                .node(ClassicalExprKind::And(Box::new(expression), Box::new(term)));
-        }
-        Ok(Some(expression))
+            .collect())
     }
 
     /// Resolves a gate operand without erasing whether it was a scalar qubit or
@@ -1270,6 +2080,7 @@ impl Lowerer {
         }
     }
 
+    /// Resolves a subroutine argument such as `q` or `q[2]` to caller wires.
     fn lower_quantum_argument(&self, expression: Expr) -> Result<QuantumOperand, FrontendError> {
         match expression {
             Expr::Identifier(identifier) => {
@@ -1285,6 +2096,10 @@ impl Lowerer {
         }
     }
 
+    /// Expands a quantum binding into the concrete wires visible at this call site.
+    ///
+    /// Global variables use their own symbol ID. A formal parameter instead
+    /// resolves through `quantum_arguments` to the caller-owned operand.
     fn quantum_cells(&self, name: &str, binding: Binding) -> Result<QuantumOperand, FrontendError> {
         match binding.kind {
             BindingKind::QuantumVariable(QuantumType::Scalar) => {
@@ -1312,6 +2127,7 @@ impl Lowerer {
         }
     }
 
+    /// Resolves and bounds-checks one indexed classical operand such as `c[1]`.
     fn lower_classical_indexed(
         &self,
         indexed: ast::IndexedIdentifier,
@@ -1320,6 +2136,7 @@ impl Lowerer {
         self.checked_classical_bit(name, index)
     }
 
+    /// Resolves `name[index]`, rejecting scalar bindings and out-of-range indices.
     fn checked_qubit(&self, name: String, index: usize) -> Result<Qubit, FrontendError> {
         let binding = self.scopes.lookup(&name).map_err(scope_error)?;
         let ty = quantum_type_of(&name, binding.kind)?;
@@ -1346,6 +2163,7 @@ impl Lowerer {
         }
     }
 
+    /// Resolves a cell of a declared `bit[n]` register.
     fn checked_classical_bit(
         &self,
         name: String,
@@ -1366,10 +2184,15 @@ impl Lowerer {
         })
     }
 
+    /// Resolves an unindexed classical name while preserving its type and shape.
     fn classical_cells(&self, name: String) -> Result<BitOperand, FrontendError> {
         let binding = self.scopes.lookup(&name).map_err(scope_error)?;
         match binding.kind {
-            BindingKind::ClassicalBit(BitType::Scalar) => Ok(BitOperand::Scalar(ClassicalBit {
+            BindingKind::ClassicalBit(BitType::Bool) => Ok(BitOperand::Bool(ClassicalBit {
+                register: binding.id,
+                index: 0,
+            })),
+            BindingKind::ClassicalBit(BitType::Bit) => Ok(BitOperand::Bit(ClassicalBit {
                 register: binding.id,
                 index: 0,
             })),
@@ -1389,16 +2212,25 @@ impl Lowerer {
         }
     }
 
-    fn lower_classical_value(&self, expression: Expr) -> Result<BitOperand, FrontendError> {
+    /// Lowers a classical storage operand, not a computed expression.
+    ///
+    /// Thus `c` and `c[0]` are accepted, while `c ^ d` is handled by
+    /// [`Lowerer::lower_typed_classical_expr`] instead.
+    fn lower_bit_operand(&self, expression: Expr) -> Result<BitOperand, FrontendError> {
         match expression {
             Expr::Identifier(identifier) => self.classical_cells(identifier.string()),
             Expr::IndexedIdentifier(indexed) => {
-                Ok(BitOperand::Scalar(self.lower_classical_indexed(indexed)?))
+                Ok(BitOperand::Bit(self.lower_classical_indexed(indexed)?))
             }
-            expression => Err(unsupported!("subroutine return expression", &expression)),
+            expression => Err(unsupported!("classical bit operand", &expression)),
         }
     }
 
+    /// Represents zero or many scalarized operations through one statement API.
+    ///
+    /// A scalar operation is returned directly. Register-wide lowering such as
+    /// `dst = src` produces one assignment per cell and groups them in
+    /// [`StatementKind::Scope`]; that wrapper need not introduce declarations.
     fn sequence(&mut self, mut statements: Vec<Statement>) -> Statement {
         if statements.len() == 1 {
             return statements.pop().unwrap();
@@ -1410,6 +2242,10 @@ impl Lowerer {
         self.ids.node(StatementKind::Scope(body))
     }
 
+    /// Copies an expression while allocating fresh AST IDs for every new node.
+    ///
+    /// Ordinary `Clone` would duplicate IDs; this form is used when register
+    /// broadcasting emits the same gate parameter into multiple IR statements.
     fn clone_numeric_expr(&mut self, expression: &NumericExpr) -> NumericExpr {
         let kind = match &expression.kind {
             NumericExprKind::Rational(value) => NumericExprKind::Rational(value.clone()),
@@ -1436,6 +2272,47 @@ impl Lowerer {
             ),
         };
         self.ids.node(kind)
+    }
+
+    /// Copies a classical expression with fresh AST IDs for the copied tree.
+    fn clone_classical_expr(&mut self, expression: &ClassicalExpr) -> ClassicalExpr {
+        let kind = match &expression.kind {
+            ClassicalExprKind::Bool(value) => ClassicalExprKind::Bool(*value),
+            ClassicalExprKind::Bit(bit) => ClassicalExprKind::Bit(bit.clone()),
+            ClassicalExprKind::Not(inner) => {
+                ClassicalExprKind::Not(Box::new(self.clone_classical_expr(inner)))
+            }
+            ClassicalExprKind::Eq(left, right) => ClassicalExprKind::Eq(
+                Box::new(self.clone_classical_expr(left)),
+                Box::new(self.clone_classical_expr(right)),
+            ),
+            ClassicalExprKind::And(left, right) => ClassicalExprKind::And(
+                Box::new(self.clone_classical_expr(left)),
+                Box::new(self.clone_classical_expr(right)),
+            ),
+            ClassicalExprKind::Or(left, right) => ClassicalExprKind::Or(
+                Box::new(self.clone_classical_expr(left)),
+                Box::new(self.clone_classical_expr(right)),
+            ),
+            ClassicalExprKind::Xor(left, right) => ClassicalExprKind::Xor(
+                Box::new(self.clone_classical_expr(left)),
+                Box::new(self.clone_classical_expr(right)),
+            ),
+        };
+        self.ids.node(kind)
+    }
+}
+
+/// Constructs every addressable cell belonging to a declared classical symbol.
+fn bit_operand(register: SymbolId, ty: BitType) -> BitOperand {
+    match ty {
+        BitType::Bool => BitOperand::Bool(ClassicalBit { register, index: 0 }),
+        BitType::Bit => BitOperand::Bit(ClassicalBit { register, index: 0 }),
+        BitType::Register { width } => BitOperand::Register(
+            (0..width)
+                .map(|index| ClassicalBit { register, index })
+                .collect(),
+        ),
     }
 }
 
@@ -1487,37 +2364,10 @@ fn literal_usize(expression: Expr) -> Result<usize, FrontendError> {
     })
 }
 
-/// Converts an integer token of any OpenQASM radix into an exact rational.
-/// For example, `0xff` becomes `255/1`.
-fn exact_integer(number: ast::IntNumber) -> Result<BigRational, FrontendError> {
-    Ok(BigRational::from_integer(exact_integer_value(number)?))
-}
-
-/// Reads an optionally negated integer literal without applying a finite host
-/// integer width. Parentheses are ignored, so `-(0b10)` denotes exactly `-2`.
-fn exact_integer_literal(expression: &Expr) -> Result<Option<BigInt>, FrontendError> {
-    match expression {
-        Expr::Literal(literal) => match literal.kind() {
-            ast::LiteralKind::IntNumber(number) => exact_integer_value(number).map(Some),
-            _ => Ok(None),
-        },
-        Expr::ParenExpr(parenthesized) => exact_integer_literal(
-            &parenthesized
-                .expr()
-                .ok_or_else(|| expected!("a parenthesized integer literal", parenthesized))?,
-        ),
-        Expr::PrefixExpr(prefix) if prefix.op_kind() == Some(ast::UnaryOp::Neg) => {
-            exact_integer_literal(
-                &prefix
-                    .expr()
-                    .ok_or_else(|| expected!("an integer prefix operand", prefix))?,
-            )
-            .map(|value| value.map(|value| -value))
-        }
-        _ => Ok(None),
-    }
-}
-
+/// Parses an unsuffixed integer token exactly in its declared radix.
+///
+/// For example, `0b1010`, `0xa`, and `10` all produce the same arbitrary-size
+/// integer without first passing through a machine-width value.
 fn exact_integer_value(number: ast::IntNumber) -> Result<BigInt, FrontendError> {
     let (_, digits, suffix) = number.split_into_parts();
     if !suffix.is_empty() {
@@ -1571,7 +2421,13 @@ fn exact_decimal(number: ast::FloatNumber) -> Result<BigRational, FrontendError>
 fn numeric_type(scalar_type: &ast::ScalarType) -> Result<NumericType, FrontendError> {
     let width = scalar_type
         .designator()
-        .map(|_| type_width(scalar_type, "a numeric type width"))
+        .map(|designator| {
+            literal_usize(
+                designator
+                    .expr()
+                    .ok_or_else(|| expected!("a numeric type width", &designator))?,
+            )
+        })
         .transpose()?;
     if scalar_type.int_token().is_some() {
         Ok(NumericType::Int(width))
@@ -1586,23 +2442,7 @@ fn numeric_type(scalar_type: &ast::ScalarType) -> Result<NumericType, FrontendEr
     }
 }
 
-fn type_width(
-    scalar_type: &ast::ScalarType,
-    expected_width: &'static str,
-) -> Result<usize, FrontendError> {
-    scalar_type
-        .designator()
-        .map(|designator| {
-            literal_usize(
-                designator
-                    .expr()
-                    .ok_or_else(|| expected!(expected_width, &designator))?,
-            )
-        })
-        .transpose()
-        .map(|width| width.unwrap_or(1))
-}
-
+/// Preserves the distinction between `qubit` and `qubit[n]`.
 fn quantum_type(
     designator: Option<ast::Designator>,
     expected_width: &'static str,
@@ -1619,6 +2459,7 @@ fn quantum_type(
     }
 }
 
+/// Preserves the distinction between scalar `bit` and register `bit[n]`.
 fn bit_type(
     designator: Option<ast::Designator>,
     expected_width: &'static str,
@@ -1631,13 +2472,17 @@ fn bit_type(
                     .ok_or_else(|| expected!(expected_width, &designator))?,
             )?,
         }),
-        None => Ok(BitType::Scalar),
+        None => Ok(BitType::Bit),
     }
 }
 
+/// Checks the scalar/register shape required by `target = measure source`.
+///
+/// `qubit q` may be measured into scalar `bool` or `bit`; `qubit[n] q`
+/// requires an exactly matching `bit[n]`, including when `n` is one.
 fn measurement_types_match(quantum: QuantumType, classical: BitType) -> bool {
     match (quantum, classical) {
-        (QuantumType::Scalar, BitType::Scalar) => true,
+        (QuantumType::Scalar, BitType::Bool | BitType::Bit) => true,
         (
             QuantumType::Register {
                 width: quantum_width,
@@ -1650,6 +2495,17 @@ fn measurement_types_match(quantum: QuantumType, classical: BitType) -> bool {
     }
 }
 
+/// OpenQASM keeps `bool` and scalar `bit` as distinct storage types, but permits
+/// either in an r-value context expecting the other. Registers retain exact shape.
+fn bit_types_compatible(left: BitType, right: BitType) -> bool {
+    left == right
+        || matches!(
+            (left, right),
+            (BitType::Bool, BitType::Bit) | (BitType::Bit, BitType::Bool)
+        )
+}
+
+/// Extracts the quantum type from a resolved binding or reports a kind error.
 fn quantum_type_of(name: &str, kind: BindingKind) -> Result<QuantumType, FrontendError> {
     match kind {
         BindingKind::QuantumVariable(ty) | BindingKind::QuantumParameter(ty) => Ok(ty),
@@ -1661,6 +2517,7 @@ fn quantum_type_of(name: &str, kind: BindingKind) -> Result<QuantumType, Fronten
     }
 }
 
+/// Checks one compile-time register index against its declared width.
 fn check_index(name: &str, index: usize, width: usize) -> Result<(), FrontendError> {
     if index >= width {
         return Err(FrontendError::IndexOutOfBounds {
@@ -1673,6 +2530,7 @@ fn check_index(name: &str, index: usize, width: usize) -> Result<(), FrontendErr
     Ok(())
 }
 
+/// Translates scope-layer errors into the frontend's public diagnostic type.
 fn scope_error(error: ScopeError) -> FrontendError {
     match error {
         ScopeError::AlreadyDeclared(name) => FrontendError::DuplicateIdentifier(name),

@@ -82,7 +82,7 @@ impl Default for ExecutionConfig {
 ///
 /// For example, after `H q; measure q -> c`, the history records `Write(c, y0)`.
 /// Replacing the measurement with `reset q` records `Discard(y0)` instead.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum HistoryEntry {
     /// A measurement result written to a classical bit.
     Write {
@@ -93,13 +93,13 @@ pub enum HistoryEntry {
     Discard { value: BooleanPolynomial },
 }
 
-/// Quantum memory, current classical memory, and its complete write history.
+/// Quantum memory, current classical memory, and measurement/decoherence history.
 ///
-/// The paper represents classical history as a stack of complete memory
-/// snapshots. Irene stores only writes because the initial memory and this
-/// event sequence reconstruct the same snapshots. Past entries are semantic:
-/// paths with different histories belong to different classical worlds and
-/// therefore cannot interfere.
+/// The paper uses a stack of classical-memory snapshots. Irene keeps current
+/// classical values separately and records only measurement writes and hidden
+/// discarded values. These entries retain the distinctions between classical
+/// worlds that must not interfere; ordinary deterministic assignments need no
+/// additional history entry.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct HybridMemory {
     /// Computational-basis expression carried by each quantum wire.
@@ -142,7 +142,8 @@ impl HybridMemory {
 /// component guarded by `y0` and an else component guarded by `1 ⊕ y0`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Component {
-    /// Equations whose conjunction selects this component.
+    /// Polynomials interpreted as equations to zero; their conjunction selects
+    /// this component. For example, `y0` denotes the constraint `y0 = 0`.
     pub guard: Vec<BooleanPolynomial>,
     /// Real symbolic amplitude; complex factors are stored in `phase`.
     pub scalar: Scalar,
@@ -213,7 +214,7 @@ fn execute_with_plan(
         phase: PhasePolynomial::zero(),
         output: input.clone(),
     };
-    // Symbolic inputs remain in `input`, even when they cannot affect an
+    // Symbolic inputs remain in `input`, even when they cannot affect a
     // selected output. Move those dead inputs into hidden history instead of
     // silently deleting them: `Discard(x)` represents the partial trace that
     // prevents the x=0 and x=1 amplitudes from interfering afterwards.
@@ -270,10 +271,11 @@ fn initial_memory(
     })
 }
 
-/// Mutable execution context used only to allocate globally fresh path names.
+/// Mutable allocation context shared across one symbolic execution.
 ///
-/// Branches share this counter, so paths created in distinct components never
-/// accidentally denote the same summation variable.
+/// Branches share the path counter so distinct components never reuse a
+/// summation variable. Synthesized numeric expressions receive AST IDs beyond
+/// the source program's ID range.
 struct Executor {
     next_path: usize,
     ids: AstIdGenerator,

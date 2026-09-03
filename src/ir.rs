@@ -110,6 +110,10 @@ pub struct RegisterData {
 
 pub type Register = AstNode<RegisterData>;
 
+/// Identity of a declared source symbol.
+///
+/// Unlike [`AstId`], this ID is referenced by qubit and classical-bit operands
+/// and therefore distinguishes storage locations rather than syntax nodes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SymbolId(pub usize);
 
@@ -125,7 +129,7 @@ pub struct ClassicalBit {
     pub index: usize,
 }
 
-/// Numeric types accepted as OpenQASM program inputs and gate parameters.
+/// Numeric scalar types retained for declared OpenQASM program inputs.
 /// The optional width distinguishes declarations such as `angle theta` and
 /// `angle[20] theta` without choosing a host-language representation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -216,6 +220,12 @@ pub enum Gate {
     Ccx,
 }
 
+/// A scalar Boolean expression used by assignments and classical control.
+///
+/// OpenQASM `bool`, scalar `bit`, and each cell of `bit[n]` lower to this
+/// exact representation. Register operations are expanded cell by cell before
+/// reaching the core IR. The symbolic executor interprets `Not`, `And`, `Or`,
+/// and `Xor` as Boolean operations, and `Eq(a, b)` as `!(a ^ b)`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClassicalExprKind {
     Bool(bool),
@@ -258,8 +268,10 @@ pub enum StatementKind {
         then_branch: Block,
         else_branch: Block,
     },
-    /// A lexical sequence introduced while lowering one source operation,
-    /// such as a register-wide measurement or a specialized subroutine call.
+    /// A nested statement sequence.
+    ///
+    /// It may represent a true lexical block with local declarations, or group
+    /// several scalar operations produced from one register-wide source operation.
     Scope(Block),
 }
 
@@ -363,6 +375,7 @@ impl AstNode<ProgramData> {
         bound
     }
 
+    /// Counts executable operations recursively; grouping scopes add no operation.
     pub fn operation_count(&self) -> usize {
         fn count(block: &Block) -> usize {
             block

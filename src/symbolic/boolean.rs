@@ -55,7 +55,7 @@ impl Monomial {
 ///
 /// For example, if a CX gate receives control `x0` and target `x1`, the target
 /// becomes the polynomial `x1 ⊕ x0` while the control remains `x0`.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct BooleanPolynomial {
     terms: BTreeSet<Monomial>,
 }

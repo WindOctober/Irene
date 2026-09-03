@@ -38,8 +38,8 @@ pub fn load_openqasm_source(path: impl AsRef<Path>) -> Result<OpenQasmSource, Op
 
 /// Parses the version declaration at the beginning of an OpenQASM source.
 ///
-/// The OpenQASM lexer skips leading whitespace and comments. Its first
-/// significant token contains `OPENQASM M.m`, followed by `;`.
+/// This scan skips leading whitespace and comments. The first significant
+/// lexer token contains `OPENQASM M.m`, followed by `;`.
 pub fn openqasm_version(source: &str) -> Result<OpenQasmVersion, OpenQasmSourceError> {
     let mut offset = 0;
     let mut significant = Vec::with_capacity(2);

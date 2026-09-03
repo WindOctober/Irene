@@ -20,7 +20,9 @@ use crate::symbolic::{Component, SymbolicError};
 /// `q[1]`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutputSelection {
+    /// Quantum wires retained in the final reduced state.
     pub quantum: BTreeSet<Qubit>,
+    /// Classical cells retained in the final hybrid state.
     pub classical: BTreeSet<ClassicalBit>,
 }
 
@@ -42,7 +44,7 @@ impl OutputSelection {
 /// Dependency analysis traverses the program once in reverse and records the
 /// exact positions where values cease to affect the selected outputs.
 ///
-/// For example, for `cx q[0], q[1]` with only `q[1]` observed, both operands
+/// For example, for `cx q[0], q[1]` with only `q[1]` selected, both operands
 /// are live before the gate, while `q[0]` becomes dead immediately afterwards.
 pub(crate) fn build_slice_plan(
     program: &Program,
@@ -149,23 +151,24 @@ impl DiscardSet {
 
 #[derive(Debug, Clone, Default)]
 struct LiveSet {
-    /// Quantum values that can still influence an observed output.
+    /// Quantum values that can still influence a selected output.
     quantum: BTreeSet<Qubit>,
     /// Classical values that can still influence an output or branch.
     classical: BTreeSet<ClassicalBit>,
 }
 
-/// Builds every sparse discard set in one reverse traversal.
-///
-/// For `measure q -> c; if (c) x r;` with `r` observed, reverse traversal
-/// first discovers that `c` controls a live update, then follows the
-/// measurement back to `q`. Consequently both statements are retained even
-/// when neither `q` nor `c` is itself observable.
+/// Liveness at block entry and whether the block contains retained work.
 struct BlockSummary {
     live: LiveSet,
     retained: bool,
 }
 
+/// Builds every sparse discard set in one reverse traversal.
+///
+/// For `measure q -> c; if (c) x r;` with `r` selected, reverse traversal
+/// first discovers that `c` controls a live update, then follows the
+/// measurement back to `q`. Consequently both statements are retained even
+/// when neither `q` nor `c` is itself selected.
 fn analyze_block(block: &Block, mut live: LiveSet, plan: &mut SlicePlan) -> BlockSummary {
     let mut retained = false;
     for statement in block.statements.iter().rev() {
@@ -191,7 +194,7 @@ fn analyze_block(block: &Block, mut live: LiveSet, plan: &mut SlicePlan) -> Bloc
             }
             StatementKind::Reset(qubit) => {
                 // Reset creates a fresh |0>, so its incoming value is dead.
-                // Example: in `h q; reset q` with q observed, reset remains but
+                // Example: in `h q; reset q` with q selected, reset remains but
                 // the preceding H is outside the output's dependency cone.
                 if live.quantum.remove(qubit) {
                     plan.retain(statement.ast_id);

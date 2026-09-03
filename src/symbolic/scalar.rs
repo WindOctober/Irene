@@ -16,7 +16,7 @@ use super::{BooleanPolynomial, Variable};
 /// The complex part of an amplitude remains in the HPS phase. For example,
 /// `Rx(θ)` uses `sin(θ/2)` as a scalar and the phase `-1/4` to represent
 /// `-i sin(θ/2)` on paths where the target bit flips.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Scalar {
     /// An exact rational number.
     Rational(BigRational),
@@ -237,7 +237,9 @@ impl Scalar {
 /// Concrete values used only when a symbolic scalar is numerically inspected.
 #[derive(Debug, Clone, Default)]
 pub struct ScalarBindings {
+    /// Values for free input and path variables occurring in scalar conditions.
     pub booleans: BTreeMap<Variable, bool>,
+    /// MPFR values for source-level numeric inputs, keyed by symbol ID.
     pub numeric_inputs: BTreeMap<SymbolId, Float>,
 }
 

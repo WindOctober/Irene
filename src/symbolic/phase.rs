@@ -46,7 +46,7 @@ enum NumericForm {
 /// It represents `rational + Σ scale * angle / τ`. Finite decimals inside
 /// angle expressions are exact rationals, while constants such as `π` and
 /// symbolic inputs retain their expression structure.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct PhaseCoefficient {
     /// Exact phase already expressed in turns, where one turn is `2π`.
     rational_turns: BigRational,
@@ -235,6 +235,8 @@ fn exact_rational(expression: &NumericExpr) -> Option<BigRational> {
     }
 }
 
+/// Canonicalizes a commutative sum by flattening, sorting, and combining
+/// rational terms. For example, `x + (2 + 1)` becomes `3 + x`.
 fn normalize_add(terms: Vec<NumericForm>) -> NumericForm {
     let mut flattened = Vec::new();
     let mut rational = integer(0);
@@ -252,6 +254,7 @@ fn normalize_add(terms: Vec<NumericForm>) -> NumericForm {
     }
 }
 
+/// Flattens nested sums and accumulates their exact rational constant.
 fn collect_addend(term: NumericForm, flattened: &mut Vec<NumericForm>, rational: &mut BigRational) {
     match term {
         NumericForm::Add(inner) => {
@@ -264,6 +267,8 @@ fn collect_addend(term: NumericForm, flattened: &mut Vec<NumericForm>, rational:
     }
 }
 
+/// Canonicalizes a commutative product by flattening, sorting, and multiplying
+/// rational factors. For example, `2 * (x * 3)` becomes `6 * x`.
 fn normalize_mul(factors: Vec<NumericForm>) -> NumericForm {
     let mut flattened = Vec::new();
     let mut rational = integer(1);
@@ -284,6 +289,7 @@ fn normalize_mul(factors: Vec<NumericForm>) -> NumericForm {
     }
 }
 
+/// Flattens nested products and accumulates their exact rational factor.
 fn collect_factor(
     factor: NumericForm,
     flattened: &mut Vec<NumericForm>,
@@ -300,6 +306,8 @@ fn collect_factor(
     }
 }
 
+/// Reduces exact rational and double inverses while retaining symbolic ones.
+/// For example, `1/(1/x)` becomes `x`.
 fn normalize_inverse(value: NumericForm) -> NumericForm {
     match value {
         NumericForm::Rational(value) if value != integer(0) => NumericForm::Rational(value.recip()),
@@ -312,7 +320,8 @@ fn normalize_inverse(value: NumericForm) -> NumericForm {
 ///
 /// Rational parts are stored modulo one because adding an integer does not
 /// change the complex phase. Monomials retain the Boolean relation `x² = x`.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+/// For example, T on a wire containing `x` adds `x/8`, while Z adds `x/2`.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct PhasePolynomial {
     terms: BTreeMap<Monomial, PhaseCoefficient>,
 }

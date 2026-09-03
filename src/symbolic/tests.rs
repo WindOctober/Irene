@@ -220,6 +220,113 @@ fn signed_and_unsigned_casts_interpret_the_same_bits_differently() {
 }
 
 #[test]
+fn typed_classical_values_compare_casts_literals_and_computed_bits() {
+    let program = parse_str(
+        r#"
+        OPENQASM 3.0;
+        include "stdgates.inc";
+        qubit[6] flags;
+        bit[3] negative = "110";
+        bit[3] positive = "010";
+        if (int[3](negative) == int[3]("110")) x flags[0];
+        if (-2 == int[3](negative)) x flags[1];
+        if (int[3](negative) < int[3](positive)) x flags[2];
+        if (uint[3](negative) > uint[3](positive)) x flags[3];
+        if (int[3](negative ^ "001") == -1) x flags[4];
+        if (1 < 2) x flags[5];
+        "#,
+        "typed-classical-values.qasm",
+    )
+    .unwrap();
+
+    let hps = execute_all_outputs(&program, &ExecutionConfig::zero()).unwrap();
+    assert_eq!(hps.components.len(), 1);
+    let component = &hps.components[0];
+    let flags = &program.quantum_registers[0];
+    for index in 0..6 {
+        assert!(
+            component.output.quantum[&Qubit {
+                register: flags.id,
+                index,
+            }]
+                .is_one()
+        );
+    }
+}
+
+#[test]
+fn classical_bit_expressions_preserve_scalar_and_register_semantics() {
+    let program = parse_str(
+        r#"
+        OPENQASM 3.0;
+        include "stdgates.inc";
+        qubit[5] q;
+        bit[3] bits = "101";
+        bit a = true;
+        bit b = false;
+        bit result;
+        result = (a & ~b) | (b ^ false);
+        a ^= true;
+        if (result != a) x q[0];
+        if (bits == "101") x q[1];
+        bits &= "011";
+        if (bits == "001") x q[2];
+        bool ordered = bits < "110";
+        if (ordered && bool(result)) x q[3];
+        bit measured = measure q[4];
+        if (!measured) x q[4];
+        "#,
+        "classical-bit-expressions.qasm",
+    )
+    .unwrap();
+
+    let hps = execute_all_outputs(&program, &ExecutionConfig::zero()).unwrap();
+    assert_eq!(hps.components.len(), 1);
+    let component = &hps.components[0];
+    let q = &program.quantum_registers[0];
+    for index in 0..5 {
+        assert!(
+            component.output.quantum[&Qubit {
+                register: q.id,
+                index,
+            }]
+                .is_one()
+        );
+    }
+}
+
+#[test]
+fn bit_register_ordering_uses_unsigned_little_endian_values() {
+    let program = parse_str(
+        r#"
+        OPENQASM 3.0;
+        include "stdgates.inc";
+        qubit[4] q;
+        bit[3] value = "101";
+        if (value < "110") x q[0];
+        if (value <= "101") x q[1];
+        if (value > "100") x q[2];
+        if (value >= "101") x q[3];
+        "#,
+        "bit-register-ordering.qasm",
+    )
+    .unwrap();
+
+    let hps = execute_all_outputs(&program, &ExecutionConfig::zero()).unwrap();
+    let component = &hps.components[0];
+    let q = &program.quantum_registers[0];
+    for index in 0..4 {
+        assert!(
+            component.output.quantum[&Qubit {
+                register: q.id,
+                index,
+            }]
+                .is_one()
+        );
+    }
+}
+
+#[test]
 fn hadamard_introduces_a_path_and_phase() {
     let q = qubit(0, 0);
     let hps = execute_all_outputs(
@@ -625,6 +732,37 @@ fn output_slice_removes_a_dead_measurement_cone() {
     assert!(component.output.history.is_empty());
     assert_eq!(component.output.quantum.len(), 1);
     assert_eq!(component.output.quantum[&output], BooleanPolynomial::zero());
+}
+
+#[test]
+fn subroutine_returns_a_computed_classical_value() {
+    let program = parse_str(
+        r#"
+        OPENQASM 3.0;
+        include "stdgates.inc";
+        def parity(qubit[2] q) -> bit {
+            bit[2] measured;
+            measured = measure q;
+            return measured[0] ^ measured[1];
+        }
+        qubit[2] q;
+        qubit out;
+        bit result;
+        x q[0];
+        result = parity(q);
+        if (result) x out;
+        "#,
+        "computed-subroutine-return.qasm",
+    )
+    .unwrap();
+
+    let hps = execute_all_outputs(&program, &ExecutionConfig::zero()).unwrap();
+    assert_eq!(hps.components.len(), 1);
+    let output = Qubit {
+        register: program.quantum_registers[1].id,
+        index: 0,
+    };
+    assert!(hps.components[0].output.quantum[&output].is_one());
 }
 
 #[test]

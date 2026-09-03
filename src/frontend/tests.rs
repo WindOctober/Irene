@@ -246,6 +246,23 @@ fn rejects_scalar_register_measurement_mismatch() {
 }
 
 #[test]
+fn rejects_classical_register_assignment_width_mismatch() {
+    let error = parse_str(
+        "OPENQASM 3.0; bit[2] left; bit[3] right; left = right;",
+        "classical-assignment-width-mismatch.qasm",
+    )
+    .unwrap_err();
+
+    assert!(matches!(
+        error,
+        FrontendError::Expected {
+            expected: "matching scalar or register assignment operands",
+            ..
+        }
+    ));
+}
+
+#[test]
 fn rejects_a_classical_register_as_a_condition() {
     let error = parse_str(
         r#"
@@ -261,9 +278,56 @@ fn rejects_a_classical_register_as_a_condition() {
 
     assert!(matches!(
         error,
+        FrontendError::Expected {
+            expected: "a scalar Boolean or bit expression",
+            ..
+        }
+    ));
+}
+
+#[test]
+fn distinguishes_bool_bit_and_bit_register_types() {
+    parse_str(
+        r#"
+        OPENQASM 3.0;
+        include "stdgates.inc";
+        qubit q;
+        bool predicate = false;
+        bit flag = predicate;
+        predicate = flag;
+        if (flag && predicate) x q;
+        "#,
+        "bool-bit-compatibility.qasm",
+    )
+    .unwrap();
+
+    let error = parse_str(
+        "OPENQASM 3.0; bool predicate; bit[1] packed; packed = predicate;",
+        "scalar-register-distinction.qasm",
+    )
+    .unwrap_err();
+    assert!(matches!(
+        error,
+        FrontendError::Expected {
+            expected: "matching scalar or register assignment operands",
+            ..
+        }
+    ));
+}
+
+#[test]
+fn rejects_indexing_a_bool_as_a_bit_register() {
+    let error = parse_str(
+        "OPENQASM 3.0; bool predicate; predicate[0] = false;",
+        "indexed-bool.qasm",
+    )
+    .unwrap_err();
+
+    assert!(matches!(
+        error,
         FrontendError::WrongIdentifierKind {
-            expected: "classical bit",
-            actual: "classical bit register",
+            expected: "classical bit register",
+            actual: "Boolean",
             ..
         }
     ));

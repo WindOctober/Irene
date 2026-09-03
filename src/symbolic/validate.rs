@@ -22,6 +22,11 @@ pub(crate) fn definite_assignment(
     Ok(())
 }
 
+/// Propagates definite assignment through one block.
+///
+/// After `if c { x = 0 } else { x = 1 }`, `x` is assigned because it occurs
+/// in both branch results; a write in only one branch does not survive their
+/// intersection.
 fn validate_block(
     block: &Block,
     mut assigned: BTreeSet<ClassicalBit>,
