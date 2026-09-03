@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use oq3_lexer::{LiteralKind, TokenKind, tokenize};
+use oq3_lexer::{TokenKind, tokenize};
 use thiserror::Error;
 
 use crate::ir::OpenQasmVersion;
@@ -38,11 +38,11 @@ pub fn load_openqasm_source(path: impl AsRef<Path>) -> Result<OpenQasmSource, Op
 
 /// Parses the version declaration at the beginning of an OpenQASM source.
 ///
-/// The OpenQASM lexer skips leading whitespace and comments. The first three
-/// significant tokens must be `OPENQASM`, a numeric version, and `;`.
+/// The OpenQASM lexer skips leading whitespace and comments. Its first
+/// significant token contains `OPENQASM M.m`, followed by `;`.
 pub fn openqasm_version(source: &str) -> Result<OpenQasmVersion, OpenQasmSourceError> {
     let mut offset = 0;
-    let mut significant = Vec::with_capacity(3);
+    let mut significant = Vec::with_capacity(2);
 
     for token in tokenize(source) {
         let start = offset;
@@ -55,31 +55,28 @@ pub fn openqasm_version(source: &str) -> Result<OpenQasmVersion, OpenQasmSourceE
             }
             kind => significant.push((kind, &source[start..offset])),
         }
-        if significant.len() == 3 {
+        if significant.len() == 2 {
             break;
         }
     }
 
     let [
-        (TokenKind::Ident, keyword),
-        (number_kind, number),
+        (
+            TokenKind::OpenQasmVersionStmt {
+                major: true,
+                minor: true,
+            },
+            declaration,
+        ),
         (TokenKind::Semi, _),
     ] = significant.as_slice()
     else {
         return Err(OpenQasmSourceError::InvalidVersionDeclaration);
     };
-    if *keyword != "OPENQASM"
-        || !matches!(
-            number_kind,
-            TokenKind::Literal {
-                kind: LiteralKind::Int { .. } | LiteralKind::Float { .. },
-                ..
-            }
-        )
-    {
-        return Err(OpenQasmSourceError::InvalidVersionDeclaration);
-    }
-
+    let number = declaration
+        .strip_prefix("OPENQASM")
+        .ok_or(OpenQasmSourceError::InvalidVersionDeclaration)?
+        .trim();
     let (major, minor) = number.split_once('.').unwrap_or((number, "0"));
     if minor.contains('.') {
         return Err(OpenQasmSourceError::InvalidVersionDeclaration);

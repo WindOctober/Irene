@@ -354,6 +354,7 @@ impl Executor {
                     }
                     result
                 }
+                StatementKind::Scope(body) => self.execute_block(components, body, plan)?,
                 _ => components
                     .into_iter()
                     .map(|mut component| {
@@ -439,7 +440,12 @@ impl Executor {
                 });
                 Ok(())
             }
-            StatementKind::If { .. } => unreachable!(),
+            StatementKind::Assign { target, value } => {
+                let value = evaluate_classical(value, &component.output.classical)?;
+                component.output.classical.insert(target.clone(), value);
+                Ok(())
+            }
+            StatementKind::If { .. } | StatementKind::Scope(_) => unreachable!(),
         }
     }
 
@@ -495,6 +501,14 @@ impl Executor {
                 let control = component.output.quantum[&first].clone();
                 let target = qubits[1].clone();
                 let value = component.output.quantum[&target].xor(&control);
+                component.output.quantum.insert(target, value);
+            }
+            Gate::Ccx => {
+                // CCX|a,b,t⟩ = |a,b,t ⊕ ab⟩.
+                let left = component.output.quantum[&first].clone();
+                let right = component.output.quantum[&qubits[1]].clone();
+                let target = qubits[2].clone();
+                let value = component.output.quantum[&target].xor(&left.and(&right));
                 component.output.quantum.insert(target, value);
             }
             Gate::Cy => {

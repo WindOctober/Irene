@@ -23,7 +23,7 @@ cx data[0], data[2];
 
 x data[0];
 syndrome = measure_syndrome(data, ancilla);
-if (int[2](syndrome) == 1) x data[0];
-if (int[2](syndrome) == 2) x data[2];
-if (int[2](syndrome) == 3) x data[1];
+if (uint[2](syndrome) == 1) x data[0];
+if (uint[2](syndrome) == 2) x data[2];
+if (uint[2](syndrome) == 3) x data[1];
 z data[0];

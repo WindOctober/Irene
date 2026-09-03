@@ -31,6 +31,10 @@ fn validate_block(
             StatementKind::Measure { target, .. } => {
                 assigned.insert(target.clone());
             }
+            StatementKind::Assign { target, value } => {
+                require_assigned(value, &assigned)?;
+                assigned.insert(target.clone());
+            }
             StatementKind::If {
                 condition,
                 then_branch,
@@ -49,6 +53,9 @@ fn validate_block(
                             .collect()
                     }
                 };
+            }
+            StatementKind::Scope(body) => {
+                assigned = validate_block(body, assigned)?;
             }
             StatementKind::Reset(_) | StatementKind::Apply { .. } => {}
         }

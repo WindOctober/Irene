@@ -3,6 +3,7 @@ use std::cell::RefCell;
 use num_rational::BigRational;
 use rug::Float;
 
+use crate::frontend::openqasm3::parse_str;
 use crate::ir::{
     AstIdGenerator, AstNode, Block, BlockData, ClassicalBit, ClassicalExpr, ClassicalExprKind,
     Gate, NumericConstant, NumericExpr, NumericExprKind, OpenQasmVersion, Program, ProgramData,
@@ -93,6 +94,129 @@ fn execute_all_outputs(
         })
     });
     execute_observed(program, config, &OutputSelection::new(quantum, classical))
+}
+
+#[test]
+fn subroutine_measurement_return_reaches_the_caller() {
+    let program = parse_str(
+        r#"
+        OPENQASM 3.0;
+        def read(qubit source) -> bit {
+            bit result;
+            result = measure source;
+            return result;
+        }
+        qubit data;
+        bit result_out;
+        result_out = read(data);
+        "#,
+        "subroutine-return.qasm",
+    )
+    .unwrap();
+    let data = Qubit {
+        register: program.quantum_registers[0].id,
+        index: 0,
+    };
+    let output = ClassicalBit {
+        register: program.classical_registers[0].id,
+        index: 0,
+    };
+
+    let hps = execute_observed(
+        &program,
+        &ExecutionConfig::with_symbolic_inputs([data.clone()]),
+        &OutputSelection::new([], [output.clone()]),
+    )
+    .unwrap();
+
+    assert_eq!(hps.components.len(), 1);
+    assert_eq!(
+        hps.components[0].output.classical[&output],
+        BooleanPolynomial::variable(Variable::Input(data))
+    );
+}
+
+#[test]
+fn register_subroutine_updates_caller_qubits_and_returns_bits() {
+    let program = parse_str(
+        r#"
+        OPENQASM 3.0;
+        include "stdgates.inc";
+        def clear_and_read(qubit[2] q) -> bit[2] {
+            bit[2] result;
+            reset q;
+            result = measure q;
+            return result;
+        }
+        qubit[2] data;
+        bit[2] result;
+        result = clear_and_read(data);
+        if (int[2](result) == 0) x data[0];
+        "#,
+        "register-subroutine.qasm",
+    )
+    .unwrap();
+
+    let hps = execute_all_outputs(&program, &ExecutionConfig::all_symbolic()).unwrap();
+    let data = &program.quantum_registers[0];
+    let result = &program.classical_registers[0];
+    let component = &hps.components[0];
+    assert!(
+        component.output.quantum[&Qubit {
+            register: data.id,
+            index: 0,
+        }]
+            .is_one()
+    );
+    assert!(
+        component.output.quantum[&Qubit {
+            register: data.id,
+            index: 1,
+        }]
+            .is_zero()
+    );
+    for index in 0..2 {
+        assert!(
+            component.output.classical[&ClassicalBit {
+                register: result.id,
+                index,
+            }]
+                .is_zero()
+        );
+    }
+}
+
+#[test]
+fn signed_and_unsigned_casts_interpret_the_same_bits_differently() {
+    let program = parse_str(
+        r#"
+        OPENQASM 3.0;
+        include "stdgates.inc";
+        qubit[2] data;
+        qubit[2] flags;
+        bit[2] bits;
+        x data[1];
+        bits = measure data;
+        if (int[2](bits) == -2) x flags[0];
+        if (uint[2](bits) == 2) x flags[1];
+        "#,
+        "signed-unsigned-casts.qasm",
+    )
+    .unwrap();
+
+    let hps = execute_all_outputs(&program, &ExecutionConfig::zero()).unwrap();
+    assert_eq!(hps.components.len(), 1);
+    let component = &hps.components[0];
+    let flags = &program.quantum_registers[1];
+    for index in 0..2 {
+        assert!(
+            component.output.quantum[&Qubit {
+                register: flags.id,
+                index,
+            }]
+                .is_one()
+        );
+    }
 }
 
 #[test]

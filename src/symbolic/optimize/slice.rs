@@ -224,6 +224,15 @@ fn analyze_block(block: &Block, mut live: LiveSet, plan: &mut SlicePlan) -> Bloc
                     retained = true;
                 }
             }
+            StatementKind::Assign { target, value } => {
+                let after = live.clone();
+                if live.classical.remove(target) {
+                    collect_classical_reads(value, &mut live.classical);
+                    plan.retain(statement.ast_id);
+                    plan.set_discard(statement.ast_id, DiscardSet::between(&live, &after));
+                    retained = true;
+                }
+            }
             StatementKind::If {
                 condition,
                 then_branch,
@@ -263,6 +272,14 @@ fn analyze_block(block: &Block, mut live: LiveSet, plan: &mut SlicePlan) -> Bloc
                     );
                     plan.retain(statement.ast_id);
                     live = before;
+                    retained = true;
+                }
+            }
+            StatementKind::Scope(body) => {
+                let analysis = analyze_block(body, live.clone(), plan);
+                if analysis.retained {
+                    plan.retain(statement.ast_id);
+                    live = analysis.live;
                     retained = true;
                 }
             }

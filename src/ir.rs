@@ -213,6 +213,7 @@ pub enum Gate {
     Crx,
     Cry,
     Crz,
+    Ccx,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -248,11 +249,18 @@ pub enum StatementKind {
         qubit: Qubit,
         target: ClassicalBit,
     },
+    Assign {
+        target: ClassicalBit,
+        value: ClassicalExpr,
+    },
     If {
         condition: ClassicalExpr,
         then_branch: Block,
         else_branch: Block,
     },
+    /// A lexical sequence introduced while lowering one source operation,
+    /// such as a register-wide measurement or a specialized subroutine call.
+    Scope(Block),
 }
 
 pub type Statement = AstNode<StatementKind>;
@@ -327,6 +335,8 @@ impl AstNode<ProgramData> {
                         visit_block(then_branch, visit);
                         visit_block(else_branch, visit);
                     }
+                    StatementKind::Assign { value, .. } => classical(value, visit),
+                    StatementKind::Scope(body) => visit_block(body, visit),
                     StatementKind::Reset(_) | StatementKind::Measure { .. } => {}
                 }
             }
@@ -364,6 +374,7 @@ impl AstNode<ProgramData> {
                         else_branch,
                         ..
                     } => 1 + count(then_branch) + count(else_branch),
+                    StatementKind::Scope(body) => count(body),
                     _ => 1,
                 })
                 .sum()

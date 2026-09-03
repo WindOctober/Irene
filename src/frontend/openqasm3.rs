@@ -1,11 +1,13 @@
+use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::str::FromStr;
 
 use bigdecimal::{BigDecimal, num_bigint::BigInt};
 use num_rational::BigRational;
 use oq3_source_file::{SourceTrait, parse_source_string};
+use oq3_syntax::BlockOrStmt;
 use oq3_syntax::ast::{
-    self, AstNode, Expr, GateOperand, HasArgList, HasName, HasTextName, IndexKind, Stmt,
+    self, AstNode, Expr, GateOperand, HasArgList, HasName, HasTextNode, IndexKind, Stmt,
 };
 use thiserror::Error;
 
@@ -15,7 +17,7 @@ use crate::ir::{
     Program, ProgramData, Qubit, Register, RegisterData, Statement, StatementKind,
 };
 
-use super::scope::{BindingKind, ScopeError, ScopeKind, ScopeStack};
+use super::scope::{Binding, BindingKind, BitType, QuantumType, ScopeError, ScopeKind, ScopeStack};
 
 #[derive(Debug, Error)]
 pub enum FrontendError {
@@ -79,7 +81,9 @@ macro_rules! expected {
 
 pub fn parse_str(source: &str, source_name: &str) -> Result<Program, FrontendError> {
     let parsed = parse_source_string(source, Some(source_name), None::<&[PathBuf]>);
-    let syntax = parsed.syntax_ast();
+    let syntax = parsed
+        .syntax_ast()
+        .ok_or_else(|| FrontendError::Parse("OpenQASM source could not be parsed".to_owned()))?;
     if !syntax.errors().is_empty() {
         let diagnostics = syntax
             .errors()
@@ -100,6 +104,85 @@ struct Lowerer {
     numeric_inputs: Vec<NumericInput>,
     quantum_registers: Vec<Register>,
     classical_registers: Vec<Register>,
+    subroutines: Vec<SubroutineTemplate>,
+    quantum_arguments: HashMap<crate::ir::SymbolId, QuantumOperand>,
+    active_subroutines: BTreeSet<usize>,
+}
+
+#[derive(Clone)]
+struct SubroutineTemplate {
+    definition: ast::Def,
+    parameters: Vec<QuantumParameter>,
+    return_type: Option<BitType>,
+}
+
+#[derive(Clone)]
+struct QuantumParameter {
+    name: String,
+    ty: QuantumType,
+}
+
+/// A resolved quantum operand before OpenQASM register broadcasting is
+/// expanded into scalar core-IR operations.
+#[derive(Clone)]
+enum QuantumOperand {
+    Scalar(Qubit),
+    Register(Vec<Qubit>),
+}
+
+impl QuantumOperand {
+    fn cells(&self) -> &[Qubit] {
+        match self {
+            Self::Scalar(qubit) => std::slice::from_ref(qubit),
+            Self::Register(qubits) => qubits,
+        }
+    }
+
+    fn into_cells(self) -> Vec<Qubit> {
+        match self {
+            Self::Scalar(qubit) => vec![qubit],
+            Self::Register(qubits) => qubits,
+        }
+    }
+
+    fn broadcast_at(&self, index: usize) -> Qubit {
+        match self {
+            Self::Scalar(qubit) => qubit.clone(),
+            Self::Register(qubits) => qubits[index].clone(),
+        }
+    }
+
+    fn ty(&self) -> QuantumType {
+        match self {
+            Self::Scalar(_) => QuantumType::Scalar,
+            Self::Register(qubits) => QuantumType::Register {
+                width: qubits.len(),
+            },
+        }
+    }
+}
+
+/// A resolved classical lvalue or value before scalar/register type checking.
+#[derive(Clone)]
+enum BitOperand {
+    Scalar(ClassicalBit),
+    Register(Vec<ClassicalBit>),
+}
+
+impl BitOperand {
+    fn into_cells(self) -> Vec<ClassicalBit> {
+        match self {
+            Self::Scalar(bit) => vec![bit],
+            Self::Register(bits) => bits,
+        }
+    }
+
+    fn ty(&self) -> BitType {
+        match self {
+            Self::Scalar(_) => BitType::Scalar,
+            Self::Register(bits) => BitType::Register { width: bits.len() },
+        }
+    }
 }
 
 impl Default for Lowerer {
@@ -111,6 +194,9 @@ impl Default for Lowerer {
             numeric_inputs: Vec::new(),
             quantum_registers: Vec::new(),
             classical_registers: Vec::new(),
+            subroutines: Vec::new(),
+            quantum_arguments: HashMap::new(),
+            active_subroutines: BTreeSet::new(),
         }
     }
 }
@@ -175,6 +261,9 @@ impl Lowerer {
                 self.classical_registers.push(register);
                 Ok(())
             }
+            // `def f(qubit q) { ... }` registers a callable template. Calls
+            // are specialized into Irene's core IR when encountered.
+            Stmt::Def(definition) => self.register_subroutine(definition),
             // Operations such as `h q;`, `c = measure q;`, and `if (...) { ... }`
             // belong to the executable program body.
             other => {
@@ -203,6 +292,65 @@ impl Lowerer {
         Ok(())
     }
 
+    /// Registers a subroutine signature and retains its parsed body for
+    /// call-site specialization.
+    ///
+    /// Quantum parameters are references to caller-owned wires. The supported
+    /// return type is `bit` or `bit[n]`, matching the dynamic-program
+    /// benchmarks that return measurement results.
+    fn register_subroutine(&mut self, definition: ast::Def) -> Result<(), FrontendError> {
+        let name = declaration_name(&definition)?;
+        let parameters = definition
+            .typed_param_list()
+            .ok_or_else(|| expected!("a subroutine parameter list", &definition))?
+            .typed_params()
+            .map(|parameter| {
+                let name = declaration_name(&parameter)?;
+                let ast::ParamType::ScalarType(ty) = parameter
+                    .param_type()
+                    .ok_or_else(|| expected!("a subroutine parameter type", &parameter))?
+                else {
+                    return Err(unsupported!("array subroutine parameter", &parameter));
+                };
+                if ty
+                    .syntax()
+                    .first_token()
+                    .is_none_or(|token| token.text() != "qubit")
+                {
+                    return Err(unsupported!("non-quantum subroutine parameter", &parameter));
+                }
+                Ok(QuantumParameter {
+                    name,
+                    ty: quantum_type(ty.designator(), "a quantum parameter width")?,
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let return_type = definition
+            .return_signature()
+            .map(|signature| {
+                let ty = signature
+                    .scalar_type()
+                    .ok_or_else(|| expected!("a subroutine return type", &signature))?;
+                if ty.bit_token().is_none() {
+                    return Err(unsupported!("subroutine return type other than bit", &ty));
+                }
+                bit_type(ty.designator(), "a subroutine return width")
+            })
+            .transpose()?;
+        let index = self.subroutines.len();
+        self.scopes
+            .declare(name, BindingKind::Subroutine { index })
+            .map_err(scope_error)?;
+        self.subroutines.push(SubroutineTemplate {
+            definition,
+            parameters,
+            return_type,
+        });
+        // Irene lowers and checks a body only when the subroutine is called;
+        // unreachable definitions are outside the equivalence task.
+        Ok(())
+    }
+
     fn lower_quantum_declaration(
         &mut self,
         declaration: ast::QuantumDeclarationStatement,
@@ -211,15 +359,16 @@ impl Lowerer {
         let qubit_type = declaration
             .qubit_type()
             .ok_or_else(|| expected!("a qubit type", &declaration))?;
-        let width = match qubit_type.designator() {
-            Some(designator) => literal_usize(
-                designator
-                    .expr()
-                    .ok_or_else(|| expected!("a qubit array width", &designator))?,
-            )?,
-            None => 1,
-        };
-        self.declare_register(name, width, true)
+        let ty = quantum_type(qubit_type.designator(), "a qubit array width")?;
+        let binding = self
+            .scopes
+            .declare(name.clone(), BindingKind::QuantumVariable(ty))
+            .map_err(scope_error)?;
+        Ok(self.ids.node(RegisterData {
+            id: binding.id,
+            name,
+            width: ty.width(),
+        }))
     }
 
     fn lower_numeric_input(
@@ -259,39 +408,18 @@ impl Lowerer {
         if scalar_type.bit_token().is_none() {
             return Err(unsupported!("classical type other than bit", &scalar_type));
         }
-        let width = match scalar_type.designator() {
-            Some(designator) => literal_usize(
-                designator
-                    .expr()
-                    .ok_or_else(|| expected!("a bit array width", &designator))?,
-            )?,
-            None => 1,
-        };
+        let ty = bit_type(scalar_type.designator(), "a bit array width")?;
         if declaration.expr().is_some() {
             return Err(unsupported!("classical initializer", &declaration));
         }
-        self.declare_register(name, width, false)
-    }
-
-    fn declare_register(
-        &mut self,
-        name: String,
-        width: usize,
-        quantum: bool,
-    ) -> Result<Register, FrontendError> {
-        let kind = if quantum {
-            BindingKind::QuantumRegister { width }
-        } else {
-            BindingKind::ClassicalBit { width }
-        };
         let binding = self
             .scopes
-            .declare(name.clone(), kind)
+            .declare(name.clone(), BindingKind::ClassicalBit(ty))
             .map_err(scope_error)?;
         Ok(self.ids.node(RegisterData {
             id: binding.id,
             name,
-            width,
+            width: ty.width(),
         }))
     }
 
@@ -303,8 +431,13 @@ impl Lowerer {
                 let operand = reset
                     .gate_operand()
                     .ok_or_else(|| expected!("a reset operand", &reset))?;
-                let qubit = self.lower_qubit(operand)?;
-                Ok(self.ids.node(StatementKind::Reset(qubit)))
+                let statements = self
+                    .lower_qubits(operand)?
+                    .into_cells()
+                    .into_iter()
+                    .map(|qubit| self.ids.node(StatementKind::Reset(qubit)))
+                    .collect();
+                Ok(self.sequence(statements))
             }
             // Gate applications such as `h q[0];` are parsed as expression statements.
             Stmt::ExprStmt(expression_statement) => {
@@ -313,6 +446,7 @@ impl Lowerer {
                     .ok_or_else(|| expected!("an expression statement", &expression_statement))?;
                 match expression {
                     Expr::GateCallExpr(call) => self.lower_gate(call),
+                    Expr::CallExpr(call) => self.lower_subroutine_call(call, None),
                     _ => Err(unsupported!("expression statement", &expression_statement)),
                 }
             }
@@ -377,14 +511,15 @@ impl Lowerer {
             "crx" => Gate::Crx,
             "cry" => Gate::Cry,
             "crz" => Gate::Crz,
+            "ccx" => Gate::Ccx,
             _ => return Err(unsupported!("gate", &call)),
         };
         // Operands after the parameter list identify the quantum wires.
-        let qubits = call
+        let operands = call
             .qubit_list()
             .ok_or_else(|| expected!("a gate operand list", &call))?
             .gate_operands()
-            .map(|operand| self.lower_qubit(operand))
+            .map(|operand| self.lower_qubits(operand))
             .collect::<Result<Vec<_>, _>>()?;
         let expected_arity = match gate {
             Gate::Cx
@@ -395,9 +530,10 @@ impl Lowerer {
             | Gate::Crx
             | Gate::Cry
             | Gate::Crz => 2,
+            Gate::Ccx => 3,
             _ => 1,
         };
-        if qubits.len() != expected_arity {
+        if operands.len() != expected_arity {
             return Err(FrontendError::Expected {
                 expected: "the gate's standard number of operands",
                 snippet: call.syntax().text().to_string(),
@@ -420,11 +556,54 @@ impl Lowerer {
                 snippet: call.syntax().text().to_string(),
             });
         }
-        Ok(self.ids.node(StatementKind::Apply {
-            gate,
-            parameters,
-            qubits,
-        }))
+        let mut register_widths = operands.iter().filter_map(|operand| match operand {
+            QuantumOperand::Scalar(_) => None,
+            QuantumOperand::Register(qubits) => Some(qubits.len()),
+        });
+        let width = register_widths.next().unwrap_or(1);
+        if register_widths.any(|operand_width| operand_width != width) {
+            return Err(FrontendError::Expected {
+                expected: "equally sized or scalar gate operands",
+                snippet: call.syntax().text().to_string(),
+            });
+        }
+        let expanded_qubits = (0..width)
+            .map(|index| {
+                operands
+                    .iter()
+                    .map(|operand| operand.broadcast_at(index))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        if expanded_qubits
+            .iter()
+            .any(|qubits| qubits.iter().collect::<BTreeSet<_>>().len() != qubits.len())
+        {
+            return Err(FrontendError::Expected {
+                expected: "distinct qubit operands for each gate application",
+                snippet: call.syntax().text().to_string(),
+            });
+        }
+        let statements = expanded_qubits
+            .into_iter()
+            .enumerate()
+            .map(|(index, qubits)| {
+                let parameters = if index == 0 {
+                    parameters.clone()
+                } else {
+                    parameters
+                        .iter()
+                        .map(|parameter| self.clone_numeric_expr(parameter))
+                        .collect()
+                };
+                self.ids.node(StatementKind::Apply {
+                    gate,
+                    parameters,
+                    qubits,
+                })
+            })
+            .collect();
+        Ok(self.sequence(statements))
     }
 
     /// Preserves the structure of an OpenQASM numeric expression while
@@ -519,37 +698,299 @@ impl Lowerer {
         }
     }
 
-    /// Lowers the currently supported assignment form, for example
-    /// `result = measure q[0];`.
+    /// Lowers measurement, Boolean, and subroutine-result assignments.
     fn lower_assignment(
         &mut self,
         assignment: ast::AssignmentStmt,
     ) -> Result<Statement, FrontendError> {
-        let target = if let Some(indexed) = assignment.indexed_identifier() {
-            self.lower_classical_indexed(indexed)?
-        } else {
-            let name = assignment
-                .identifier()
-                .map(|identifier| identifier.string())
-                .ok_or_else(|| expected!("an assignment target", &assignment))?;
-            self.checked_classical_bit(name, 0)?
-        };
+        let targets = self.lower_assignment_targets(&assignment)?;
         let rhs = assignment
             .rhs()
             .ok_or_else(|| expected!("an assignment value", &assignment))?;
-        let Expr::MeasureExpression(measurement) = rhs else {
-            return Err(unsupported!(
-                "assignment other than measurement",
-                &assignment,
-            ));
+        match rhs {
+            Expr::MeasureExpression(measurement) => {
+                let operand = measurement
+                    .gate_operand()
+                    .ok_or_else(|| expected!("a measurement operand", &measurement))?;
+                let qubits = self.lower_qubits(operand)?;
+                if !measurement_types_match(qubits.ty(), targets.ty()) {
+                    return Err(FrontendError::Expected {
+                        expected: "matching scalar or register measurement operands",
+                        snippet: assignment.syntax().text().to_string(),
+                    });
+                }
+                let statements = qubits
+                    .into_cells()
+                    .into_iter()
+                    .zip(targets.into_cells())
+                    .map(|(qubit, target)| self.ids.node(StatementKind::Measure { qubit, target }))
+                    .collect();
+                Ok(self.sequence(statements))
+            }
+            Expr::CallExpr(call) => self.lower_subroutine_call(call, Some(targets)),
+            expression if matches!(targets, BitOperand::Scalar(_)) => {
+                let value = self.lower_classical_expr(expression)?;
+                let BitOperand::Scalar(target) = targets else {
+                    unreachable!()
+                };
+                Ok(self.ids.node(StatementKind::Assign { target, value }))
+            }
+            expression => Err(unsupported!("register-valued assignment", &expression)),
+        }
+    }
+
+    fn lower_assignment_targets(
+        &self,
+        assignment: &ast::AssignmentStmt,
+    ) -> Result<BitOperand, FrontendError> {
+        if let Some(indexed) = assignment.indexed_identifier() {
+            return Ok(BitOperand::Scalar(self.lower_classical_indexed(indexed)?));
+        }
+        let name = assignment
+            .identifier()
+            .map(|identifier| identifier.string())
+            .ok_or_else(|| expected!("an assignment target", assignment))?;
+        self.classical_cells(name)
+    }
+
+    /// Specializes one subroutine invocation to its concrete quantum
+    /// arguments and lowers the resulting body into a lexical core-IR scope.
+    ///
+    /// This follows OpenQASM's reference semantics: a formal `qubit[2] q`
+    /// directly denotes the two caller-owned wires passed at this call site.
+    fn lower_subroutine_call(
+        &mut self,
+        call: ast::CallExpr,
+        targets: Option<BitOperand>,
+    ) -> Result<Statement, FrontendError> {
+        let callee = match call
+            .expr()
+            .ok_or_else(|| expected!("a subroutine name", &call))?
+        {
+            Expr::Identifier(identifier) => identifier.string(),
+            expression => return Err(unsupported!("subroutine callee", &expression)),
         };
-        let operand = measurement
-            .gate_operand()
-            .ok_or_else(|| expected!("a measurement operand", &measurement))?;
-        Ok(self.ids.node(StatementKind::Measure {
-            qubit: self.lower_qubit(operand)?,
-            target,
-        }))
+        let binding = self.scopes.lookup(&callee).map_err(scope_error)?;
+        let BindingKind::Subroutine { index } = binding.kind else {
+            return Err(FrontendError::WrongIdentifierKind {
+                name: callee,
+                expected: "subroutine",
+                actual: binding.kind.description(),
+            });
+        };
+        if self.active_subroutines.contains(&index) {
+            return Err(unsupported!("recursive subroutine call", &call));
+        }
+        let template = self.subroutines[index].clone();
+        let arguments = call
+            .arg_list()
+            .and_then(|arguments| arguments.expression_list())
+            .map(|arguments| {
+                arguments
+                    .exprs()
+                    .map(|argument| self.lower_quantum_argument(argument))
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .transpose()?
+            .unwrap_or_default();
+        if arguments.len() != template.parameters.len() {
+            return Err(FrontendError::Expected {
+                expected: "the subroutine's declared number of arguments",
+                snippet: call.syntax().text().to_string(),
+            });
+        }
+        for (argument, parameter) in arguments.iter().zip(&template.parameters) {
+            if argument.ty() != parameter.ty {
+                return Err(FrontendError::Expected {
+                    expected: "a subroutine argument matching its parameter type",
+                    snippet: call.syntax().text().to_string(),
+                });
+            }
+        }
+        let unique_arguments = arguments
+            .iter()
+            .flat_map(QuantumOperand::cells)
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        if unique_arguments.len()
+            != arguments
+                .iter()
+                .map(|argument| argument.cells().len())
+                .sum::<usize>()
+        {
+            return Err(FrontendError::Expected {
+                expected: "non-overlapping quantum subroutine arguments",
+                snippet: call.syntax().text().to_string(),
+            });
+        }
+        match (template.return_type, targets.as_ref()) {
+            (None, Some(_)) => {
+                return Err(FrontendError::Expected {
+                    expected: "a value-returning subroutine",
+                    snippet: call.syntax().text().to_string(),
+                });
+            }
+            (Some(_), None) => {
+                return Err(FrontendError::Expected {
+                    expected: "an assignment target for the subroutine return value",
+                    snippet: call.syntax().text().to_string(),
+                });
+            }
+            (Some(return_type), Some(targets)) if return_type != targets.ty() => {
+                return Err(FrontendError::Expected {
+                    expected: "a call target matching the subroutine return type",
+                    snippet: call.syntax().text().to_string(),
+                });
+            }
+            _ => {}
+        }
+
+        self.active_subroutines.insert(index);
+        self.scopes.enter(ScopeKind::Subroutine);
+        let mut parameter_ids = Vec::new();
+        for (parameter, argument) in template.parameters.iter().zip(arguments) {
+            let binding = self
+                .scopes
+                .declare(
+                    parameter.name.clone(),
+                    BindingKind::QuantumParameter(parameter.ty),
+                )
+                .map_err(scope_error)?;
+            self.quantum_arguments.insert(binding.id, argument);
+            parameter_ids.push(binding.id);
+        }
+        let result = self.lower_subroutine_body(
+            template
+                .definition
+                .body()
+                .ok_or_else(|| expected!("a subroutine body", &template.definition))?,
+            template.return_type,
+            targets,
+        );
+        for id in parameter_ids {
+            self.quantum_arguments.remove(&id);
+        }
+        self.scopes.exit();
+        self.active_subroutines.remove(&index);
+        Ok(self.ids.node(StatementKind::Scope(result?)))
+    }
+
+    fn lower_subroutine_body(
+        &mut self,
+        body: ast::BlockExpr,
+        return_type: Option<BitType>,
+        targets: Option<BitOperand>,
+    ) -> Result<Block, FrontendError> {
+        let source_statements = body.statements().collect::<Vec<_>>();
+        let mut lowered = self.ids.node(BlockData::default());
+        let mut saw_return = false;
+        for (index, statement) in source_statements.iter().cloned().enumerate() {
+            match statement {
+                Stmt::ClassicalDeclarationStatement(declaration) => lowered
+                    .classical_registers
+                    .push(self.lower_classical_declaration(declaration)?),
+                Stmt::QuantumDeclarationStatement(declaration) => {
+                    self.lower_quantum_declaration(declaration)?;
+                }
+                Stmt::ExprStmt(expression_statement) => {
+                    let expression = expression_statement.expr().ok_or_else(|| {
+                        expected!("a subroutine-body expression", &expression_statement)
+                    })?;
+                    if let Expr::ReturnExpr(return_expression) = expression {
+                        if index + 1 != source_statements.len() {
+                            return Err(unsupported!("non-final return", &return_expression));
+                        }
+                        self.lower_return(
+                            return_expression,
+                            return_type,
+                            targets.as_ref(),
+                            &mut lowered,
+                        )?;
+                        saw_return = true;
+                    } else {
+                        lowered
+                            .statements
+                            .push(self.lower_statement(Stmt::ExprStmt(expression_statement))?);
+                    }
+                }
+                statement => lowered.statements.push(self.lower_statement(statement)?),
+            }
+        }
+        if return_type.is_some() && !saw_return {
+            return Err(FrontendError::Expected {
+                expected: "a final return value",
+                snippet: body.syntax().text().to_string(),
+            });
+        }
+        Ok(lowered)
+    }
+
+    fn lower_return(
+        &mut self,
+        return_expression: ast::ReturnExpr,
+        return_type: Option<BitType>,
+        targets: Option<&BitOperand>,
+        body: &mut Block,
+    ) -> Result<(), FrontendError> {
+        let value = return_expression.expr();
+        match (return_type, value) {
+            (None, None) => Ok(()),
+            (None, Some(_)) => Err(unsupported!(
+                "value returned from void subroutine",
+                &return_expression
+            )),
+            (Some(_), None) => Err(expected!("a subroutine return value", &return_expression)),
+            (Some(return_type), Some(Expr::MeasureExpression(measurement))) => {
+                let qubits =
+                    self.lower_qubits(measurement.gate_operand().ok_or_else(|| {
+                        expected!("a returned measurement operand", &measurement)
+                    })?)?;
+                if !measurement_types_match(qubits.ty(), return_type)
+                    || targets.is_some_and(|targets| targets.ty() != return_type)
+                {
+                    return Err(expected!(
+                        "a return value matching its declared type",
+                        &return_expression
+                    ));
+                }
+                if let Some(targets) = targets {
+                    body.statements.extend(
+                        qubits
+                            .into_cells()
+                            .into_iter()
+                            .zip(targets.clone().into_cells())
+                            .map(|(qubit, target)| {
+                                self.ids.node(StatementKind::Measure { qubit, target })
+                            }),
+                    );
+                }
+                Ok(())
+            }
+            (Some(return_type), Some(value)) => {
+                let values = self.lower_classical_value(value)?;
+                if values.ty() != return_type
+                    || targets.is_some_and(|targets| targets.ty() != return_type)
+                {
+                    return Err(expected!(
+                        "a return value matching its declared type",
+                        &return_expression
+                    ));
+                }
+                if let Some(targets) = targets {
+                    body.statements.extend(
+                        values
+                            .into_cells()
+                            .into_iter()
+                            .zip(targets.clone().into_cells())
+                            .map(|(value, target)| {
+                                let value = self.ids.node(ClassicalExprKind::Bit(value));
+                                self.ids.node(StatementKind::Assign { target, value })
+                            }),
+                    );
+                }
+                Ok(())
+            }
+        }
     }
 
     /// Lowers an `if` statement and gives each branch its own lexical scope.
@@ -559,13 +1000,18 @@ impl Lowerer {
                 .condition()
                 .ok_or_else(|| expected!("an if condition", &statement))?,
         )?;
-        let then_branch = self.lower_block(
-            statement
-                .then_branch()
+        let mut branches = statement.syntax().children().filter_map(|node| {
+            ast::BlockExpr::cast(node.clone())
+                .map(BlockOrStmt::BlockExpr)
+                .or_else(|| Stmt::cast(node).map(BlockOrStmt::Stmt))
+        });
+        let then_branch = self.lower_branch(
+            branches
+                .next()
                 .ok_or_else(|| expected!("an if body", &statement))?,
         )?;
-        let else_branch = match statement.else_branch() {
-            Some(block) => self.lower_block(block)?,
+        let else_branch = match branches.next() {
+            Some(branch) => self.lower_branch(branch)?,
             None => self.ids.node(BlockData::default()),
         };
         Ok(self.ids.node(StatementKind::If {
@@ -573,6 +1019,23 @@ impl Lowerer {
             then_branch,
             else_branch,
         }))
+    }
+
+    /// Lowers either legal form of an OpenQASM control-flow body.
+    ///
+    /// `if (c) x q;` is represented by the same one-statement Irene block as
+    /// `if (c) { x q; }`, so the internal IR does not need two branch types.
+    fn lower_branch(&mut self, branch: BlockOrStmt) -> Result<Block, FrontendError> {
+        match branch {
+            BlockOrStmt::BlockExpr(block) => self.lower_block(block),
+            BlockOrStmt::Stmt(statement) => {
+                let statement = self.lower_statement(statement)?;
+                Ok(self.ids.node(BlockData {
+                    statements: vec![statement],
+                    ..BlockData::default()
+                }))
+            }
+        }
     }
 
     fn lower_block(&mut self, block: ast::BlockExpr) -> Result<Block, FrontendError> {
@@ -607,7 +1070,15 @@ impl Lowerer {
         match expression {
             // `flag` refers to a scalar bit declaration.
             Expr::Identifier(identifier) => {
-                let bit = self.checked_classical_bit(identifier.string(), 0)?;
+                let name = identifier.string();
+                let operand = self.classical_cells(name.clone())?;
+                let BitOperand::Scalar(bit) = operand else {
+                    return Err(FrontendError::WrongIdentifierKind {
+                        name,
+                        expected: "classical bit",
+                        actual: "classical bit register",
+                    });
+                };
                 Ok(self.ids.node(ClassicalExprKind::Bit(bit)))
             }
             // `flags[2]` resolves one bit from a classical register.
@@ -642,16 +1113,22 @@ impl Lowerer {
             // Comparisons and Boolean operators recursively combine their operands;
             // for example, `a && !b` becomes `And(Bit(a), Not(Bit(b)))`.
             Expr::BinExpr(binary) => {
-                let left = self.lower_classical_expr(
-                    binary
-                        .lhs()
-                        .ok_or_else(|| expected!("a left operand", &binary))?,
-                )?;
-                let right = self.lower_classical_expr(
-                    binary
-                        .rhs()
-                        .ok_or_else(|| expected!("a right operand", &binary))?,
-                )?;
+                let left_source = binary
+                    .lhs()
+                    .ok_or_else(|| expected!("a left operand", &binary))?;
+                let right_source = binary
+                    .rhs()
+                    .ok_or_else(|| expected!("a right operand", &binary))?;
+                if matches!(
+                    binary.op_kind(),
+                    Some(ast::BinaryOp::CmpOp(ast::CmpOp::Eq { negated: false }))
+                ) && let Some(expression) =
+                    self.lower_integer_register_equality(&left_source, &right_source)?
+                {
+                    return Ok(expression);
+                }
+                let left = self.lower_classical_expr(left_source)?;
+                let right = self.lower_classical_expr(right_source)?;
                 let left = Box::new(left);
                 let right = Box::new(right);
                 match binary.op_kind() {
@@ -674,31 +1151,164 @@ impl Lowerer {
         }
     }
 
-    /// Resolves one gate operand to an IR qubit.
-    fn lower_qubit(&self, operand: GateOperand) -> Result<Qubit, FrontendError> {
+    /// Lowers `int[n](bits) == k` or `uint[n](bits) == k` to individual bit
+    /// equalities. OpenQASM bit zero is the least-significant integer bit;
+    /// signed integers use two's-complement representation.
+    ///
+    /// For example, `int[3](bits) == -2` matches the little-endian pattern
+    /// `bits[0..3] = 0, 1, 1`, whereas `uint[3](bits) == 6` matches the same
+    /// bits but denotes the unsigned value six.
+    fn lower_integer_register_equality(
+        &mut self,
+        left: &Expr,
+        right: &Expr,
+    ) -> Result<Option<ClassicalExpr>, FrontendError> {
+        let (cast, literal) = match (left, right) {
+            (Expr::CastExpression(cast), literal) => (cast, literal),
+            (literal, Expr::CastExpression(cast)) => (cast, literal),
+            _ => return Ok(None),
+        };
+        let Some(ty) = cast.scalar_type() else {
+            return Ok(None);
+        };
+        let signed = if ty.int_token().is_some() {
+            true
+        } else if ty.uint_token().is_some() {
+            false
+        } else {
+            return Ok(None);
+        };
+        let Some(value) = exact_integer_literal(literal)? else {
+            return Ok(None);
+        };
+        let width = ty
+            .designator()
+            .ok_or_else(|| expected!("an explicitly sized integer cast", cast))?
+            .expr()
+            .ok_or_else(|| expected!("an integer cast width", cast))
+            .and_then(literal_usize)?;
+        if width == 0 {
+            return Err(expected!("a non-empty integer cast", cast));
+        }
+        let bits = self.lower_classical_value(
+            cast.expr()
+                .ok_or_else(|| expected!("an integer cast operand", cast))?,
+        )?;
+        if bits.ty() != (BitType::Register { width }) {
+            return Err(expected!("an integer cast matching its bit width", cast));
+        }
+        let modulus = BigInt::from(1_u8) << width;
+        let bit_pattern = if signed {
+            let magnitude = BigInt::from(1_u8) << (width - 1);
+            if value < -&magnitude || value >= magnitude {
+                return Err(expected!(
+                    "a signed integer literal representable at the cast width",
+                    literal
+                ));
+            }
+            if value < BigInt::from(0_u8) {
+                modulus + value
+            } else {
+                value
+            }
+        } else {
+            if value < BigInt::from(0_u8) || value >= modulus {
+                return Err(expected!(
+                    "an unsigned integer literal representable at the cast width",
+                    literal
+                ));
+            }
+            value
+        };
+        let mut terms = bits
+            .into_cells()
+            .into_iter()
+            .enumerate()
+            .map(|(index, bit)| {
+                let bit = self.ids.node(ClassicalExprKind::Bit(bit));
+                let expected_one =
+                    ((&bit_pattern >> index) & BigInt::from(1_u8)) == BigInt::from(1_u8);
+                if !expected_one {
+                    self.ids.node(ClassicalExprKind::Not(Box::new(bit)))
+                } else {
+                    bit
+                }
+            })
+            .collect::<Vec<_>>()
+            .into_iter();
+        let mut expression = terms
+            .next()
+            .ok_or_else(|| expected!("a non-empty integer cast", cast))?;
+        for term in terms {
+            expression = self
+                .ids
+                .node(ClassicalExprKind::And(Box::new(expression), Box::new(term)));
+        }
+        Ok(Some(expression))
+    }
+
+    /// Resolves a gate operand without erasing whether it was a scalar qubit or
+    /// a register. OpenQASM broadcasting depends on that distinction even when
+    /// a register has width one.
+    fn lower_qubits(&self, operand: GateOperand) -> Result<QuantumOperand, FrontendError> {
         match operand {
             // `q[2]` names one wire in a quantum register.
             GateOperand::IndexedIdentifier(indexed) => {
                 let (name, index) = indexed_name_and_index(indexed)?;
-                self.checked_qubit(name, index)
+                Ok(QuantumOperand::Scalar(self.checked_qubit(name, index)?))
             }
-            // `q` is accepted without an index only when its declared width is one.
+            // An unindexed name retains its declared scalar/register shape.
             GateOperand::Identifier(identifier) => {
                 let name = identifier.string();
                 let binding = self.scopes.lookup(&name).map_err(scope_error)?;
-                let width = quantum_width(name.as_str(), binding.kind)?;
-                if width != 1 {
-                    return Err(FrontendError::Expected {
-                        expected: "an indexed qubit operand",
-                        snippet: name,
-                    });
-                }
-                self.checked_qubit(name, 0)
+                self.quantum_cells(&name, binding)
             }
             // `$3` identifies a hardware qubit, which the logical IR does not yet model.
             GateOperand::HardwareQubit(hardware) => {
                 Err(unsupported!("physical qubit operand", &hardware))
             }
+        }
+    }
+
+    fn lower_quantum_argument(&self, expression: Expr) -> Result<QuantumOperand, FrontendError> {
+        match expression {
+            Expr::Identifier(identifier) => {
+                let name = identifier.string();
+                let binding = self.scopes.lookup(&name).map_err(scope_error)?;
+                self.quantum_cells(&name, binding)
+            }
+            Expr::IndexedIdentifier(indexed) => {
+                let (name, index) = indexed_name_and_index(indexed)?;
+                Ok(QuantumOperand::Scalar(self.checked_qubit(name, index)?))
+            }
+            expression => Err(unsupported!("quantum subroutine argument", &expression)),
+        }
+    }
+
+    fn quantum_cells(&self, name: &str, binding: Binding) -> Result<QuantumOperand, FrontendError> {
+        match binding.kind {
+            BindingKind::QuantumVariable(QuantumType::Scalar) => {
+                Ok(QuantumOperand::Scalar(Qubit {
+                    register: binding.id,
+                    index: 0,
+                }))
+            }
+            BindingKind::QuantumVariable(QuantumType::Register { width }) => {
+                Ok(QuantumOperand::Register(
+                    (0..width)
+                        .map(|index| Qubit {
+                            register: binding.id,
+                            index,
+                        })
+                        .collect(),
+                ))
+            }
+            BindingKind::QuantumParameter(_) => Ok(self.quantum_arguments[&binding.id].clone()),
+            actual => Err(FrontendError::WrongIdentifierKind {
+                name: name.to_owned(),
+                expected: "quantum register or parameter",
+                actual: actual.description(),
+            }),
         }
     }
 
@@ -712,12 +1322,28 @@ impl Lowerer {
 
     fn checked_qubit(&self, name: String, index: usize) -> Result<Qubit, FrontendError> {
         let binding = self.scopes.lookup(&name).map_err(scope_error)?;
-        let width = quantum_width(&name, binding.kind)?;
+        let ty = quantum_type_of(&name, binding.kind)?;
+        let QuantumType::Register { width } = ty else {
+            return Err(FrontendError::WrongIdentifierKind {
+                name,
+                expected: "quantum register",
+                actual: binding.kind.description(),
+            });
+        };
         check_index(&name, index, width)?;
-        Ok(Qubit {
-            register: binding.id,
-            index,
-        })
+        match binding.kind {
+            BindingKind::QuantumParameter(_) => {
+                let QuantumOperand::Register(qubits) = &self.quantum_arguments[&binding.id] else {
+                    unreachable!()
+                };
+                Ok(qubits[index].clone())
+            }
+            BindingKind::QuantumVariable(_) => Ok(Qubit {
+                register: binding.id,
+                index,
+            }),
+            _ => unreachable!(),
+        }
     }
 
     fn checked_classical_bit(
@@ -726,7 +1352,7 @@ impl Lowerer {
         index: usize,
     ) -> Result<ClassicalBit, FrontendError> {
         let binding = self.scopes.lookup(&name).map_err(scope_error)?;
-        let BindingKind::ClassicalBit { width, .. } = binding.kind else {
+        let BindingKind::ClassicalBit(BitType::Register { width }) = binding.kind else {
             return Err(FrontendError::WrongIdentifierKind {
                 name,
                 expected: "classical bit register",
@@ -738,6 +1364,78 @@ impl Lowerer {
             register: binding.id,
             index,
         })
+    }
+
+    fn classical_cells(&self, name: String) -> Result<BitOperand, FrontendError> {
+        let binding = self.scopes.lookup(&name).map_err(scope_error)?;
+        match binding.kind {
+            BindingKind::ClassicalBit(BitType::Scalar) => Ok(BitOperand::Scalar(ClassicalBit {
+                register: binding.id,
+                index: 0,
+            })),
+            BindingKind::ClassicalBit(BitType::Register { width }) => Ok(BitOperand::Register(
+                (0..width)
+                    .map(|index| ClassicalBit {
+                        register: binding.id,
+                        index,
+                    })
+                    .collect(),
+            )),
+            actual => Err(FrontendError::WrongIdentifierKind {
+                name,
+                expected: "classical bit or register",
+                actual: actual.description(),
+            }),
+        }
+    }
+
+    fn lower_classical_value(&self, expression: Expr) -> Result<BitOperand, FrontendError> {
+        match expression {
+            Expr::Identifier(identifier) => self.classical_cells(identifier.string()),
+            Expr::IndexedIdentifier(indexed) => {
+                Ok(BitOperand::Scalar(self.lower_classical_indexed(indexed)?))
+            }
+            expression => Err(unsupported!("subroutine return expression", &expression)),
+        }
+    }
+
+    fn sequence(&mut self, mut statements: Vec<Statement>) -> Statement {
+        if statements.len() == 1 {
+            return statements.pop().unwrap();
+        }
+        let body = self.ids.node(BlockData {
+            statements,
+            ..BlockData::default()
+        });
+        self.ids.node(StatementKind::Scope(body))
+    }
+
+    fn clone_numeric_expr(&mut self, expression: &NumericExpr) -> NumericExpr {
+        let kind = match &expression.kind {
+            NumericExprKind::Rational(value) => NumericExprKind::Rational(value.clone()),
+            NumericExprKind::Constant(value) => NumericExprKind::Constant(*value),
+            NumericExprKind::Input(value) => NumericExprKind::Input(*value),
+            NumericExprKind::Neg(inner) => {
+                NumericExprKind::Neg(Box::new(self.clone_numeric_expr(inner)))
+            }
+            NumericExprKind::Add(left, right) => NumericExprKind::Add(
+                Box::new(self.clone_numeric_expr(left)),
+                Box::new(self.clone_numeric_expr(right)),
+            ),
+            NumericExprKind::Sub(left, right) => NumericExprKind::Sub(
+                Box::new(self.clone_numeric_expr(left)),
+                Box::new(self.clone_numeric_expr(right)),
+            ),
+            NumericExprKind::Mul(left, right) => NumericExprKind::Mul(
+                Box::new(self.clone_numeric_expr(left)),
+                Box::new(self.clone_numeric_expr(right)),
+            ),
+            NumericExprKind::Div(left, right) => NumericExprKind::Div(
+                Box::new(self.clone_numeric_expr(left)),
+                Box::new(self.clone_numeric_expr(right)),
+            ),
+        };
+        self.ids.node(kind)
     }
 }
 
@@ -792,10 +1490,39 @@ fn literal_usize(expression: Expr) -> Result<usize, FrontendError> {
 /// Converts an integer token of any OpenQASM radix into an exact rational.
 /// For example, `0xff` becomes `255/1`.
 fn exact_integer(number: ast::IntNumber) -> Result<BigRational, FrontendError> {
+    Ok(BigRational::from_integer(exact_integer_value(number)?))
+}
+
+/// Reads an optionally negated integer literal without applying a finite host
+/// integer width. Parentheses are ignored, so `-(0b10)` denotes exactly `-2`.
+fn exact_integer_literal(expression: &Expr) -> Result<Option<BigInt>, FrontendError> {
+    match expression {
+        Expr::Literal(literal) => match literal.kind() {
+            ast::LiteralKind::IntNumber(number) => exact_integer_value(number).map(Some),
+            _ => Ok(None),
+        },
+        Expr::ParenExpr(parenthesized) => exact_integer_literal(
+            &parenthesized
+                .expr()
+                .ok_or_else(|| expected!("a parenthesized integer literal", parenthesized))?,
+        ),
+        Expr::PrefixExpr(prefix) if prefix.op_kind() == Some(ast::UnaryOp::Neg) => {
+            exact_integer_literal(
+                &prefix
+                    .expr()
+                    .ok_or_else(|| expected!("an integer prefix operand", prefix))?,
+            )
+            .map(|value| value.map(|value| -value))
+        }
+        _ => Ok(None),
+    }
+}
+
+fn exact_integer_value(number: ast::IntNumber) -> Result<BigInt, FrontendError> {
     let (_, digits, suffix) = number.split_into_parts();
     if !suffix.is_empty() {
         return Err(FrontendError::Expected {
-            expected: "an unsuffixed integer gate parameter",
+            expected: "an unsuffixed integer literal",
             snippet: number.to_string(),
         });
     }
@@ -803,11 +1530,11 @@ fn exact_integer(number: ast::IntNumber) -> Result<BigRational, FrontendError> {
     let integer =
         BigInt::parse_bytes(digits.as_bytes(), number.radix() as u32).ok_or_else(|| {
             FrontendError::Expected {
-                expected: "an integer gate parameter",
+                expected: "an integer literal",
                 snippet: number.to_string(),
             }
         })?;
-    Ok(BigRational::from_integer(integer))
+    Ok(integer)
 }
 
 /// Converts a finite decimal or scientific token without passing through `f64`.
@@ -844,13 +1571,7 @@ fn exact_decimal(number: ast::FloatNumber) -> Result<BigRational, FrontendError>
 fn numeric_type(scalar_type: &ast::ScalarType) -> Result<NumericType, FrontendError> {
     let width = scalar_type
         .designator()
-        .map(|designator| {
-            literal_usize(
-                designator
-                    .expr()
-                    .ok_or_else(|| expected!("a numeric type width", &designator))?,
-            )
-        })
+        .map(|_| type_width(scalar_type, "a numeric type width"))
         .transpose()?;
     if scalar_type.int_token().is_some() {
         Ok(NumericType::Int(width))
@@ -865,12 +1586,76 @@ fn numeric_type(scalar_type: &ast::ScalarType) -> Result<NumericType, FrontendEr
     }
 }
 
-fn quantum_width(name: &str, kind: BindingKind) -> Result<usize, FrontendError> {
+fn type_width(
+    scalar_type: &ast::ScalarType,
+    expected_width: &'static str,
+) -> Result<usize, FrontendError> {
+    scalar_type
+        .designator()
+        .map(|designator| {
+            literal_usize(
+                designator
+                    .expr()
+                    .ok_or_else(|| expected!(expected_width, &designator))?,
+            )
+        })
+        .transpose()
+        .map(|width| width.unwrap_or(1))
+}
+
+fn quantum_type(
+    designator: Option<ast::Designator>,
+    expected_width: &'static str,
+) -> Result<QuantumType, FrontendError> {
+    match designator {
+        Some(designator) => Ok(QuantumType::Register {
+            width: literal_usize(
+                designator
+                    .expr()
+                    .ok_or_else(|| expected!(expected_width, &designator))?,
+            )?,
+        }),
+        None => Ok(QuantumType::Scalar),
+    }
+}
+
+fn bit_type(
+    designator: Option<ast::Designator>,
+    expected_width: &'static str,
+) -> Result<BitType, FrontendError> {
+    match designator {
+        Some(designator) => Ok(BitType::Register {
+            width: literal_usize(
+                designator
+                    .expr()
+                    .ok_or_else(|| expected!(expected_width, &designator))?,
+            )?,
+        }),
+        None => Ok(BitType::Scalar),
+    }
+}
+
+fn measurement_types_match(quantum: QuantumType, classical: BitType) -> bool {
+    match (quantum, classical) {
+        (QuantumType::Scalar, BitType::Scalar) => true,
+        (
+            QuantumType::Register {
+                width: quantum_width,
+            },
+            BitType::Register {
+                width: classical_width,
+            },
+        ) => quantum_width == classical_width,
+        _ => false,
+    }
+}
+
+fn quantum_type_of(name: &str, kind: BindingKind) -> Result<QuantumType, FrontendError> {
     match kind {
-        BindingKind::QuantumRegister { width } => Ok(width),
+        BindingKind::QuantumVariable(ty) | BindingKind::QuantumParameter(ty) => Ok(ty),
         actual => Err(FrontendError::WrongIdentifierKind {
             name: name.to_owned(),
-            expected: "quantum register",
+            expected: "qubit or quantum register",
             actual: actual.description(),
         }),
     }
@@ -898,6 +1683,7 @@ fn scope_error(error: ScopeError) -> FrontendError {
                 scope: match scope {
                     ScopeKind::Global => "global",
                     ScopeKind::Block => "block",
+                    ScopeKind::Subroutine => "subroutine",
                 },
             }
         }

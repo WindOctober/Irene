@@ -6,28 +6,74 @@ use crate::ir::{NumericConstant, NumericType, SymbolId};
 pub(super) enum ScopeKind {
     Global,
     Block,
+    Subroutine,
+}
+
+/// Source-level shape of a quantum binding.
+///
+/// OpenQASM distinguishes `qubit q` from `qubit[1] q`. Both contain one
+/// physical wire, but only the former is a scalar operand that may be
+/// broadcast against a register operand.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum QuantumType {
+    Scalar,
+    Register { width: usize },
+}
+
+impl QuantumType {
+    pub(super) fn width(self) -> usize {
+        match self {
+            Self::Scalar => 1,
+            Self::Register { width } => width,
+        }
+    }
+}
+
+/// Source-level shape of a classical bit binding.
+///
+/// `bit c` is a scalar, whereas `bit[1] c` is a one-cell register. The two
+/// have different indexing, measurement, condition, and return-value rules.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum BitType {
+    Scalar,
+    Register { width: usize },
+}
+
+impl BitType {
+    pub(super) fn width(self) -> usize {
+        match self {
+            Self::Scalar => 1,
+            Self::Register { width } => width,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum BindingKind {
-    QuantumRegister { width: usize },
-    ClassicalBit { width: usize },
+    QuantumVariable(QuantumType),
+    QuantumParameter(QuantumType),
+    ClassicalBit(BitType),
     NumericInput(NumericType),
     Gate,
+    Subroutine { index: usize },
     Constant(NumericConstant),
 }
 
 impl BindingKind {
     fn can_be_shadowed(self) -> bool {
-        !matches!(self, Self::Gate)
+        !matches!(self, Self::Gate | Self::Subroutine { .. })
     }
 
     pub(super) fn description(self) -> &'static str {
         match self {
-            Self::QuantumRegister { .. } => "quantum register",
-            Self::ClassicalBit { .. } => "classical bit register",
+            Self::QuantumVariable(QuantumType::Scalar) => "qubit",
+            Self::QuantumVariable(QuantumType::Register { .. }) => "quantum register",
+            Self::QuantumParameter(_) => "quantum parameter",
+            Self::ClassicalBit(BitType::Scalar) => "classical bit",
+            Self::ClassicalBit(BitType::Register { .. }) => "classical bit register",
             Self::NumericInput(_) => "numeric input",
             Self::Gate => "gate",
+            Self::Subroutine { .. } => "subroutine",
             Self::Constant(_) => "constant",
         }
     }
@@ -118,14 +164,22 @@ impl ScopeStack {
     ) -> Result<Binding, ScopeError> {
         let name = name.into();
         let current_kind = self.current_kind();
-        if matches!(kind, BindingKind::QuantumRegister { .. }) && current_kind != ScopeKind::Global
-        {
+        if matches!(kind, BindingKind::QuantumVariable(_)) && current_kind != ScopeKind::Global {
             return Err(ScopeError::IllegalDeclaration {
                 declaration: "qubit",
                 scope: current_kind,
             });
         }
-        if matches!(kind, BindingKind::Gate) && current_kind != ScopeKind::Global {
+        if matches!(kind, BindingKind::QuantumParameter(_)) && current_kind != ScopeKind::Subroutine
+        {
+            return Err(ScopeError::IllegalDeclaration {
+                declaration: "quantum parameter",
+                scope: current_kind,
+            });
+        }
+        if matches!(kind, BindingKind::Gate | BindingKind::Subroutine { .. })
+            && current_kind != ScopeKind::Global
+        {
             return Err(ScopeError::IllegalDeclaration {
                 declaration: kind.description(),
                 scope: current_kind,
@@ -164,10 +218,31 @@ impl ScopeStack {
     }
 
     pub(super) fn lookup(&self, name: &str) -> Result<Binding, ScopeError> {
-        for scope in self.scopes.iter().rev() {
+        let subroutine_scope = self
+            .scopes
+            .iter()
+            .rposition(|scope| scope.kind == ScopeKind::Subroutine);
+        for (index, scope) in self.scopes.iter().enumerate().rev() {
+            // Call-site specialization may temporarily nest two subroutine
+            // scopes. Name lookup remains lexical: the callee cannot capture
+            // parameters or locals from its caller.
+            if subroutine_scope.is_some_and(|boundary| index < boundary)
+                && scope.kind != ScopeKind::Global
+            {
+                continue;
+            }
             let Some(binding) = scope.bindings.get(name).copied() else {
                 continue;
             };
+            if subroutine_scope.is_some()
+                && scope.kind == ScopeKind::Global
+                && !matches!(
+                    binding.kind,
+                    BindingKind::Constant(_) | BindingKind::Gate | BindingKind::Subroutine { .. }
+                )
+            {
+                continue;
+            }
             return Ok(binding);
         }
         Err(ScopeError::Unknown(name.to_owned()))

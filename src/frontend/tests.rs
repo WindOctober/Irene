@@ -33,7 +33,7 @@ fn ast_ids_are_unique_and_dense_within_a_program() {
         input angle theta;
         qubit[2] q;
         bit c;
-        rz(theta / 2) q[0];
+        rz(theta / 2) q;
         c = measure q[0];
         if (c) { x q[1]; }
         "#,
@@ -50,6 +50,279 @@ fn ast_ids_are_unique_and_dense_within_a_program() {
         unique.into_iter().map(|id| id.index()).collect::<Vec<_>>(),
         (0..program.ast_id_bound()).collect::<Vec<_>>()
     );
+}
+
+#[test]
+fn lowers_single_statement_if_bodies() {
+    let program = parse_str(
+        r#"
+        OPENQASM 3.0;
+        include "stdgates.inc";
+        qubit[2] q;
+        bit c;
+        c = measure q[0];
+        if (c) x q[1]; else z q[1];
+        "#,
+        "single-statement-if.qasm",
+    )
+    .unwrap();
+
+    let StatementKind::If {
+        then_branch,
+        else_branch,
+        ..
+    } = &program.body.statements[1].kind
+    else {
+        panic!("expected an if statement");
+    };
+    assert!(matches!(
+        then_branch.statements[0].kind,
+        StatementKind::Apply { gate: Gate::X, .. }
+    ));
+    assert!(matches!(
+        else_branch.statements[0].kind,
+        StatementKind::Apply { gate: Gate::Z, .. }
+    ));
+}
+
+#[test]
+fn specializes_a_subroutine_call_to_its_quantum_argument() {
+    let program = parse_str(
+        r#"
+        OPENQASM 3.0;
+        include "stdgates.inc";
+        def flip(qubit target) {
+            x target;
+        }
+        qubit[2] data;
+        flip(data[0]);
+        flip(data[1]);
+        "#,
+        "subroutine-call.qasm",
+    )
+    .unwrap();
+
+    for (index, statement) in program.body.statements.iter().enumerate() {
+        let StatementKind::Scope(body) = &statement.kind else {
+            panic!("expected a specialized subroutine scope");
+        };
+        let StatementKind::Apply { gate, qubits, .. } = &body.statements[0].kind else {
+            panic!("expected the specialized gate operation");
+        };
+        assert_eq!(*gate, Gate::X);
+        assert_eq!(qubits[0].register, program.quantum_registers[0].id);
+        assert_eq!(qubits[0].index, index);
+    }
+}
+
+#[test]
+fn broadcasts_a_scalar_qubit_over_a_register() {
+    let program = parse_str(
+        r#"
+        OPENQASM 3.0;
+        include "stdgates.inc";
+        qubit[1] control;
+        qubit[3] target;
+        cx control[0], target;
+        "#,
+        "scalar-register-broadcast.qasm",
+    )
+    .unwrap();
+
+    let StatementKind::Scope(body) = &program.body.statements[0].kind else {
+        panic!("expected the broadcast gate sequence");
+    };
+    assert_eq!(body.statements.len(), 3);
+    for (index, statement) in body.statements.iter().enumerate() {
+        let StatementKind::Apply { gate, qubits, .. } = &statement.kind else {
+            panic!("expected a broadcast gate operation");
+        };
+        assert_eq!(*gate, Gate::Cx);
+        assert_eq!(qubits[0].index, 0);
+        assert_eq!(qubits[1].index, index);
+    }
+}
+
+#[test]
+fn rejects_broadcasting_registers_of_different_widths() {
+    let error = parse_str(
+        r#"
+        OPENQASM 3.0;
+        include "stdgates.inc";
+        qubit[1] control;
+        qubit[3] target;
+        cx control, target;
+        "#,
+        "register-width-mismatch.qasm",
+    )
+    .unwrap_err();
+
+    assert!(matches!(
+        error,
+        FrontendError::Expected {
+            expected: "equally sized or scalar gate operands",
+            ..
+        }
+    ));
+}
+
+#[test]
+fn rejects_duplicate_qubits_in_a_gate_application() {
+    let error = parse_str(
+        r#"
+        OPENQASM 3.0;
+        include "stdgates.inc";
+        qubit q;
+        cx q, q;
+        "#,
+        "duplicate-gate-operands.qasm",
+    )
+    .unwrap_err();
+
+    assert!(matches!(
+        error,
+        FrontendError::Expected {
+            expected: "distinct qubit operands for each gate application",
+            ..
+        }
+    ));
+}
+
+#[test]
+fn rejects_duplicate_qubits_introduced_by_broadcasting() {
+    let error = parse_str(
+        r#"
+        OPENQASM 3.0;
+        include "stdgates.inc";
+        qubit[2] q;
+        cx q[0], q;
+        "#,
+        "overlapping-gate-broadcast.qasm",
+    )
+    .unwrap_err();
+
+    assert!(matches!(
+        error,
+        FrontendError::Expected {
+            expected: "distinct qubit operands for each gate application",
+            ..
+        }
+    ));
+}
+
+#[test]
+fn rejects_indexing_a_scalar_classical_bit() {
+    let error = parse_str(
+        "OPENQASM 3.0; qubit q; bit c; c[0] = measure q;",
+        "indexed-scalar-bit.qasm",
+    )
+    .unwrap_err();
+
+    assert!(matches!(
+        error,
+        FrontendError::WrongIdentifierKind {
+            expected: "classical bit register",
+            actual: "classical bit",
+            ..
+        }
+    ));
+}
+
+#[test]
+fn rejects_scalar_register_measurement_mismatch() {
+    let error = parse_str(
+        "OPENQASM 3.0; qubit q; bit[1] c; c = measure q;",
+        "measurement-type-mismatch.qasm",
+    )
+    .unwrap_err();
+
+    assert!(matches!(
+        error,
+        FrontendError::Expected {
+            expected: "matching scalar or register measurement operands",
+            ..
+        }
+    ));
+}
+
+#[test]
+fn rejects_a_classical_register_as_a_condition() {
+    let error = parse_str(
+        r#"
+        OPENQASM 3.0;
+        include "stdgates.inc";
+        qubit q;
+        bit[2] c;
+        if (c) x q;
+        "#,
+        "register-condition.qasm",
+    )
+    .unwrap_err();
+
+    assert!(matches!(
+        error,
+        FrontendError::WrongIdentifierKind {
+            expected: "classical bit",
+            actual: "classical bit register",
+            ..
+        }
+    ));
+}
+
+#[test]
+fn distinguishes_signed_and_unsigned_integer_cast_ranges() {
+    parse_str(
+        r#"
+        OPENQASM 3.0;
+        bit[2] bits;
+        if (int[2](bits) == -2) {}
+        if (uint[2](bits) == 3) {}
+        "#,
+        "integer-cast-ranges.qasm",
+    )
+    .unwrap();
+
+    for (condition, expected) in [
+        (
+            "int[2](bits) == 2",
+            "a signed integer literal representable at the cast width",
+        ),
+        (
+            "uint[2](bits) == -1",
+            "an unsigned integer literal representable at the cast width",
+        ),
+    ] {
+        let error = parse_str(
+            &format!("OPENQASM 3.0; bit[2] bits; if ({condition}) {{}}"),
+            "integer-cast-out-of-range.qasm",
+        )
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            FrontendError::Expected {
+                expected: actual,
+                ..
+            } if actual == expected
+        ));
+    }
+}
+
+#[test]
+fn rejects_unsized_integer_casts_from_bit_registers() {
+    for cast in ["int", "uint"] {
+        let error = parse_str(
+            &format!("OPENQASM 3.0; bit[1] bits; if ({cast}(bits) == 0) {{}}"),
+            "unsized-integer-cast.qasm",
+        )
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            FrontendError::Expected {
+                expected: "an explicitly sized integer cast",
+                ..
+            }
+        ));
+    }
 }
 
 #[test]
@@ -192,7 +465,7 @@ fn numeric_constants_respect_local_shadowing() {
         error,
         FrontendError::WrongIdentifierKind {
             expected: "numeric value",
-            actual: "classical bit register",
+            actual: "classical bit",
             ..
         }
     ));
