@@ -21,7 +21,7 @@ def teleport_and_correct(qubit source, qubit[2] bell) {
   if (bit_measurement == true) x bell[1];
 }
 
-teleport_and_correct input_qubit, q[0:1];
+teleport_and_correct(input_qubit, q[0:1]);
 for uint i in [1:hops - 1] {
-  teleport_and_correct q[2 * i - 1], q[2 * i:2 * i + 1];
+  teleport_and_correct(q[2 * i - 1], q[2 * i:2 * i + 1]);
 }

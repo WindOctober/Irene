@@ -246,6 +246,21 @@ fn rejects_scalar_register_measurement_mismatch() {
 }
 
 #[test]
+fn lowers_measurement_arrow_statement() {
+    let program = parse_str(
+        "OPENQASM 3.0; qubit q; bit[1] c; measure q -> c[0];",
+        "measurement-arrow.qasm",
+    )
+    .unwrap();
+
+    let StatementKind::Measure { qubit, target } = &program.body.statements[0].kind else {
+        panic!("expected a measurement");
+    };
+    assert_eq!(qubit.register, program.quantum_registers[0].id);
+    assert_eq!(target.register, program.classical_registers[0].id);
+}
+
+#[test]
 fn rejects_classical_register_assignment_width_mismatch() {
     let error = parse_str(
         "OPENQASM 3.0; bit[2] left; bit[3] right; left = right;",

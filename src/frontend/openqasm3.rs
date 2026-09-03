@@ -591,6 +591,21 @@ impl Lowerer {
             }
             // `c[0] = measure q[0];` is an assignment whose RHS is a measurement.
             Stmt::AssignmentStmt(assignment) => self.lower_assignment(assignment),
+            // OpenQASM 3 retains the OpenQASM 2-compatible
+            // `measure q[0] -> c[0];` spelling for the same operation.
+            Stmt::Measure(measurement) => {
+                let qubits = self.lower_quantum_argument(
+                    measurement
+                        .qubit()
+                        .ok_or_else(|| expected!("a measurement operand", &measurement))?,
+                )?;
+                let targets = self.lower_bit_operand(
+                    measurement
+                        .target()
+                        .ok_or_else(|| expected!("a measurement target", &measurement))?,
+                )?;
+                self.lower_measurement(qubits, targets, measurement.syntax().text().to_string())
+            }
             // `if (c[0]) { x q[1]; } else { z q[1]; }` becomes two IR blocks.
             Stmt::IfStmt(if_statement) => self.lower_if(if_statement),
             // Remaining OpenQASM statements do not yet have an Irene IR form.
@@ -863,19 +878,7 @@ impl Lowerer {
                     .gate_operand()
                     .ok_or_else(|| expected!("a measurement operand", &measurement))?;
                 let qubits = self.lower_qubits(operand)?;
-                if !measurement_types_match(qubits.ty(), targets.ty()) {
-                    return Err(FrontendError::Expected {
-                        expected: "matching scalar or register measurement operands",
-                        snippet,
-                    });
-                }
-                let statements = qubits
-                    .into_cells()
-                    .into_iter()
-                    .zip(targets.into_cells())
-                    .map(|(qubit, target)| self.ids.node(StatementKind::Measure { qubit, target }))
-                    .collect();
-                Ok(self.sequence(statements))
+                self.lower_measurement(qubits, targets, snippet)
             }
             // `c = parity(q);` binds the subroutine's classical return value
             // directly to `c` while specializing its quantum parameters.
@@ -887,6 +890,28 @@ impl Lowerer {
                 self.assign_bit_values(targets, values, snippet)
             }
         }
+    }
+
+    /// Expands either measurement spelling after their operands are resolved.
+    fn lower_measurement(
+        &mut self,
+        qubits: QuantumOperand,
+        targets: BitOperand,
+        snippet: String,
+    ) -> Result<Statement, FrontendError> {
+        if !measurement_types_match(qubits.ty(), targets.ty()) {
+            return Err(FrontendError::Expected {
+                expected: "matching scalar or register measurement operands",
+                snippet,
+            });
+        }
+        let statements = qubits
+            .into_cells()
+            .into_iter()
+            .zip(targets.into_cells())
+            .map(|(qubit, target)| self.ids.node(StatementKind::Measure { qubit, target }))
+            .collect();
+        Ok(self.sequence(statements))
     }
 
     /// Expands a shape-compatible classical assignment into scalar IR writes.

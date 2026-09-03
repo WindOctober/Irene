@@ -2,7 +2,7 @@ OPENQASM 3.0;
 include "stdgates.inc";
 
 qubit[4] q;
-bit[4] c;
+bit[4] c = "0000";
 
 h q[0];
 c[0] = measure q[0];

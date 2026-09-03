@@ -532,7 +532,7 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 [[package]]
 name = "oq3_lexer"
 version = "0.7.0"
-source = "git+https://github.com/WindOctober/openqasm3_parser.git?branch=dev#b173bef476acf92fcff8ae93aaebfadca78f0f47"
+source = "git+https://github.com/WindOctober/openqasm3_parser.git?branch=dev#4bf2859b8e0e37a2a0f4ef5eef868b101df0f2af"
 dependencies = [
  "unicode-properties",
  "unicode-xid",
@@ -541,7 +541,7 @@ dependencies = [
 [[package]]
 name = "oq3_parser"
 version = "0.7.0"
-source = "git+https://github.com/WindOctober/openqasm3_parser.git?branch=dev#b173bef476acf92fcff8ae93aaebfadca78f0f47"
+source = "git+https://github.com/WindOctober/openqasm3_parser.git?branch=dev#4bf2859b8e0e37a2a0f4ef5eef868b101df0f2af"
 dependencies = [
  "drop_bomb",
  "oq3_lexer",
@@ -551,7 +551,7 @@ dependencies = [
 [[package]]
 name = "oq3_source_file"
 version = "0.7.0"
-source = "git+https://github.com/WindOctober/openqasm3_parser.git?branch=dev#b173bef476acf92fcff8ae93aaebfadca78f0f47"
+source = "git+https://github.com/WindOctober/openqasm3_parser.git?branch=dev#4bf2859b8e0e37a2a0f4ef5eef868b101df0f2af"
 dependencies = [
  "ariadne",
  "oq3_syntax",
@@ -560,7 +560,7 @@ dependencies = [
 [[package]]
 name = "oq3_syntax"
 version = "0.7.0"
-source = "git+https://github.com/WindOctober/openqasm3_parser.git?branch=dev#b173bef476acf92fcff8ae93aaebfadca78f0f47"
+source = "git+https://github.com/WindOctober/openqasm3_parser.git?branch=dev#4bf2859b8e0e37a2a0f4ef5eef868b101df0f2af"
 dependencies = [
  "cov-mark",
  "either",
