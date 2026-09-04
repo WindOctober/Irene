@@ -146,6 +146,27 @@ impl ScopeStack {
         symbols
     }
 
+    /// Creates the smaller built-in namespace defined by OpenQASM 2.0.
+    ///
+    /// Unlike OpenQASM 3, version 2 has only `pi` as a numeric constant and
+    /// reserves the uppercase primitive gates `U` and `CX`.  The names from
+    /// `qelib1.inc` are installed separately at the include site.
+    pub(super) fn new_openqasm2() -> Self {
+        let mut symbols = Self {
+            scopes: vec![Scope::new(ScopeKind::Global)],
+            next_symbol: 0,
+        };
+        symbols
+            .declare("pi", BindingKind::Constant(NumericConstant::Pi))
+            .expect("the OpenQASM 2 built-in namespace is initially empty");
+        for name in ["U", "CX"] {
+            symbols
+                .declare(name, BindingKind::Gate)
+                .expect("OpenQASM 2 built-in gate names are distinct");
+        }
+        symbols
+    }
+
     pub(super) fn enter(&mut self, kind: ScopeKind) {
         assert_ne!(kind, ScopeKind::Global);
         self.scopes.push(Scope::new(kind));
@@ -264,6 +285,19 @@ impl ScopeStack {
             "p", "x", "y", "z", "h", "s", "sdg", "t", "tdg", "sx", "rx", "ry", "rz", "cx", "cy",
             "cz", "cp", "crx", "cry", "crz", "ch", "swap", "ccx", "cswap", "cu", "CX", "phase",
             "cphase", "id", "u1", "u2", "u3",
+        ] {
+            self.declare(name, BindingKind::Gate)?;
+        }
+        Ok(())
+    }
+
+    /// Adds the canonical `qelib1.inc` names and the small set of historical
+    /// Qiskit aliases used by Irene's frozen OpenQASM 2 corpora.
+    pub(super) fn declare_qelib1_gates(&mut self) -> Result<(), ScopeError> {
+        for name in [
+            "u3", "u2", "u1", "cx", "id", "u0", "u", "p", "x", "y", "z", "h", "s", "sdg", "t",
+            "tdg", "rx", "ry", "rz", "sx", "sxdg", "cz", "cy", "swap", "ch", "ccx", "cswap", "crx",
+            "cry", "crz", "cu1", "cp", "cu3",
         ] {
             self.declare(name, BindingKind::Gate)?;
         }

@@ -3,7 +3,7 @@ use std::process::ExitCode;
 
 use clap::Parser;
 use irene::equivalence::{self, Verdict};
-use irene::frontend::openqasm3;
+use irene::frontend::{openqasm2, openqasm3};
 use irene::utils::load_openqasm_source;
 
 #[derive(Debug, Parser)]
@@ -36,7 +36,15 @@ fn check_equivalence(left_path: &Path, right_path: &Path) -> Result<Verdict, Str
         .map_err(|error| format!("{}: {error}", right_path.display()))?;
 
     let (left, right) = match (left_source.version.major, right_source.version.major) {
-        (2, 2) => todo!("OpenQASM 2 frontend"),
+        (2, 2) => {
+            let left =
+                openqasm2::parse_str(&left_source.text, left_path.to_string_lossy().as_ref())
+                    .map_err(|error| format!("{}: {error}", left_path.display()))?;
+            let right =
+                openqasm2::parse_str(&right_source.text, right_path.to_string_lossy().as_ref())
+                    .map_err(|error| format!("{}: {error}", right_path.display()))?;
+            (left, right)
+        }
         (3, 3) => {
             let left =
                 openqasm3::parse_str(&left_source.text, left_path.to_string_lossy().as_ref())

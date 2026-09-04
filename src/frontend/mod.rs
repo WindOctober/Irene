@@ -1,3 +1,4 @@
+pub mod openqasm2;
 pub mod openqasm3;
 mod scope;
 
