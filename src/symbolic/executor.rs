@@ -321,41 +321,7 @@ impl Executor {
                     condition,
                     then_branch,
                     else_branch,
-                } => {
-                    let mut result = Vec::new();
-                    for component in components {
-                        let condition = evaluate_classical(condition, &component.output.classical)?;
-                        // Guards are equations equal to zero. The then branch
-                        // therefore adds `1 ⊕ condition = 0`, while the else
-                        // branch adds `condition = 0`. Simplifying immediately
-                        // removes determined path variables before either
-                        // branch introduces more symbolic expressions.
-                        let mut then_component = component.clone();
-                        let then_constraint = condition.complement();
-                        if !then_constraint.is_zero() {
-                            then_component.guard.push(then_constraint);
-                        }
-                        let mut else_component = component;
-                        if !condition.is_zero() {
-                            else_component.guard.push(condition);
-                        }
-                        if simplify_component(&mut then_component) {
-                            result.extend(self.execute_block(
-                                vec![then_component],
-                                then_branch,
-                                plan,
-                            )?);
-                        }
-                        if simplify_component(&mut else_component) {
-                            result.extend(self.execute_block(
-                                vec![else_component],
-                                else_branch,
-                                plan,
-                            )?);
-                        }
-                    }
-                    result
-                }
+                } => self.execute_if(components, condition, then_branch, else_branch, plan)?,
                 StatementKind::Scope(body) => self.execute_block(components, body, plan)?,
                 _ => components
                     .into_iter()
@@ -393,6 +359,94 @@ impl Executor {
             components = merge_components(components);
         }
         Ok(components)
+    }
+
+    /// Executes a classical conditional either as a guarded unitary or as an
+    /// explicit sum of HPS components.
+    ///
+    /// A block containing only monomial gates has an exact pointwise action on
+    /// computational-basis expressions. For example, `if c { z q }` adds the
+    /// phase `c*q/2` directly, so the symbolic values `c=0` and `c=1` need not
+    /// become separate components. Other blocks retain the general HPS rule
+    /// `c [[then]] + (1-c) [[else]]`.
+    fn execute_if(
+        &mut self,
+        components: Vec<Component>,
+        condition: &ClassicalExpr,
+        then_branch: &Block,
+        else_branch: &Block,
+        plan: &SlicePlan,
+    ) -> Result<Vec<Component>, SymbolicError> {
+        if is_predicable_block(then_branch, plan) && is_predicable_block(else_branch, plan) {
+            let mut result = Vec::with_capacity(components.len());
+            for mut component in components {
+                let predicate = evaluate_classical(condition, &component.output.classical)?;
+                self.execute_predicated_block(&mut component, then_branch, &predicate, plan);
+                self.execute_predicated_block(
+                    &mut component,
+                    else_branch,
+                    &predicate.complement(),
+                    plan,
+                );
+                result.push(component);
+            }
+            return Ok(result);
+        }
+
+        let mut result = Vec::new();
+        for component in components {
+            let condition = evaluate_classical(condition, &component.output.classical)?;
+            // Guards are equations equal to zero. The then branch therefore
+            // adds `1 ⊕ condition = 0`, while the else branch adds
+            // `condition = 0`. Simplifying immediately removes determined path
+            // variables before either branch introduces more expressions.
+            let mut then_component = component.clone();
+            let then_constraint = condition.complement();
+            if !then_constraint.is_zero() {
+                then_component.guard.push(then_constraint);
+            }
+            let mut else_component = component;
+            if !condition.is_zero() {
+                else_component.guard.push(condition);
+            }
+            if simplify_component(&mut then_component) {
+                result.extend(self.execute_block(vec![then_component], then_branch, plan)?);
+            }
+            if simplify_component(&mut else_component) {
+                result.extend(self.execute_block(vec![else_component], else_branch, plan)?);
+            }
+        }
+        Ok(result)
+    }
+
+    /// Applies a side-effect-free unitary block under one symbolic predicate.
+    ///
+    /// [`is_predicable_block`] ensures that every retained statement has an
+    /// exact guarded basis-state transformer and that no branch-local partial
+    /// trace is skipped here.
+    fn execute_predicated_block(
+        &mut self,
+        component: &mut Component,
+        block: &Block,
+        predicate: &BooleanPolynomial,
+        plan: &SlicePlan,
+    ) {
+        for statement in &block.statements {
+            if !plan.retains(statement.ast_id) {
+                continue;
+            }
+            match &statement.kind {
+                StatementKind::Apply {
+                    gate,
+                    parameters,
+                    qubits,
+                } => self.apply_predicated_gate(component, *gate, parameters, qubits, predicate),
+                StatementKind::Scope(body) => {
+                    self.execute_predicated_block(component, body, predicate, plan);
+                }
+                _ => unreachable!("predicable blocks contain only monomial gates"),
+            }
+        }
     }
 
     /// Applies a non-branching statement to one HPS component.
@@ -458,11 +512,16 @@ impl Executor {
         parameters: &[NumericExpr],
         qubits: &[Qubit],
     ) -> Result<(), SymbolicError> {
-        // Each arm acts on the current symbolic basis expressions. Permutation
-        // gates rewrite `output.quantum`; diagonal gates add to `phase`; gates
-        // with non-uniform magnitudes also multiply `scalar`. The result has
-        // the HPS form
-        //   sum_y scalar(x,y) exp(2πi phase(x,y)) |output(x,y)⟩.
+        let predicate = BooleanPolynomial::one();
+        if is_monomial_gate(gate) {
+            self.apply_monomial_gate(component, gate, parameters, qubits, &predicate);
+            return Ok(());
+        }
+
+        // Non-monomial gates introduce a new path and possibly a non-uniform
+        // scalar. They retain their ordinary, unconditional HPS rules here;
+        // symbolic classical predication conservatively falls back to explicit
+        // branch components before reaching this method.
         let first = qubits[0].clone();
         match gate {
             Gate::H => {
@@ -480,118 +539,6 @@ impl Executor {
                     .clone()
                     .multiply(Scalar::sqrt(Scalar::rational(ratio(1, 2))));
             }
-            Gate::X => self.flip(component, first),
-            Gate::Y => {
-                let input = component.output.quantum[&first].clone();
-                // Y|x⟩ = exp(2πi(1/4 + x/2)) |x ⊕ 1⟩.
-                component.phase.add_boolean(
-                    &BooleanPolynomial::one(),
-                    PhaseCoefficient::rational(ratio(1, 4)),
-                );
-                component
-                    .phase
-                    .add_boolean(&input, PhaseCoefficient::rational(ratio(1, 2)));
-                self.flip(component, first);
-            }
-            Gate::Z => self.phase(component, &first, ratio(1, 2)),
-            Gate::S => self.phase(component, &first, ratio(1, 4)),
-            Gate::Sdg => self.phase(component, &first, ratio(-1, 4)),
-            Gate::T => self.phase(component, &first, ratio(1, 8)),
-            Gate::Tdg => self.phase(component, &first, ratio(-1, 8)),
-            Gate::Cx => {
-                // CX|c,t⟩ = |c,t ⊕ c⟩.
-                let control = component.output.quantum[&first].clone();
-                let target = qubits[1].clone();
-                let value = component.output.quantum[&target].xor(&control);
-                component.output.quantum.insert(target, value);
-            }
-            Gate::Ccx => {
-                // CCX|a,b,t⟩ = |a,b,t ⊕ ab⟩.
-                let left = component.output.quantum[&first].clone();
-                let right = component.output.quantum[&qubits[1]].clone();
-                let target = qubits[2].clone();
-                let value = component.output.quantum[&target].xor(&left.and(&right));
-                component.output.quantum.insert(target, value);
-            }
-            Gate::Cy => {
-                let control = component.output.quantum[&first].clone();
-                let target = qubits[1].clone();
-                let target_value = component.output.quantum[&target].clone();
-                // Condition both the Y phase and the target flip on the control:
-                // t becomes t ⊕ c and the phase gains c/4 + c*t/2.
-                component
-                    .phase
-                    .add_boolean(&control, PhaseCoefficient::rational(ratio(1, 4)));
-                component.phase.add_boolean(
-                    &control.and(&target_value),
-                    PhaseCoefficient::rational(ratio(1, 2)),
-                );
-                component
-                    .output
-                    .quantum
-                    .insert(target, target_value.xor(&control));
-            }
-            Gate::Cz => {
-                // CZ contributes (-1)^(control*target).
-                let control = component.output.quantum[&first].clone();
-                let target = &component.output.quantum[&qubits[1]];
-                component.phase.add_boolean(
-                    &control.and(target),
-                    PhaseCoefficient::rational(ratio(1, 2)),
-                );
-            }
-            Gate::Swap => {
-                let second = qubits[1].clone();
-                let left = component.output.quantum[&first].clone();
-                let right = component.output.quantum[&second].clone();
-                component.output.quantum.insert(first, right);
-                component.output.quantum.insert(second, left);
-            }
-            Gate::P => {
-                // P(θ)|x⟩ = exp(iθx)|x⟩. Phase coefficients use
-                // turns, hence the stored coefficient is θ/τ.
-                let value = component.output.quantum[&first].clone();
-                component.phase.add_boolean(
-                    &value,
-                    PhaseCoefficient::angle(parameters[0].clone(), ratio(1, 1)),
-                );
-            }
-            Gate::Rz => {
-                // Rz(θ)|x⟩ = exp(iθ(x-1/2))|x⟩.
-                let angle = parameters[0].clone();
-                let value = component.output.quantum[&first].clone();
-                component.phase.add_boolean(
-                    &BooleanPolynomial::one(),
-                    PhaseCoefficient::angle(angle.clone(), ratio(-1, 2)),
-                );
-                component
-                    .phase
-                    .add_boolean(&value, PhaseCoefficient::angle(angle, ratio(1, 1)));
-            }
-            Gate::Cp => {
-                // CP(θ) contributes exp(iθ) only on |11⟩.
-                let control = component.output.quantum[&first].clone();
-                let target = &component.output.quantum[&qubits[1]];
-                component.phase.add_boolean(
-                    &control.and(target),
-                    PhaseCoefficient::angle(parameters[0].clone(), ratio(1, 1)),
-                );
-            }
-            Gate::Crz => {
-                // The Rz global phase becomes observable when controlled:
-                // exp(iθ*c*(t-1/2)).
-                let angle = parameters[0].clone();
-                let control = component.output.quantum[&first].clone();
-                let target = component.output.quantum[&qubits[1]].clone();
-                component.phase.add_boolean(
-                    &control,
-                    PhaseCoefficient::angle(angle.clone(), ratio(-1, 2)),
-                );
-                component.phase.add_boolean(
-                    &control.and(&target),
-                    PhaseCoefficient::angle(angle, ratio(1, 1)),
-                );
-            }
             Gate::Rx => self.rotate_x(component, first, &parameters[0], None),
             Gate::Ry => self.rotate_y(component, first, &parameters[0], None),
             Gate::Crx => {
@@ -602,8 +549,169 @@ impl Executor {
                 let control = component.output.quantum[&first].clone();
                 self.rotate_y(component, qubits[1].clone(), &parameters[0], Some(control));
             }
+            Gate::X
+            | Gate::Y
+            | Gate::Z
+            | Gate::S
+            | Gate::Sdg
+            | Gate::T
+            | Gate::Tdg
+            | Gate::Cx
+            | Gate::Ccx
+            | Gate::Cy
+            | Gate::Cz
+            | Gate::Swap
+            | Gate::P
+            | Gate::Rz
+            | Gate::Cp
+            | Gate::Crz => unreachable!("monomial gates returned above"),
         }
         Ok(())
+    }
+
+    /// Applies a monomial gate under a classical Boolean predicate.
+    ///
+    /// Monomial gates map each basis vector to one basis vector with a
+    /// unit-magnitude phase. Consequently, predication only multiplies their
+    /// Boolean update and phase conditions by `predicate`; it introduces no
+    /// path variable or branch component.
+    fn apply_monomial_gate(
+        &self,
+        component: &mut Component,
+        gate: Gate,
+        parameters: &[NumericExpr],
+        qubits: &[Qubit],
+        predicate: &BooleanPolynomial,
+    ) {
+        let first = qubits[0].clone();
+        match gate {
+            Gate::X => self.flip_when(component, first, predicate),
+            Gate::Y => {
+                let input = component.output.quantum[&first].clone();
+                // `if b { Y q }` maps x to x⊕b and contributes
+                // b*(1/4+x/2) turns.
+                component
+                    .phase
+                    .add_boolean(predicate, PhaseCoefficient::rational(ratio(1, 4)));
+                component.phase.add_boolean(
+                    &predicate.and(&input),
+                    PhaseCoefficient::rational(ratio(1, 2)),
+                );
+                self.flip_when(component, first, predicate);
+            }
+            Gate::Z => self.phase_when(component, &first, ratio(1, 2), predicate),
+            Gate::S => self.phase_when(component, &first, ratio(1, 4), predicate),
+            Gate::Sdg => self.phase_when(component, &first, ratio(-1, 4), predicate),
+            Gate::T => self.phase_when(component, &first, ratio(1, 8), predicate),
+            Gate::Tdg => self.phase_when(component, &first, ratio(-1, 8), predicate),
+            Gate::Cx => {
+                // `if b { CX c,t }` maps t to t ⊕ b*c.
+                let control = component.output.quantum[&first].clone();
+                let target = qubits[1].clone();
+                let change = predicate.and(&control);
+                let value = component.output.quantum[&target].xor(&change);
+                component.output.quantum.insert(target, value);
+            }
+            Gate::Ccx => {
+                let left = component.output.quantum[&first].clone();
+                let right = component.output.quantum[&qubits[1]].clone();
+                let target = qubits[2].clone();
+                let change = predicate.and(&left).and(&right);
+                let value = component.output.quantum[&target].xor(&change);
+                component.output.quantum.insert(target, value);
+            }
+            Gate::Cy => {
+                let control = component.output.quantum[&first].clone();
+                let effective_control = predicate.and(&control);
+                let target = qubits[1].clone();
+                let target_value = component.output.quantum[&target].clone();
+                component
+                    .phase
+                    .add_boolean(&effective_control, PhaseCoefficient::rational(ratio(1, 4)));
+                component.phase.add_boolean(
+                    &effective_control.and(&target_value),
+                    PhaseCoefficient::rational(ratio(1, 2)),
+                );
+                component
+                    .output
+                    .quantum
+                    .insert(target, target_value.xor(&effective_control));
+            }
+            Gate::Cz => {
+                let control = component.output.quantum[&first].clone();
+                let target = component.output.quantum[&qubits[1]].clone();
+                component.phase.add_boolean(
+                    &predicate.and(&control).and(&target),
+                    PhaseCoefficient::rational(ratio(1, 2)),
+                );
+            }
+            Gate::Swap => {
+                let second = qubits[1].clone();
+                let left = component.output.quantum[&first].clone();
+                let right = component.output.quantum[&second].clone();
+                let change = predicate.and(&left.xor(&right));
+                component.output.quantum.insert(first, left.xor(&change));
+                component.output.quantum.insert(second, right.xor(&change));
+            }
+            Gate::P => {
+                let value = component.output.quantum[&first].clone();
+                component.phase.add_boolean(
+                    &predicate.and(&value),
+                    PhaseCoefficient::angle(parameters[0].clone(), ratio(1, 1)),
+                );
+            }
+            Gate::Rz => {
+                let angle = parameters[0].clone();
+                let value = component.output.quantum[&first].clone();
+                component.phase.add_boolean(
+                    predicate,
+                    PhaseCoefficient::angle(angle.clone(), ratio(-1, 2)),
+                );
+                component.phase.add_boolean(
+                    &predicate.and(&value),
+                    PhaseCoefficient::angle(angle, ratio(1, 1)),
+                );
+            }
+            Gate::Cp => {
+                let control = component.output.quantum[&first].clone();
+                let target = component.output.quantum[&qubits[1]].clone();
+                component.phase.add_boolean(
+                    &predicate.and(&control).and(&target),
+                    PhaseCoefficient::angle(parameters[0].clone(), ratio(1, 1)),
+                );
+            }
+            Gate::Crz => {
+                let angle = parameters[0].clone();
+                let control = predicate.and(&component.output.quantum[&first]);
+                let target = component.output.quantum[&qubits[1]].clone();
+                component.phase.add_boolean(
+                    &control,
+                    PhaseCoefficient::angle(angle.clone(), ratio(-1, 2)),
+                );
+                component.phase.add_boolean(
+                    &control.and(&target),
+                    PhaseCoefficient::angle(angle, ratio(1, 1)),
+                );
+            }
+            Gate::H | Gate::Rx | Gate::Ry | Gate::Crx | Gate::Cry => {
+                unreachable!("non-monomial gate passed to monomial transformer")
+            }
+        }
+    }
+
+    /// Applies one already-classified monomial gate without splitting worlds.
+    fn apply_predicated_gate(
+        &self,
+        component: &mut Component,
+        gate: Gate,
+        parameters: &[NumericExpr],
+        qubits: &[Qubit],
+        predicate: &BooleanPolynomial,
+    ) {
+        if predicate.is_zero() {
+            return;
+        }
+        self.apply_monomial_gate(component, gate, parameters, qubits, predicate);
     }
 
     fn fresh_path(&mut self) -> usize {
@@ -614,20 +722,26 @@ impl Executor {
         path
     }
 
-    fn flip(&self, component: &mut Component, qubit: Qubit) {
-        // X is logical complement on a symbolic computational-basis value:
-        // x becomes 1 ⊕ x.
-        let value = component.output.quantum[&qubit].complement();
+    fn flip_when(&self, component: &mut Component, qubit: Qubit, predicate: &BooleanPolynomial) {
+        // A predicated X changes x to x ⊕ b. The unconditional case uses
+        // b=1 and therefore reduces to ordinary Boolean complement.
+        let value = component.output.quantum[&qubit].xor(predicate);
         component.output.quantum.insert(qubit, value);
     }
 
-    fn phase(&self, component: &mut Component, qubit: &Qubit, angle: BigRational) {
-        // A fixed diagonal gate contributes phase only when its input wire is
-        // one. For example, Z adds x/2 turns.
+    fn phase_when(
+        &self,
+        component: &mut Component,
+        qubit: &Qubit,
+        angle: BigRational,
+        predicate: &BooleanPolynomial,
+    ) {
+        // A fixed diagonal gate contributes phase only when both its input
+        // wire and the surrounding classical predicate are one.
         let value = &component.output.quantum[qubit];
         component
             .phase
-            .add_boolean(value, PhaseCoefficient::rational(angle));
+            .add_boolean(&predicate.and(value), PhaseCoefficient::rational(angle));
     }
 
     /// Expands `Rx(θ)` into paths with amplitudes `cos(θ/2)` and
@@ -721,6 +835,58 @@ impl Executor {
             None => rotation,
         }
     }
+}
+
+/// Whether a sliced block can be executed as one guarded basis transformer.
+///
+/// Branch-local discard points are deliberately excluded: partial trace under
+/// a symbolic predicate needs its own density-level rule and cannot be applied
+/// to the unsplit component unconditionally. Blocks with classical mutation,
+/// measurement, reset, or non-monomial gates likewise use ordinary splitting.
+fn is_predicable_block(block: &Block, plan: &SlicePlan) -> bool {
+    block.classical_registers.is_empty()
+        && plan.discard_set(block.ast_id).is_none()
+        && block.statements.iter().all(|statement| {
+            if !plan.retains(statement.ast_id) {
+                return true;
+            }
+            if plan.discard_set(statement.ast_id).is_some() {
+                return false;
+            }
+            match &statement.kind {
+                StatementKind::Apply { gate, .. } => is_monomial_gate(*gate),
+                StatementKind::Scope(body) => is_predicable_block(body, plan),
+                StatementKind::Reset(_)
+                | StatementKind::Measure { .. }
+                | StatementKind::Assign { .. }
+                | StatementKind::If { .. } => false,
+            }
+        })
+}
+
+/// Monomial gates permute computational-basis states and attach phases of unit
+/// magnitude, so their action remains exact after multiplying it by a Boolean
+/// predicate.
+fn is_monomial_gate(gate: Gate) -> bool {
+    matches!(
+        gate,
+        Gate::X
+            | Gate::Y
+            | Gate::Z
+            | Gate::S
+            | Gate::Sdg
+            | Gate::T
+            | Gate::Tdg
+            | Gate::Cx
+            | Gate::Ccx
+            | Gate::Cy
+            | Gate::Cz
+            | Gate::Swap
+            | Gate::P
+            | Gate::Rz
+            | Gate::Cp
+            | Gate::Crz
+    )
 }
 
 fn ratio(numerator: i64, denominator: i64) -> BigRational {

@@ -420,7 +420,7 @@ fn measurement_controls_distinct_symbolic_branches() {
 }
 
 #[test]
-fn affine_branch_relations_eliminate_path_variables() {
+fn affine_predicated_x_avoids_world_splitting() {
     let q0 = qubit(0, 0);
     let q1 = qubit(0, 1);
     let c0 = bit(1, 0);
@@ -466,15 +466,18 @@ fn affine_branch_relations_eliminate_path_variables() {
     )
     .unwrap();
 
-    assert_eq!(hps.components.len(), 2);
-    for component in &hps.components {
-        assert!(component.guard.is_empty());
-        assert_eq!(component.path_support.len(), 1);
-    }
+    let component = &hps.components[0];
+    assert_eq!(hps.components.len(), 1);
+    assert!(component.guard.is_empty());
+    assert_eq!(component.path_support, [0, 1].into());
+    assert_eq!(
+        component.output.quantum[&q0],
+        BooleanPolynomial::variable(Variable::Path(1))
+    );
 }
 
 #[test]
-fn nonlinear_branch_constraints_remain_exact() {
+fn nonlinear_predicate_remains_exact_without_world_splitting() {
     let q0 = qubit(0, 0);
     let q1 = qubit(0, 1);
     let c0 = bit(1, 0);
@@ -520,22 +523,251 @@ fn nonlinear_branch_constraints_remain_exact() {
     )
     .unwrap();
 
-    let then_component = hps
-        .components
-        .iter()
-        .find(|component| component.guard.is_empty())
-        .unwrap();
-    assert!(then_component.guard.is_empty());
-    assert!(then_component.path_support.is_empty());
+    let component = &hps.components[0];
+    let left = BooleanPolynomial::variable(Variable::Path(0));
+    let right = BooleanPolynomial::variable(Variable::Path(1));
+    assert_eq!(hps.components.len(), 1);
+    assert!(component.guard.is_empty());
+    assert_eq!(component.path_support, [0, 1].into());
+    assert_eq!(component.output.quantum[&q0], left.xor(&left.and(&right)));
+}
 
-    let else_component = hps
-        .components
-        .iter()
-        .find(|component| !component.guard.is_empty())
-        .unwrap();
-    assert_eq!(else_component.path_support.len(), 2);
-    assert_eq!(else_component.guard.len(), 1);
-    assert!(!else_component.guard[0].is_affine());
+#[test]
+fn predicated_phase_matches_deferred_measurement() {
+    let control = qubit(0, 0);
+    let target = qubit(0, 1);
+    let outcome = bit(1, 0);
+    let angle = numeric(NumericExprKind::Div(
+        Box::new(numeric(NumericExprKind::Constant(NumericConstant::Pi))),
+        Box::new(numeric(NumericExprKind::Rational(ratio(4, 1)))),
+    ));
+    let dynamic = program(
+        2,
+        1,
+        vec![
+            statement(StatementKind::Apply {
+                gate: Gate::H,
+                parameters: Vec::new(),
+                qubits: vec![control.clone()],
+            }),
+            statement(StatementKind::Measure {
+                qubit: control.clone(),
+                target: outcome.clone(),
+            }),
+            statement(StatementKind::If {
+                condition: classical(ClassicalExprKind::Bit(outcome.clone())),
+                then_branch: block(vec![statement(StatementKind::Apply {
+                    gate: Gate::P,
+                    parameters: vec![angle.clone()],
+                    qubits: vec![target.clone()],
+                })]),
+                else_branch: block(Vec::new()),
+            }),
+        ],
+    );
+    let deferred = program(
+        2,
+        1,
+        vec![
+            statement(StatementKind::Apply {
+                gate: Gate::H,
+                parameters: Vec::new(),
+                qubits: vec![control.clone()],
+            }),
+            statement(StatementKind::Apply {
+                gate: Gate::Cp,
+                parameters: vec![angle],
+                qubits: vec![control.clone(), target.clone()],
+            }),
+            statement(StatementKind::Measure {
+                qubit: control,
+                target: outcome.clone(),
+            }),
+        ],
+    );
+    let selection = OutputSelection::new([target], [outcome]);
+
+    let dynamic = execute_observed(&dynamic, &ExecutionConfig::all_symbolic(), &selection).unwrap();
+    let deferred =
+        execute_observed(&deferred, &ExecutionConfig::all_symbolic(), &selection).unwrap();
+
+    assert_eq!(dynamic, deferred);
+    assert_eq!(dynamic.components.len(), 1);
+}
+
+#[test]
+fn predicated_else_uses_the_complementary_condition() {
+    let control = qubit(0, 0);
+    let flipped = qubit(0, 1);
+    let phased = qubit(0, 2);
+    let outcome = bit(1, 0);
+    let hps = execute_all_outputs(
+        &program(
+            3,
+            1,
+            vec![
+                statement(StatementKind::Apply {
+                    gate: Gate::H,
+                    parameters: Vec::new(),
+                    qubits: vec![control],
+                }),
+                statement(StatementKind::Measure {
+                    qubit: qubit(0, 0),
+                    target: outcome,
+                }),
+                statement(StatementKind::If {
+                    condition: classical(ClassicalExprKind::Bit(bit(1, 0))),
+                    then_branch: block(vec![statement(StatementKind::Apply {
+                        gate: Gate::X,
+                        parameters: Vec::new(),
+                        qubits: vec![flipped.clone()],
+                    })]),
+                    else_branch: block(vec![statement(StatementKind::Apply {
+                        gate: Gate::Z,
+                        parameters: Vec::new(),
+                        qubits: vec![phased.clone()],
+                    })]),
+                }),
+            ],
+        ),
+        &ExecutionConfig::all_symbolic(),
+    )
+    .unwrap();
+
+    let component = &hps.components[0];
+    let predicate = BooleanPolynomial::variable(Variable::Path(0));
+    assert_eq!(hps.components.len(), 1);
+    assert_eq!(
+        component.output.quantum[&flipped],
+        BooleanPolynomial::variable(Variable::Input(flipped.clone())).xor(&predicate)
+    );
+    let phased_input = Monomial::variable(Variable::Input(phased.clone()));
+    let predicate_and_input = Monomial::variable(Variable::Path(0))
+        .multiply(&Monomial::variable(Variable::Input(phased)));
+    assert_eq!(
+        component.phase.coefficient(&phased_input),
+        PhaseCoefficient::rational(ratio(1, 2))
+    );
+    assert_eq!(
+        component.phase.coefficient(&predicate_and_input),
+        PhaseCoefficient::rational(ratio(1, 2))
+    );
+}
+
+#[test]
+fn branch_local_partial_trace_uses_explicit_components() {
+    let measured = qubit(0, 0);
+    let environment = qubit(0, 1);
+    let output = qubit(0, 2);
+    let outcome = bit(1, 0);
+    let program = program(
+        3,
+        1,
+        vec![
+            statement(StatementKind::Apply {
+                gate: Gate::H,
+                parameters: Vec::new(),
+                qubits: vec![measured.clone()],
+            }),
+            statement(StatementKind::Measure {
+                qubit: measured,
+                target: outcome.clone(),
+            }),
+            statement(StatementKind::Apply {
+                gate: Gate::H,
+                parameters: Vec::new(),
+                qubits: vec![environment.clone()],
+            }),
+            statement(StatementKind::If {
+                condition: classical(ClassicalExprKind::Bit(outcome.clone())),
+                then_branch: block(vec![statement(StatementKind::Apply {
+                    gate: Gate::Cx,
+                    parameters: Vec::new(),
+                    qubits: vec![environment, output.clone()],
+                })]),
+                else_branch: block(Vec::new()),
+            }),
+        ],
+    );
+
+    let hps = execute_observed(
+        &program,
+        &ExecutionConfig::zero(),
+        &OutputSelection::new([output], [outcome]),
+    )
+    .unwrap();
+
+    assert_eq!(hps.components.len(), 2);
+}
+
+#[test]
+fn predicated_monomial_gates_respect_constant_conditions() {
+    let q0 = qubit(0, 0);
+    let q1 = qubit(0, 1);
+    let q2 = qubit(0, 2);
+    let cases = [
+        (Gate::X, vec![q0.clone()]),
+        (Gate::Y, vec![q0.clone()]),
+        (Gate::Z, vec![q0.clone()]),
+        (Gate::S, vec![q0.clone()]),
+        (Gate::Sdg, vec![q0.clone()]),
+        (Gate::T, vec![q0.clone()]),
+        (Gate::Tdg, vec![q0.clone()]),
+        (Gate::Cx, vec![q0.clone(), q1.clone()]),
+        (Gate::Cy, vec![q0.clone(), q1.clone()]),
+        (Gate::Cz, vec![q0.clone(), q1.clone()]),
+        (Gate::Swap, vec![q0.clone(), q1.clone()]),
+        (Gate::P, vec![q0.clone()]),
+        (Gate::Rz, vec![q0.clone()]),
+        (Gate::Cp, vec![q0.clone(), q1.clone()]),
+        (Gate::Crz, vec![q0.clone(), q1.clone()]),
+        (Gate::Ccx, vec![q0.clone(), q1.clone(), q2.clone()]),
+    ];
+
+    for (gate, qubits) in cases {
+        let parameters = matches!(gate, Gate::P | Gate::Rz | Gate::Cp | Gate::Crz)
+            .then(|| numeric(NumericExprKind::Constant(NumericConstant::Pi)))
+            .into_iter()
+            .collect::<Vec<_>>();
+        let apply = || {
+            statement(StatementKind::Apply {
+                gate,
+                parameters: parameters.clone(),
+                qubits: qubits.clone(),
+            })
+        };
+        let unconditional = program(3, 0, vec![apply()]);
+        let when_true = program(
+            3,
+            0,
+            vec![statement(StatementKind::If {
+                condition: classical(ClassicalExprKind::Bool(true)),
+                then_branch: block(vec![apply()]),
+                else_branch: block(Vec::new()),
+            })],
+        );
+        let when_false = program(
+            3,
+            0,
+            vec![statement(StatementKind::If {
+                condition: classical(ClassicalExprKind::Bool(false)),
+                then_branch: block(vec![apply()]),
+                else_branch: block(Vec::new()),
+            })],
+        );
+        let identity = program(3, 0, Vec::new());
+
+        assert_eq!(
+            execute_all_outputs(&when_true, &ExecutionConfig::all_symbolic()).unwrap(),
+            execute_all_outputs(&unconditional, &ExecutionConfig::all_symbolic()).unwrap(),
+            "true predicate changed {gate:?}"
+        );
+        assert_eq!(
+            execute_all_outputs(&when_false, &ExecutionConfig::all_symbolic()).unwrap(),
+            execute_all_outputs(&identity, &ExecutionConfig::all_symbolic()).unwrap(),
+            "false predicate did not suppress {gate:?}"
+        );
+    }
 }
 
 #[test]
