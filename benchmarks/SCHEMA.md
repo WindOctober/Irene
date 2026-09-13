@@ -55,17 +55,11 @@ OpenQASM 2 frontend can parse both inputs. It is not part of the ground truth.
 Closed programs may set `initial_state = "zero"` and leave `input_pairs`
 empty. Their equivalence is evaluated from the declared initial state.
 
-Sequential-machine cases use `equivalence = "sequential"` and declare
-`input_variables` and `output_variables`. Their internal quantum state persists
-between machine steps and is not treated as an observable output register.
-
 Allowed `equivalence` values are:
 
 - `unitary`: full unitary equivalence;
 - `hybrid`: SQbricks hybrid-circuit equivalence;
 - `partial`: partial equivalence with observable/discard semantics.
-- `sequential`: equivalence over all input sequences of a sequential quantum
-  machine with persistent internal state.
 
 Standalone programs that do not yet form an equivalence task use `[[program]]`:
 

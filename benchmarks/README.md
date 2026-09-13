@@ -17,17 +17,16 @@ benchmarks/
 ├── qubit-reuse/
 ├── qumug/
 ├── qseqsim/
-├── sqbricks/
-│   ├── manifest.toml
-│   ├── programs/
-│   └── generated/
-│       ├── manifest.toml
-│       └── programs/
-└── veriqbench-sequential/
+└── sqbricks/
+    ├── manifest.toml
+    ├── programs/
+    └── generated/
+        ├── manifest.toml
+        └── programs/
 ```
 
-See [`SCHEMA.md`](SCHEMA.md) for the manifest schema. The corpus has 818 paired
-cases: 699 `eq` and 119 `neq`. QSeqSim additionally contributes 21 unpaired
+See [`SCHEMA.md`](SCHEMA.md) for the manifest schema. The corpus has 798 paired
+cases: 684 `eq` and 114 `neq`. QSeqSim additionally contributes 21 unpaired
 programs, which are not counted as equivalence cases.
 
 ## Inclusion scope
@@ -46,8 +45,7 @@ self-contained program pairs:
 - `owm-vs-qiskit`: 55 cases;
 - `owm-vs-tele`: 347 cases.
 
-VeriQBench Sequential contributes 20 OpenQASM 3 sequential-machine pairs:
-15 `eq` and 5 `neq`. Qubit reuse contributes 10 generated `eq` pairs whose
+Qubit reuse contributes 10 generated `eq` pairs whose
 right-hand programs use measurement, reset, and physical-qubit reuse.
 
 OpenQASM 3 program transformations contribute fourteen `eq` and twelve `neq`
