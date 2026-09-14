@@ -1,0 +1,1682 @@
+schema_version = 1
+program_format = "openqasm2"
+
+[source]
+id = "caqr"
+name = "CaQR official outputs with audited observable mapping"
+repository = "https://github.com/ruadapt/CaQR"
+commit = "0b935d962bffa6e845f2b9548b768f2f558cbe18"
+
+[normalization]
+encoding = "utf-8"
+line_endings = "lf"
+semantic_rewrite = false
+
+[generation]
+qiskit_version = "0.45.0"
+command = "python main.py -b benchmarks/X.qasm -v 0"
+
+[[case]]
+id = "caqr-committed-bv-n10"
+suite = "official-committed"
+left = "programs/caqr-committed-bv-n10/left.qasm"
+right = "programs/caqr-committed-bv-n10/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]"]
+source_left = "benchmarks/bv_n10.qasm"
+source_right = "output/bv_n10_reuse.qasm"
+reuse_chain = "programs/caqr-committed-bv-n10/reuse_chain.txt"
+reuse_map = "programs/caqr-committed-bv-n10/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-0410184-169"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-0410184-169/left.qasm"
+right = "programs/caqr-generated-0410184-169/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/0410184_169.qasm"
+source_right = "output/0410184_169_reuse.qasm"
+reuse_chain = "programs/caqr-generated-0410184-169/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-0410184-169/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-3-17-13"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-3-17-13/left.qasm"
+right = "programs/caqr-generated-3-17-13/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/3_17_13.qasm"
+source_right = "output/3_17_13_reuse.qasm"
+reuse_chain = "programs/caqr-generated-3-17-13/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-3-17-13/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-4-49-16"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-4-49-16/left.qasm"
+right = "programs/caqr-generated-4-49-16/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/4_49_16.qasm"
+source_right = "output/4_49_16_reuse.qasm"
+reuse_chain = "programs/caqr-generated-4-49-16/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-4-49-16/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-4gt10-v1-81"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-4gt10-v1-81/left.qasm"
+right = "programs/caqr-generated-4gt10-v1-81/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/4gt10-v1_81.qasm"
+source_right = "output/4gt10-v1_81_reuse.qasm"
+reuse_chain = "programs/caqr-generated-4gt10-v1-81/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-4gt10-v1-81/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-4gt11-82"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-4gt11-82/left.qasm"
+right = "programs/caqr-generated-4gt11-82/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/4gt11_82.qasm"
+source_right = "output/4gt11_82_reuse.qasm"
+reuse_chain = "programs/caqr-generated-4gt11-82/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-4gt11-82/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-4gt12-v0-86"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-4gt12-v0-86/left.qasm"
+right = "programs/caqr-generated-4gt12-v0-86/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/4gt12-v0_86.qasm"
+source_right = "output/4gt12-v0_86_reuse.qasm"
+reuse_chain = "programs/caqr-generated-4gt12-v0-86/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-4gt12-v0-86/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-4gt12-v0-87"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-4gt12-v0-87/left.qasm"
+right = "programs/caqr-generated-4gt12-v0-87/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/4gt12-v0_87.qasm"
+source_right = "output/4gt12-v0_87_reuse.qasm"
+reuse_chain = "programs/caqr-generated-4gt12-v0-87/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-4gt12-v0-87/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-4gt12-v0-88"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-4gt12-v0-88/left.qasm"
+right = "programs/caqr-generated-4gt12-v0-88/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/4gt12-v0_88.qasm"
+source_right = "output/4gt12-v0_88_reuse.qasm"
+reuse_chain = "programs/caqr-generated-4gt12-v0-88/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-4gt12-v0-88/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-4gt12-v1-89"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-4gt12-v1-89/left.qasm"
+right = "programs/caqr-generated-4gt12-v1-89/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/4gt12-v1_89.qasm"
+source_right = "output/4gt12-v1_89_reuse.qasm"
+reuse_chain = "programs/caqr-generated-4gt12-v1-89/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-4gt12-v1-89/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-4gt13-v1-93"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-4gt13-v1-93/left.qasm"
+right = "programs/caqr-generated-4gt13-v1-93/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/4gt13-v1_93.qasm"
+source_right = "output/4gt13-v1_93_reuse.qasm"
+reuse_chain = "programs/caqr-generated-4gt13-v1-93/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-4gt13-v1-93/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-4gt13-90"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-4gt13-90/left.qasm"
+right = "programs/caqr-generated-4gt13-90/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/4gt13_90.qasm"
+source_right = "output/4gt13_90_reuse.qasm"
+reuse_chain = "programs/caqr-generated-4gt13-90/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-4gt13-90/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-4gt13-91"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-4gt13-91/left.qasm"
+right = "programs/caqr-generated-4gt13-91/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/4gt13_91.qasm"
+source_right = "output/4gt13_91_reuse.qasm"
+reuse_chain = "programs/caqr-generated-4gt13-91/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-4gt13-91/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-4gt13-92"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-4gt13-92/left.qasm"
+right = "programs/caqr-generated-4gt13-92/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/4gt13_92.qasm"
+source_right = "output/4gt13_92_reuse.qasm"
+reuse_chain = "programs/caqr-generated-4gt13-92/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-4gt13-92/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-4gt4-v0-72"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-4gt4-v0-72/left.qasm"
+right = "programs/caqr-generated-4gt4-v0-72/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/4gt4-v0_72.qasm"
+source_right = "output/4gt4-v0_72_reuse.qasm"
+reuse_chain = "programs/caqr-generated-4gt4-v0-72/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-4gt4-v0-72/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-4gt4-v0-73"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-4gt4-v0-73/left.qasm"
+right = "programs/caqr-generated-4gt4-v0-73/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/4gt4-v0_73.qasm"
+source_right = "output/4gt4-v0_73_reuse.qasm"
+reuse_chain = "programs/caqr-generated-4gt4-v0-73/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-4gt4-v0-73/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-4gt4-v0-78"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-4gt4-v0-78/left.qasm"
+right = "programs/caqr-generated-4gt4-v0-78/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/4gt4-v0_78.qasm"
+source_right = "output/4gt4-v0_78_reuse.qasm"
+reuse_chain = "programs/caqr-generated-4gt4-v0-78/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-4gt4-v0-78/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-4gt4-v0-79"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-4gt4-v0-79/left.qasm"
+right = "programs/caqr-generated-4gt4-v0-79/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/4gt4-v0_79.qasm"
+source_right = "output/4gt4-v0_79_reuse.qasm"
+reuse_chain = "programs/caqr-generated-4gt4-v0-79/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-4gt4-v0-79/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-4gt4-v0-80"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-4gt4-v0-80/left.qasm"
+right = "programs/caqr-generated-4gt4-v0-80/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/4gt4-v0_80.qasm"
+source_right = "output/4gt4-v0_80_reuse.qasm"
+reuse_chain = "programs/caqr-generated-4gt4-v0-80/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-4gt4-v0-80/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-4gt4-v1-74"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-4gt4-v1-74/left.qasm"
+right = "programs/caqr-generated-4gt4-v1-74/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/4gt4-v1_74.qasm"
+source_right = "output/4gt4-v1_74_reuse.qasm"
+reuse_chain = "programs/caqr-generated-4gt4-v1-74/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-4gt4-v1-74/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-4gt5-75"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-4gt5-75/left.qasm"
+right = "programs/caqr-generated-4gt5-75/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/4gt5_75.qasm"
+source_right = "output/4gt5_75_reuse.qasm"
+reuse_chain = "programs/caqr-generated-4gt5-75/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-4gt5-75/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-4gt5-76"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-4gt5-76/left.qasm"
+right = "programs/caqr-generated-4gt5-76/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/4gt5_76.qasm"
+source_right = "output/4gt5_76_reuse.qasm"
+reuse_chain = "programs/caqr-generated-4gt5-76/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-4gt5-76/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-4gt5-77"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-4gt5-77/left.qasm"
+right = "programs/caqr-generated-4gt5-77/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/4gt5_77.qasm"
+source_right = "output/4gt5_77_reuse.qasm"
+reuse_chain = "programs/caqr-generated-4gt5-77/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-4gt5-77/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-4mod7-v0-94"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-4mod7-v0-94/left.qasm"
+right = "programs/caqr-generated-4mod7-v0-94/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/4mod7-v0_94.qasm"
+source_right = "output/4mod7-v0_94_reuse.qasm"
+reuse_chain = "programs/caqr-generated-4mod7-v0-94/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-4mod7-v0-94/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-4mod7-v1-96"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-4mod7-v1-96/left.qasm"
+right = "programs/caqr-generated-4mod7-v1-96/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/4mod7-v1_96.qasm"
+source_right = "output/4mod7-v1_96_reuse.qasm"
+reuse_chain = "programs/caqr-generated-4mod7-v1-96/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-4mod7-v1-96/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-9symml-195"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-9symml-195/left.qasm"
+right = "programs/caqr-generated-9symml-195/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/9symml_195.qasm"
+source_right = "output/9symml_195_reuse.qasm"
+reuse_chain = "programs/caqr-generated-9symml-195/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-9symml-195/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-C17-204"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-C17-204/left.qasm"
+right = "programs/caqr-generated-C17-204/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/C17_204.qasm"
+source_right = "output/C17_204_reuse.qasm"
+reuse_chain = "programs/caqr-generated-C17-204/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-C17-204/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-adr4-197"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-adr4-197/left.qasm"
+right = "programs/caqr-generated-adr4-197/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/adr4_197.qasm"
+source_right = "output/adr4_197_reuse.qasm"
+reuse_chain = "programs/caqr-generated-adr4-197/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-adr4-197/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-aj-e11-165"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-aj-e11-165/left.qasm"
+right = "programs/caqr-generated-aj-e11-165/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/aj-e11_165.qasm"
+source_right = "output/aj-e11_165_reuse.qasm"
+reuse_chain = "programs/caqr-generated-aj-e11-165/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-aj-e11-165/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-alu-v0-26"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-alu-v0-26/left.qasm"
+right = "programs/caqr-generated-alu-v0-26/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/alu-v0_26.qasm"
+source_right = "output/alu-v0_26_reuse.qasm"
+reuse_chain = "programs/caqr-generated-alu-v0-26/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-alu-v0-26/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-alu-v2-30"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-alu-v2-30/left.qasm"
+right = "programs/caqr-generated-alu-v2-30/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/alu-v2_30.qasm"
+source_right = "output/alu-v2_30_reuse.qasm"
+reuse_chain = "programs/caqr-generated-alu-v2-30/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-alu-v2-30/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-alu-v2-31"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-alu-v2-31/left.qasm"
+right = "programs/caqr-generated-alu-v2-31/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/alu-v2_31.qasm"
+source_right = "output/alu-v2_31_reuse.qasm"
+reuse_chain = "programs/caqr-generated-alu-v2-31/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-alu-v2-31/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-alu-v2-32"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-alu-v2-32/left.qasm"
+right = "programs/caqr-generated-alu-v2-32/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/alu-v2_32.qasm"
+source_right = "output/alu-v2_32_reuse.qasm"
+reuse_chain = "programs/caqr-generated-alu-v2-32/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-alu-v2-32/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-alu-v4-36"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-alu-v4-36/left.qasm"
+right = "programs/caqr-generated-alu-v4-36/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/alu-v4_36.qasm"
+source_right = "output/alu-v4_36_reuse.qasm"
+reuse_chain = "programs/caqr-generated-alu-v4-36/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-alu-v4-36/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-bv-n10"
+suite = "official-generated-reuse"
+left = "programs/caqr-generated-bv-n10/left.qasm"
+right = "programs/caqr-generated-bv-n10/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]"]
+source_left = "benchmarks/bv_n10.qasm"
+source_right = "output/bv_n10_reuse.qasm"
+reuse_chain = "programs/caqr-generated-bv-n10/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-bv-n10/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-cc-n10"
+suite = "official-generated-reuse"
+left = "programs/caqr-generated-cc-n10/left.qasm"
+right = "programs/caqr-generated-cc-n10/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["classical:cr[9]=classical:cr[9]"]
+source_left = "benchmarks/cc_n10.qasm"
+source_right = "output/cc_n10_reuse.qasm"
+reuse_chain = "programs/caqr-generated-cc-n10/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-cc-n10/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-clip-206"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-clip-206/left.qasm"
+right = "programs/caqr-generated-clip-206/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/clip_206.qasm"
+source_right = "output/clip_206_reuse.qasm"
+reuse_chain = "programs/caqr-generated-clip-206/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-clip-206/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-cm82a-208"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-cm82a-208/left.qasm"
+right = "programs/caqr-generated-cm82a-208/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/cm82a_208.qasm"
+source_right = "output/cm82a_208_reuse.qasm"
+reuse_chain = "programs/caqr-generated-cm82a-208/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-cm82a-208/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-cm85a-209"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-cm85a-209/left.qasm"
+right = "programs/caqr-generated-cm85a-209/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/cm85a_209.qasm"
+source_right = "output/cm85a_209_reuse.qasm"
+reuse_chain = "programs/caqr-generated-cm85a-209/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-cm85a-209/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-co14-215"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-co14-215/left.qasm"
+right = "programs/caqr-generated-co14-215/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/co14_215.qasm"
+source_right = "output/co14_215_reuse.qasm"
+reuse_chain = "programs/caqr-generated-co14-215/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-co14-215/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-con1-216"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-con1-216/left.qasm"
+right = "programs/caqr-generated-con1-216/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/con1_216.qasm"
+source_right = "output/con1_216_reuse.qasm"
+reuse_chain = "programs/caqr-generated-con1-216/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-con1-216/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-cycle10-2-110"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-cycle10-2-110/left.qasm"
+right = "programs/caqr-generated-cycle10-2-110/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/cycle10_2_110.qasm"
+source_right = "output/cycle10_2_110_reuse.qasm"
+reuse_chain = "programs/caqr-generated-cycle10-2-110/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-cycle10-2-110/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-dc1-220"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-dc1-220/left.qasm"
+right = "programs/caqr-generated-dc1-220/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/dc1_220.qasm"
+source_right = "output/dc1_220_reuse.qasm"
+reuse_chain = "programs/caqr-generated-dc1-220/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-dc1-220/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-decod24-enable-126"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-decod24-enable-126/left.qasm"
+right = "programs/caqr-generated-decod24-enable-126/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/decod24-enable_126.qasm"
+source_right = "output/decod24-enable_126_reuse.qasm"
+reuse_chain = "programs/caqr-generated-decod24-enable-126/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-decod24-enable-126/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-decod24-v0-38"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-decod24-v0-38/left.qasm"
+right = "programs/caqr-generated-decod24-v0-38/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/decod24-v0_38.qasm"
+source_right = "output/decod24-v0_38_reuse.qasm"
+reuse_chain = "programs/caqr-generated-decod24-v0-38/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-decod24-v0-38/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-decod24-v1-41"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-decod24-v1-41/left.qasm"
+right = "programs/caqr-generated-decod24-v1-41/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/decod24-v1_41.qasm"
+source_right = "output/decod24-v1_41_reuse.qasm"
+reuse_chain = "programs/caqr-generated-decod24-v1-41/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-decod24-v1-41/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-decod24-v2-43"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-decod24-v2-43/left.qasm"
+right = "programs/caqr-generated-decod24-v2-43/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/decod24-v2_43.qasm"
+source_right = "output/decod24-v2_43_reuse.qasm"
+reuse_chain = "programs/caqr-generated-decod24-v2-43/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-decod24-v2-43/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-decod24-v3-45"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-decod24-v3-45/left.qasm"
+right = "programs/caqr-generated-decod24-v3-45/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/decod24-v3_45.qasm"
+source_right = "output/decod24-v3_45_reuse.qasm"
+reuse_chain = "programs/caqr-generated-decod24-v3-45/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-decod24-v3-45/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-dist-223"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-dist-223/left.qasm"
+right = "programs/caqr-generated-dist-223/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/dist_223.qasm"
+source_right = "output/dist_223_reuse.qasm"
+reuse_chain = "programs/caqr-generated-dist-223/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-dist-223/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-ex-1-166"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-ex-1-166/left.qasm"
+right = "programs/caqr-generated-ex-1-166/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/ex-1_166.qasm"
+source_right = "output/ex-1_166_reuse.qasm"
+reuse_chain = "programs/caqr-generated-ex-1-166/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-ex-1-166/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-ex2-227"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-ex2-227/left.qasm"
+right = "programs/caqr-generated-ex2-227/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/ex2_227.qasm"
+source_right = "output/ex2_227_reuse.qasm"
+reuse_chain = "programs/caqr-generated-ex2-227/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-ex2-227/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-ex3-229"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-ex3-229/left.qasm"
+right = "programs/caqr-generated-ex3-229/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/ex3_229.qasm"
+source_right = "output/ex3_229_reuse.qasm"
+reuse_chain = "programs/caqr-generated-ex3-229/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-ex3-229/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-f2-232"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-f2-232/left.qasm"
+right = "programs/caqr-generated-f2-232/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/f2_232.qasm"
+source_right = "output/f2_232_reuse.qasm"
+reuse_chain = "programs/caqr-generated-f2-232/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-f2-232/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-ham15-107"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-ham15-107/left.qasm"
+right = "programs/caqr-generated-ham15-107/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/ham15_107.qasm"
+source_right = "output/ham15_107_reuse.qasm"
+reuse_chain = "programs/caqr-generated-ham15-107/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-ham15-107/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-ham3-102"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-ham3-102/left.qasm"
+right = "programs/caqr-generated-ham3-102/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/ham3_102.qasm"
+source_right = "output/ham3_102_reuse.qasm"
+reuse_chain = "programs/caqr-generated-ham3-102/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-ham3-102/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-ham7-104"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-ham7-104/left.qasm"
+right = "programs/caqr-generated-ham7-104/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/ham7_104.qasm"
+source_right = "output/ham7_104_reuse.qasm"
+reuse_chain = "programs/caqr-generated-ham7-104/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-ham7-104/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-hwb4-49"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-hwb4-49/left.qasm"
+right = "programs/caqr-generated-hwb4-49/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/hwb4_49.qasm"
+source_right = "output/hwb4_49_reuse.qasm"
+reuse_chain = "programs/caqr-generated-hwb4-49/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-hwb4-49/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-hwb5-53"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-hwb5-53/left.qasm"
+right = "programs/caqr-generated-hwb5-53/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/hwb5_53.qasm"
+source_right = "output/hwb5_53_reuse.qasm"
+reuse_chain = "programs/caqr-generated-hwb5-53/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-hwb5-53/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-hwb6-56"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-hwb6-56/left.qasm"
+right = "programs/caqr-generated-hwb6-56/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/hwb6_56.qasm"
+source_right = "output/hwb6_56_reuse.qasm"
+reuse_chain = "programs/caqr-generated-hwb6-56/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-hwb6-56/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-hwb7-59"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-hwb7-59/left.qasm"
+right = "programs/caqr-generated-hwb7-59/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/hwb7_59.qasm"
+source_right = "output/hwb7_59_reuse.qasm"
+reuse_chain = "programs/caqr-generated-hwb7-59/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-hwb7-59/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-hwb8-113"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-hwb8-113/left.qasm"
+right = "programs/caqr-generated-hwb8-113/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/hwb8_113.qasm"
+source_right = "output/hwb8_113_reuse.qasm"
+reuse_chain = "programs/caqr-generated-hwb8-113/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-hwb8-113/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-ising-model-10"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-ising-model-10/left.qasm"
+right = "programs/caqr-generated-ising-model-10/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/ising_model_10.qasm"
+source_right = "output/ising_model_10_reuse.qasm"
+reuse_chain = "programs/caqr-generated-ising-model-10/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-ising-model-10/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-life-238"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-life-238/left.qasm"
+right = "programs/caqr-generated-life-238/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/life_238.qasm"
+source_right = "output/life_238_reuse.qasm"
+reuse_chain = "programs/caqr-generated-life-238/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-life-238/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-majority-239"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-majority-239/left.qasm"
+right = "programs/caqr-generated-majority-239/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/majority_239.qasm"
+source_right = "output/majority_239_reuse.qasm"
+reuse_chain = "programs/caqr-generated-majority-239/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-majority-239/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-max46-240"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-max46-240/left.qasm"
+right = "programs/caqr-generated-max46-240/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/max46_240.qasm"
+source_right = "output/max46_240_reuse.qasm"
+reuse_chain = "programs/caqr-generated-max46-240/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-max46-240/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-miller-11"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-miller-11/left.qasm"
+right = "programs/caqr-generated-miller-11/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/miller_11.qasm"
+source_right = "output/miller_11_reuse.qasm"
+reuse_chain = "programs/caqr-generated-miller-11/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-miller-11/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-mini-alu-167"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-mini-alu-167/left.qasm"
+right = "programs/caqr-generated-mini-alu-167/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/mini-alu_167.qasm"
+source_right = "output/mini-alu_167_reuse.qasm"
+reuse_chain = "programs/caqr-generated-mini-alu-167/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-mini-alu-167/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-misex1-241"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-misex1-241/left.qasm"
+right = "programs/caqr-generated-misex1-241/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/misex1_241.qasm"
+source_right = "output/misex1_241_reuse.qasm"
+reuse_chain = "programs/caqr-generated-misex1-241/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-misex1-241/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-mlp4-245"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-mlp4-245/left.qasm"
+right = "programs/caqr-generated-mlp4-245/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/mlp4_245.qasm"
+source_right = "output/mlp4_245_reuse.qasm"
+reuse_chain = "programs/caqr-generated-mlp4-245/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-mlp4-245/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-mod10-171"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-mod10-171/left.qasm"
+right = "programs/caqr-generated-mod10-171/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/mod10_171.qasm"
+source_right = "output/mod10_171_reuse.qasm"
+reuse_chain = "programs/caqr-generated-mod10-171/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-mod10-171/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-mod10-176"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-mod10-176/left.qasm"
+right = "programs/caqr-generated-mod10-176/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/mod10_176.qasm"
+source_right = "output/mod10_176_reuse.qasm"
+reuse_chain = "programs/caqr-generated-mod10-176/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-mod10-176/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-mod5adder-127"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-mod5adder-127/left.qasm"
+right = "programs/caqr-generated-mod5adder-127/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/mod5adder_127.qasm"
+source_right = "output/mod5adder_127_reuse.qasm"
+reuse_chain = "programs/caqr-generated-mod5adder-127/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-mod5adder-127/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-mod5d1-63"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-mod5d1-63/left.qasm"
+right = "programs/caqr-generated-mod5d1-63/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/mod5d1_63.qasm"
+source_right = "output/mod5d1_63_reuse.qasm"
+reuse_chain = "programs/caqr-generated-mod5d1-63/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-mod5d1-63/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-mod5d2-64"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-mod5d2-64/left.qasm"
+right = "programs/caqr-generated-mod5d2-64/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/mod5d2_64.qasm"
+source_right = "output/mod5d2_64_reuse.qasm"
+reuse_chain = "programs/caqr-generated-mod5d2-64/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-mod5d2-64/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-mod8-10-177"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-mod8-10-177/left.qasm"
+right = "programs/caqr-generated-mod8-10-177/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/mod8-10_177.qasm"
+source_right = "output/mod8-10_177_reuse.qasm"
+reuse_chain = "programs/caqr-generated-mod8-10-177/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-mod8-10-177/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-mod8-10-178"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-mod8-10-178/left.qasm"
+right = "programs/caqr-generated-mod8-10-178/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/mod8-10_178.qasm"
+source_right = "output/mod8-10_178_reuse.qasm"
+reuse_chain = "programs/caqr-generated-mod8-10-178/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-mod8-10-178/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-one-two-three-v0-97"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-one-two-three-v0-97/left.qasm"
+right = "programs/caqr-generated-one-two-three-v0-97/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/one-two-three-v0_97.qasm"
+source_right = "output/one-two-three-v0_97_reuse.qasm"
+reuse_chain = "programs/caqr-generated-one-two-three-v0-97/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-one-two-three-v0-97/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-one-two-three-v0-98"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-one-two-three-v0-98/left.qasm"
+right = "programs/caqr-generated-one-two-three-v0-98/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/one-two-three-v0_98.qasm"
+source_right = "output/one-two-three-v0_98_reuse.qasm"
+reuse_chain = "programs/caqr-generated-one-two-three-v0-98/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-one-two-three-v0-98/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-one-two-three-v1-99"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-one-two-three-v1-99/left.qasm"
+right = "programs/caqr-generated-one-two-three-v1-99/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/one-two-three-v1_99.qasm"
+source_right = "output/one-two-three-v1_99_reuse.qasm"
+reuse_chain = "programs/caqr-generated-one-two-three-v1-99/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-one-two-three-v1-99/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-one-two-three-v2-100"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-one-two-three-v2-100/left.qasm"
+right = "programs/caqr-generated-one-two-three-v2-100/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/one-two-three-v2_100.qasm"
+source_right = "output/one-two-three-v2_100_reuse.qasm"
+reuse_chain = "programs/caqr-generated-one-two-three-v2-100/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-one-two-three-v2-100/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-one-two-three-v3-101"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-one-two-three-v3-101/left.qasm"
+right = "programs/caqr-generated-one-two-three-v3-101/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/one-two-three-v3_101.qasm"
+source_right = "output/one-two-three-v3_101_reuse.qasm"
+reuse_chain = "programs/caqr-generated-one-two-three-v3-101/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-one-two-three-v3-101/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-qft-10"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-qft-10/left.qasm"
+right = "programs/caqr-generated-qft-10/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/qft_10.qasm"
+source_right = "output/qft_10_reuse.qasm"
+reuse_chain = "programs/caqr-generated-qft-10/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-qft-10/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-qft-16"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-qft-16/left.qasm"
+right = "programs/caqr-generated-qft-16/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/qft_16.qasm"
+source_right = "output/qft_16_reuse.qasm"
+reuse_chain = "programs/caqr-generated-qft-16/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-qft-16/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-rd32-270"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-rd32-270/left.qasm"
+right = "programs/caqr-generated-rd32-270/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/rd32_270.qasm"
+source_right = "output/rd32_270_reuse.qasm"
+reuse_chain = "programs/caqr-generated-rd32-270/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-rd32-270/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-rd53-130"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-rd53-130/left.qasm"
+right = "programs/caqr-generated-rd53-130/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/rd53_130.qasm"
+source_right = "output/rd53_130_reuse.qasm"
+reuse_chain = "programs/caqr-generated-rd53-130/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-rd53-130/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-rd53-131"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-rd53-131/left.qasm"
+right = "programs/caqr-generated-rd53-131/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/rd53_131.qasm"
+source_right = "output/rd53_131_reuse.qasm"
+reuse_chain = "programs/caqr-generated-rd53-131/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-rd53-131/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-rd53-133"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-rd53-133/left.qasm"
+right = "programs/caqr-generated-rd53-133/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/rd53_133.qasm"
+source_right = "output/rd53_133_reuse.qasm"
+reuse_chain = "programs/caqr-generated-rd53-133/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-rd53-133/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-rd53-135"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-rd53-135/left.qasm"
+right = "programs/caqr-generated-rd53-135/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/rd53_135.qasm"
+source_right = "output/rd53_135_reuse.qasm"
+reuse_chain = "programs/caqr-generated-rd53-135/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-rd53-135/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-rd53-251"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-rd53-251/left.qasm"
+right = "programs/caqr-generated-rd53-251/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/rd53_251.qasm"
+source_right = "output/rd53_251_reuse.qasm"
+reuse_chain = "programs/caqr-generated-rd53-251/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-rd53-251/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-rd73-252"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-rd73-252/left.qasm"
+right = "programs/caqr-generated-rd73-252/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/rd73_252.qasm"
+source_right = "output/rd73_252_reuse.qasm"
+reuse_chain = "programs/caqr-generated-rd73-252/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-rd73-252/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-rd84-253"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-rd84-253/left.qasm"
+right = "programs/caqr-generated-rd84-253/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/rd84_253.qasm"
+source_right = "output/rd84_253_reuse.qasm"
+reuse_chain = "programs/caqr-generated-rd84-253/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-rd84-253/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-root-255"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-root-255/left.qasm"
+right = "programs/caqr-generated-root-255/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/root_255.qasm"
+source_right = "output/root_255_reuse.qasm"
+reuse_chain = "programs/caqr-generated-root-255/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-root-255/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-sao2-257"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-sao2-257/left.qasm"
+right = "programs/caqr-generated-sao2-257/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/sao2_257.qasm"
+source_right = "output/sao2_257_reuse.qasm"
+reuse_chain = "programs/caqr-generated-sao2-257/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-sao2-257/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-sf-274"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-sf-274/left.qasm"
+right = "programs/caqr-generated-sf-274/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/sf_274.qasm"
+source_right = "output/sf_274_reuse.qasm"
+reuse_chain = "programs/caqr-generated-sf-274/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-sf-274/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-sf-276"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-sf-276/left.qasm"
+right = "programs/caqr-generated-sf-276/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/sf_276.qasm"
+source_right = "output/sf_276_reuse.qasm"
+reuse_chain = "programs/caqr-generated-sf-276/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-sf-276/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-sqn-258"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-sqn-258/left.qasm"
+right = "programs/caqr-generated-sqn-258/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/sqn_258.qasm"
+source_right = "output/sqn_258_reuse.qasm"
+reuse_chain = "programs/caqr-generated-sqn-258/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-sqn-258/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-sqrt8-260"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-sqrt8-260/left.qasm"
+right = "programs/caqr-generated-sqrt8-260/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/sqrt8_260.qasm"
+source_right = "output/sqrt8_260_reuse.qasm"
+reuse_chain = "programs/caqr-generated-sqrt8-260/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-sqrt8-260/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-square-root-7"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-square-root-7/left.qasm"
+right = "programs/caqr-generated-square-root-7/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/square_root_7.qasm"
+source_right = "output/square_root_7_reuse.qasm"
+reuse_chain = "programs/caqr-generated-square-root-7/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-square-root-7/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-sym10-262"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-sym10-262/left.qasm"
+right = "programs/caqr-generated-sym10-262/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/sym10_262.qasm"
+source_right = "output/sym10_262_reuse.qasm"
+reuse_chain = "programs/caqr-generated-sym10-262/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-sym10-262/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-sym6-145"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-sym6-145/left.qasm"
+right = "programs/caqr-generated-sym6-145/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/sym6_145.qasm"
+source_right = "output/sym6_145_reuse.qasm"
+reuse_chain = "programs/caqr-generated-sym6-145/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-sym6-145/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-sym9-148"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-sym9-148/left.qasm"
+right = "programs/caqr-generated-sym9-148/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/sym9_148.qasm"
+source_right = "output/sym9_148_reuse.qasm"
+reuse_chain = "programs/caqr-generated-sym9-148/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-sym9-148/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-sym9-193"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-sym9-193/left.qasm"
+right = "programs/caqr-generated-sym9-193/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/sym9_193.qasm"
+source_right = "output/sym9_193_reuse.qasm"
+reuse_chain = "programs/caqr-generated-sym9-193/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-sym9-193/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-test"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-test/left.qasm"
+right = "programs/caqr-generated-test/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/test.qasm"
+source_right = "output/test_reuse.qasm"
+reuse_chain = "programs/caqr-generated-test/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-test/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-test4"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-test4/left.qasm"
+right = "programs/caqr-generated-test4/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/test4.qasm"
+source_right = "output/test4_reuse.qasm"
+reuse_chain = "programs/caqr-generated-test4/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-test4/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-urf1-149"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-urf1-149/left.qasm"
+right = "programs/caqr-generated-urf1-149/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/urf1_149.qasm"
+source_right = "output/urf1_149_reuse.qasm"
+reuse_chain = "programs/caqr-generated-urf1-149/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-urf1-149/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-urf1-278"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-urf1-278/left.qasm"
+right = "programs/caqr-generated-urf1-278/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/urf1_278.qasm"
+source_right = "output/urf1_278_reuse.qasm"
+reuse_chain = "programs/caqr-generated-urf1-278/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-urf1-278/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-urf2-152"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-urf2-152/left.qasm"
+right = "programs/caqr-generated-urf2-152/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/urf2_152.qasm"
+source_right = "output/urf2_152_reuse.qasm"
+reuse_chain = "programs/caqr-generated-urf2-152/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-urf2-152/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-urf2-277"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-urf2-277/left.qasm"
+right = "programs/caqr-generated-urf2-277/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/urf2_277.qasm"
+source_right = "output/urf2_277_reuse.qasm"
+reuse_chain = "programs/caqr-generated-urf2-277/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-urf2-277/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-urf3-279"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-urf3-279/left.qasm"
+right = "programs/caqr-generated-urf3-279/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/urf3_279.qasm"
+source_right = "output/urf3_279_reuse.qasm"
+reuse_chain = "programs/caqr-generated-urf3-279/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-urf3-279/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-urf5-158"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-urf5-158/left.qasm"
+right = "programs/caqr-generated-urf5-158/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/urf5_158.qasm"
+source_right = "output/urf5_158_reuse.qasm"
+reuse_chain = "programs/caqr-generated-urf5-158/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-urf5-158/reuse_map.txt"
+
+[[case]]
+id = "caqr-generated-urf5-280"
+suite = "official-generated-no-reuse"
+left = "programs/caqr-generated-urf5-280/left.qasm"
+right = "programs/caqr-generated-urf5-280/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]", "quantum:q[2]=quantum:q[2]", "quantum:q[3]=quantum:q[3]", "quantum:q[4]=quantum:q[4]", "quantum:q[5]=quantum:q[5]", "quantum:q[6]=quantum:q[6]", "quantum:q[7]=quantum:q[7]", "quantum:q[8]=quantum:q[8]", "quantum:q[9]=quantum:q[9]", "quantum:q[10]=quantum:q[10]", "quantum:q[11]=quantum:q[11]", "quantum:q[12]=quantum:q[12]", "quantum:q[13]=quantum:q[13]", "quantum:q[14]=quantum:q[14]", "quantum:q[15]=quantum:q[15]", "classical:c[0]=classical:c[0]", "classical:c[1]=classical:c[1]", "classical:c[2]=classical:c[2]", "classical:c[3]=classical:c[3]", "classical:c[4]=classical:c[4]", "classical:c[5]=classical:c[5]", "classical:c[6]=classical:c[6]", "classical:c[7]=classical:c[7]", "classical:c[8]=classical:c[8]", "classical:c[9]=classical:c[9]", "classical:c[10]=classical:c[10]", "classical:c[11]=classical:c[11]", "classical:c[12]=classical:c[12]", "classical:c[13]=classical:c[13]", "classical:c[14]=classical:c[14]", "classical:c[15]=classical:c[15]"]
+source_left = "benchmarks/urf5_280.qasm"
+source_right = "output/urf5_280_reuse.qasm"
+reuse_chain = "programs/caqr-generated-urf5-280/reuse_chain.txt"
+reuse_map = "programs/caqr-generated-urf5-280/reuse_map.txt"
