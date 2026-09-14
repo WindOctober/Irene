@@ -13,9 +13,12 @@ The current sources are:
 
 ```text
 benchmarks/
+├── caqr/
+├── itertestq/
 ├── openqasm3-programs/
 ├── qubit-reuse/
 ├── qseqsim/
+├── quokka/
 └── sqbricks/
     ├── manifest.toml
     ├── programs/
@@ -24,9 +27,29 @@ benchmarks/
         └── programs/
 ```
 
-See [`SCHEMA.md`](SCHEMA.md) for the manifest schema. The corpus has 768 paired
-cases: 684 `eq` and 84 `neq`. QSeqSim additionally contributes 21 unpaired
+See [`SCHEMA.md`](SCHEMA.md) for the manifest schema. The corpus has 1,982 paired
+cases: 1,232 `eq` and 750 `neq`. This includes 180 first-pass IterTestQ cases
+with **upstream numerical QCEC reference labels**, not exact certificates,
+and 111 audited CaQR pairs (108 of which perform no qubit reuse).
+The [Quokka collection](quokka/README.md) adds 923 official origin-versus-opt,
+gm and flip tasks: 317 expected EQ and 606 expected NEQ. These are upstream
+reference labels, not independently certified truth; shift variants are excluded.
+QSeqSim additionally contributes 21 unpaired
 programs, which are not counted as equivalence cases.
+
+See [the external-source first-pass report](EXTERNAL_IMPORT_REPORT.md) for
+coverage, exclusions, reproduction commands, and current Irene results.
+The IterTestQ selection is not the full Figshare corpus; the complete archive
+and a full comparison inventory are retained locally under
+`var/benchmark-sources/` at the workspace root.
+
+## Import audit storage
+
+For CaQR, IterTestQ and Quokka, manifests retain source paths, reference labels
+and semantic input/output mappings. Detailed per-case provenance and import
+reports live outside the benchmark tree, under
+`var/benchmark-sources/import-audits/<collection>/` at the workspace root.
+Import scripts write these audit records there as well; they are not solver results.
 
 ## Inclusion scope
 
