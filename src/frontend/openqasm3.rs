@@ -121,6 +121,9 @@ struct Lowerer {
     subroutines: Vec<SubroutineTemplate>,
     quantum_arguments: HashMap<crate::ir::SymbolId, QuantumOperand>,
     active_subroutines: BTreeSet<usize>,
+    static_iterations_left: usize,
+    static_statements_left: usize,
+    static_loop_depth: usize,
 }
 
 /// Parsed information retained for lowering a later subroutine call.
@@ -280,6 +283,9 @@ impl Default for Lowerer {
             subroutines: Vec::new(),
             quantum_arguments: HashMap::new(),
             active_subroutines: BTreeSet::new(),
+            static_iterations_left: 4096,
+            static_statements_left: 65536,
+            static_loop_depth: 0,
         }
     }
 }
@@ -526,6 +532,7 @@ impl Lowerer {
         &mut self,
         declaration: ast::ClassicalDeclarationStatement,
     ) -> Result<(Register, Option<Statement>), FrontendError> {
+        self.charge_static_expansion(&declaration)?;
         if declaration.const_token().is_some() {
             return Err(unsupported!("const declaration", &declaration));
         }
@@ -570,7 +577,9 @@ impl Lowerer {
 
     /// Lowers the executable statement forms currently represented by Irene's IR.
     fn lower_statement(&mut self, statement: Stmt) -> Result<Statement, FrontendError> {
+        self.charge_static_expansion(&statement)?;
         match statement {
+            Stmt::ForStmt(statement) => self.lower_static_for(statement),
             // Barriers constrain scheduling, not the observable channel.
             // Keep operand validation, but emit no quantum/classical effect.
             Stmt::Barrier(barrier) => {
@@ -2349,11 +2358,7 @@ impl Lowerer {
     fn lower_qubits(&self, operand: GateOperand) -> Result<QuantumOperand, FrontendError> {
         match operand {
             // `q[2]` names one wire in a quantum register.
-            GateOperand::IndexedIdentifier(indexed) => {
-                let (name, expression) = static_integer::single_index(indexed)?;
-                let index = self.static_index(expression, false)?;
-                Ok(QuantumOperand::Scalar(self.checked_qubit(name, index)?))
-            }
+            GateOperand::IndexedIdentifier(indexed) => self.static_quantum_index(indexed),
             // An unindexed name retains its declared scalar/register shape.
             GateOperand::Identifier(identifier) => {
                 let name = identifier.string();
@@ -2375,11 +2380,7 @@ impl Lowerer {
                 let binding = self.scopes.lookup(&name).map_err(scope_error)?;
                 self.quantum_cells(&name, binding)
             }
-            Expr::IndexedIdentifier(indexed) => {
-                let (name, expression) = static_integer::single_index(indexed)?;
-                let index = self.static_index(expression, false)?;
-                Ok(QuantumOperand::Scalar(self.checked_qubit(name, index)?))
-            }
+            Expr::IndexedIdentifier(indexed) => self.static_quantum_index(indexed),
             expression => Err(unsupported!("quantum subroutine argument", &expression)),
         }
     }
