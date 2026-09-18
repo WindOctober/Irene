@@ -111,6 +111,16 @@ fn evolve(block: &Block, wires: &[Qubit], state: &mut [Complex]) {
     for statement in &block.statements {
         match &statement.kind {
             StatementKind::Scope(b) => evolve(b, wires, state),
+            StatementKind::If {
+                condition,
+                then_branch,
+                else_branch,
+            } if matches!(condition.kind, irene::ir::ClassicalExprKind::Bool(_)) => {
+                let irene::ir::ClassicalExprKind::Bool(value) = condition.kind else {
+                    unreachable!()
+                };
+                evolve(if value { then_branch } else { else_branch }, wires, state);
+            }
             StatementKind::Apply {
                 gate,
                 parameters,

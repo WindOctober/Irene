@@ -81,6 +81,7 @@ macro_rules! expected {
 
 mod controlled_u;
 mod power;
+mod static_integer;
 
 /// Parses one OpenQASM 3 source file and lowers its supported subset to Irene IR.
 ///
@@ -131,6 +132,7 @@ struct SubroutineTemplate {
     definition: ast::Def,
     parameters: Vec<QuantumParameter>,
     return_type: Option<BitType>,
+    static_globals: BTreeSet<SymbolId>,
 }
 
 /// Name and scalar/register shape of a quantum subroutine parameter.
@@ -342,6 +344,11 @@ impl Lowerer {
             }
             // `bit[4] c;` records the register; `bit c = true;` additionally
             // emits an assignment that initializes its storage at this point.
+            Stmt::ClassicalDeclarationStatement(declaration)
+                if declaration.const_token().is_some() =>
+            {
+                self.lower_static_constant(declaration)
+            }
             Stmt::ClassicalDeclarationStatement(declaration) => {
                 let (register, initializer) = self.lower_classical_declaration(declaration)?;
                 self.classical_registers.push(register);
@@ -423,7 +430,7 @@ impl Lowerer {
                 }
                 Ok(QuantumParameter {
                     name,
-                    ty: quantum_type(ty.designator(), "a quantum parameter width")?,
+                    ty: self.static_quantum_type(ty.designator(), "a quantum parameter width")?,
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -439,7 +446,7 @@ impl Lowerer {
                     }
                     Ok(BitType::Bool)
                 } else if ty.bit_token().is_some() {
-                    bit_type(ty.designator(), "a subroutine return width")
+                    self.static_bit_type(ty.designator(), "a subroutine return width")
                 } else {
                     Err(unsupported!(
                         "subroutine return type other than bool or bit",
@@ -456,6 +463,7 @@ impl Lowerer {
             definition,
             parameters,
             return_type,
+            static_globals: self.scopes.global_static_ids(),
         });
         // Irene lowers and checks a body only when the subroutine is called;
         // unreachable definitions are outside the equivalence task.
@@ -471,7 +479,7 @@ impl Lowerer {
         let qubit_type = declaration
             .qubit_type()
             .ok_or_else(|| expected!("a qubit type", &declaration))?;
-        let ty = quantum_type(qubit_type.designator(), "a qubit array width")?;
+        let ty = self.static_quantum_type(qubit_type.designator(), "a qubit array width")?;
         let binding = self
             .scopes
             .declare(name.clone(), BindingKind::QuantumVariable(ty))
@@ -498,7 +506,7 @@ impl Lowerer {
         let scalar_type = declaration
             .scalar_type()
             .ok_or_else(|| expected!("a numeric input type", &declaration))?;
-        let ty = numeric_type(&scalar_type)?;
+        let ty = numeric_type(&scalar_type, |e| self.static_index(e, true))?;
         let binding = self
             .scopes
             .declare(name.clone(), BindingKind::NumericInput(ty))
@@ -531,7 +539,7 @@ impl Lowerer {
             }
             BitType::Bool
         } else if scalar_type.bit_token().is_some() {
-            bit_type(scalar_type.designator(), "a bit array width")?
+            self.static_bit_type(scalar_type.designator(), "a bit array width")?
         } else {
             return Err(unsupported!(
                 "classical type other than bool or bit",
@@ -913,6 +921,27 @@ impl Lowerer {
     /// Preserves the structure of an OpenQASM numeric expression while
     /// normalizing finite literals to exact rationals.
     fn lower_numeric_expr(&mut self, expression: Expr) -> Result<NumericExpr, FrontendError> {
+        if expression
+            .syntax()
+            .descendants()
+            .any(|node| ast::Identifier::cast(node).is_some())
+            && self.is_integer_expression(&expression)?
+        {
+            let value = self.static_integer(expression, false)?.value;
+            return Ok(self
+                .ids
+                .node(NumericExprKind::Rational(BigRational::from_integer(
+                    BigInt::from(value),
+                ))));
+        }
+        // Keep integer evaluation before any surrounding promotion to a
+        // gate angle. In particular, (1/2)*pi is zero, not pi/2. Folding
+        // before allocating child IR nodes also preserves dense AST IDs.
+        if let Some(value) = Self::constant_integer_parameter(expression.clone())? {
+            return Ok(self
+                .ids
+                .node(NumericExprKind::Rational(BigRational::from_integer(value))));
+        }
         match expression {
             // `7`, `0.1`, and `1e-1` become exact BigRational values.
             Expr::Literal(literal) => match literal.kind() {
@@ -932,6 +961,14 @@ impl Lowerer {
                 let name = identifier.string();
                 let binding = self.scopes.lookup(&name).map_err(scope_error)?;
                 match binding.kind {
+                    BindingKind::StaticInteger { .. } => {
+                        let value = self.static_integer(Expr::Identifier(identifier), false)?;
+                        Ok(self
+                            .ids
+                            .node(NumericExprKind::Rational(BigRational::from_integer(
+                                BigInt::from(value.value),
+                            ))))
+                    }
                     BindingKind::Constant(constant) => {
                         Ok(self.ids.node(NumericExprKind::Constant(constant)))
                     }
@@ -993,12 +1030,75 @@ impl Lowerer {
                         Ok(self.ids.node(NumericExprKind::Mul(left, right)))
                     }
                     Some(ast::BinaryOp::ArithOp(ast::ArithOp::Div)) => {
+                        if matches!(&right.kind, NumericExprKind::Rational(value) if value == &BigRational::from_integer(0.into()))
+                        {
+                            return Err(expected!("a nonzero numeric divisor", &binary));
+                        }
                         Ok(self.ids.node(NumericExprKind::Div(left, right)))
                     }
                     _ => Err(unsupported!("numeric binary operator", &binary)),
                 }
             }
             other => Err(unsupported!("numeric gate parameter", &other)),
+        }
+    }
+
+    /// Recognizes integer-literal-only arithmetic, without confusing float
+    /// literals such as 1.0 with integers after rational normalization. Mixed
+    /// expressions are lowered recursively, so their integer subexpressions
+    /// are folded before promotion as well. Numeric inputs remain symbolic
+    /// here and are refused by the equivalence interface's separate policy.
+    fn constant_integer_parameter(expression: Expr) -> Result<Option<BigInt>, FrontendError> {
+        match expression {
+            Expr::Literal(literal) => match literal.kind() {
+                ast::LiteralKind::IntNumber(number) => Ok(Some(exact_integer_value(number)?)),
+                _ => Ok(None),
+            },
+            Expr::ParenExpr(parenthesized) => {
+                Self::constant_integer_parameter(parenthesized.expr().ok_or_else(|| {
+                    expected!("a parenthesized numeric expression", &parenthesized)
+                })?)
+            }
+            Expr::PrefixExpr(prefix) if matches!(prefix.op_kind(), Some(ast::UnaryOp::Neg)) => {
+                Ok(Self::constant_integer_parameter(
+                    prefix
+                        .expr()
+                        .ok_or_else(|| expected!("a numeric prefix operand", &prefix))?,
+                )?
+                .map(|value| -value))
+            }
+            Expr::BinExpr(binary) => {
+                let Some(left) = Self::constant_integer_parameter(
+                    binary
+                        .lhs()
+                        .ok_or_else(|| expected!("a left numeric operand", &binary))?,
+                )?
+                else {
+                    return Ok(None);
+                };
+                let Some(right) = Self::constant_integer_parameter(
+                    binary
+                        .rhs()
+                        .ok_or_else(|| expected!("a right numeric operand", &binary))?,
+                )?
+                else {
+                    return Ok(None);
+                };
+                let value = match binary.op_kind() {
+                    Some(ast::BinaryOp::ArithOp(ast::ArithOp::Add)) => left + right,
+                    Some(ast::BinaryOp::ArithOp(ast::ArithOp::Sub)) => left - right,
+                    Some(ast::BinaryOp::ArithOp(ast::ArithOp::Mul)) => left * right,
+                    Some(ast::BinaryOp::ArithOp(ast::ArithOp::Div)) => {
+                        if right == BigInt::from(0) {
+                            return Err(expected!("a nonzero integer divisor", &binary));
+                        }
+                        left / right
+                    }
+                    _ => return Ok(None),
+                };
+                Ok(Some(value))
+            }
+            _ => Ok(None),
         }
     }
 
@@ -1305,6 +1405,12 @@ impl Lowerer {
         let mut saw_return = false;
         for (index, statement) in source_statements.iter().cloned().enumerate() {
             match statement {
+                Stmt::ClassicalDeclarationStatement(declaration)
+                    if declaration.const_token().is_some() =>
+                {
+                    self.lower_static_constant(declaration)?;
+                }
+                // `bit local;` belongs to this block and is removed on scope exit.
                 Stmt::ClassicalDeclarationStatement(declaration) => {
                     let (register, initializer) = self.lower_classical_declaration(declaration)?;
                     lowered.classical_registers.push(register);
@@ -1477,6 +1583,11 @@ impl Lowerer {
         for statement in block.statements() {
             match statement {
                 // `bit local;` belongs to this block and is removed on scope exit.
+                Stmt::ClassicalDeclarationStatement(declaration)
+                    if declaration.const_token().is_some() =>
+                {
+                    self.lower_static_constant(declaration)?;
+                }
                 Stmt::ClassicalDeclarationStatement(declaration) => {
                     let (register, initializer) = self.lower_classical_declaration(declaration)?;
                     lowered.classical_registers.push(register);
@@ -1720,7 +1831,7 @@ impl Lowerer {
                 .ok_or_else(|| expected!("an explicitly sized integer cast", &cast))?
                 .expr()
                 .ok_or_else(|| expected!("an integer cast width", &cast))
-                .and_then(literal_usize)?;
+                .and_then(|e| self.static_index(e, true))?;
             if width == 0 {
                 return Err(expected!("a non-empty integer cast", &cast));
             }
@@ -1750,7 +1861,7 @@ impl Lowerer {
                 let width = designator
                     .expr()
                     .ok_or_else(|| expected!("a bit cast width", &designator))
-                    .and_then(literal_usize)?;
+                    .and_then(|e| self.static_index(e, true))?;
                 let bits = match value {
                     TypedClassicalExpr::Register(bits)
                     | TypedClassicalExpr::Integer { bits, .. }
@@ -2239,7 +2350,8 @@ impl Lowerer {
         match operand {
             // `q[2]` names one wire in a quantum register.
             GateOperand::IndexedIdentifier(indexed) => {
-                let (name, index) = indexed_name_and_index(indexed)?;
+                let (name, expression) = static_integer::single_index(indexed)?;
+                let index = self.static_index(expression, false)?;
                 Ok(QuantumOperand::Scalar(self.checked_qubit(name, index)?))
             }
             // An unindexed name retains its declared scalar/register shape.
@@ -2264,7 +2376,8 @@ impl Lowerer {
                 self.quantum_cells(&name, binding)
             }
             Expr::IndexedIdentifier(indexed) => {
-                let (name, index) = indexed_name_and_index(indexed)?;
+                let (name, expression) = static_integer::single_index(indexed)?;
+                let index = self.static_index(expression, false)?;
                 Ok(QuantumOperand::Scalar(self.checked_qubit(name, index)?))
             }
             expression => Err(unsupported!("quantum subroutine argument", &expression)),
@@ -2307,7 +2420,8 @@ impl Lowerer {
         &self,
         indexed: ast::IndexedIdentifier,
     ) -> Result<ClassicalBit, FrontendError> {
-        let (name, index) = indexed_name_and_index(indexed)?;
+        let (name, expression) = static_integer::single_index(indexed)?;
+        let index = self.static_index(expression, false)?;
         self.checked_classical_bit(name, index)
     }
 
@@ -2469,44 +2583,6 @@ where
         .ok_or_else(|| expected!("a name", node))
 }
 
-/// Splits an indexed identifier such as `q[2]` into `("q", 2)`.
-fn indexed_name_and_index(
-    indexed: ast::IndexedIdentifier,
-) -> Result<(String, usize), FrontendError> {
-    let name = indexed
-        .identifier()
-        .map(|identifier| identifier.string())
-        .ok_or_else(|| expected!("an indexed identifier name", &indexed))?;
-    let mut operators = indexed.index_operators();
-    let operator = operators
-        .next()
-        .ok_or_else(|| expected!("one index", &indexed))?;
-    if operators.next().is_some() {
-        return Err(unsupported!("multi-dimensional index", &indexed));
-    }
-    let Some(IndexKind::ExpressionList(list)) = operator.index_kind() else {
-        return Err(unsupported!("index set or range", &operator));
-    };
-    let mut expressions = list.exprs();
-    let expression = expressions
-        .next()
-        .ok_or_else(|| expected!("one index expression", &list))?;
-    if expressions.next().is_some() {
-        return Err(unsupported!("multiple indices", &list));
-    }
-    Ok((name, literal_usize(expression)?))
-}
-
-/// Reads a compile-time non-negative integer used as a width or array index.
-/// For example, the designator in `qubit[16] q;` becomes `16`.
-fn literal_usize(expression: Expr) -> Result<usize, FrontendError> {
-    let text = expression.syntax().text().to_string().replace('_', "");
-    text.parse::<usize>().map_err(|_| FrontendError::Expected {
-        expected: "a non-negative integer literal",
-        snippet: text,
-    })
-}
-
 /// Parses an unsuffixed integer token exactly in its declared radix.
 ///
 /// For example, `0b1010`, `0xa`, and `10` all produce the same arbitrary-size
@@ -2561,17 +2637,23 @@ fn exact_decimal(number: ast::FloatNumber) -> Result<BigRational, FrontendError>
 
 /// Preserves both the numeric kind and optional precision of an input type.
 /// For example, `angle[20]` becomes `NumericType::Angle(Some(20))`.
-fn numeric_type(scalar_type: &ast::ScalarType) -> Result<NumericType, FrontendError> {
+fn numeric_type(
+    scalar_type: &ast::ScalarType,
+    static_index: impl Fn(Expr) -> Result<usize, FrontendError>,
+) -> Result<NumericType, FrontendError> {
     let width = scalar_type
         .designator()
         .map(|designator| {
-            literal_usize(
+            static_index(
                 designator
                     .expr()
                     .ok_or_else(|| expected!("a numeric type width", &designator))?,
             )
         })
         .transpose()?;
+    if width == Some(0) {
+        return Err(expected!("a positive numeric input width", scalar_type));
+    }
     if scalar_type.int_token().is_some() {
         Ok(NumericType::Int(width))
     } else if scalar_type.uint_token().is_some() {
@@ -2582,40 +2664,6 @@ fn numeric_type(scalar_type: &ast::ScalarType) -> Result<NumericType, FrontendEr
         Ok(NumericType::Angle(width))
     } else {
         Err(unsupported!("non-numeric input type", scalar_type))
-    }
-}
-
-/// Preserves the distinction between `qubit` and `qubit[n]`.
-fn quantum_type(
-    designator: Option<ast::Designator>,
-    expected_width: &'static str,
-) -> Result<QuantumType, FrontendError> {
-    match designator {
-        Some(designator) => Ok(QuantumType::Register {
-            width: literal_usize(
-                designator
-                    .expr()
-                    .ok_or_else(|| expected!(expected_width, &designator))?,
-            )?,
-        }),
-        None => Ok(QuantumType::Scalar),
-    }
-}
-
-/// Preserves the distinction between scalar `bit` and register `bit[n]`.
-fn bit_type(
-    designator: Option<ast::Designator>,
-    expected_width: &'static str,
-) -> Result<BitType, FrontendError> {
-    match designator {
-        Some(designator) => Ok(BitType::Register {
-            width: literal_usize(
-                designator
-                    .expr()
-                    .ok_or_else(|| expected!(expected_width, &designator))?,
-            )?,
-        }),
-        None => Ok(BitType::Bit),
     }
 }
 

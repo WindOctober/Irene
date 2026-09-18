@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use crate::ir::{NumericConstant, NumericType, SymbolId};
 
@@ -57,8 +57,18 @@ pub(super) enum BindingKind {
     ClassicalBit(BitType),
     NumericInput(NumericType),
     Gate,
-    Subroutine { index: usize },
+    Subroutine {
+        index: usize,
+    },
     Constant(NumericConstant),
+    /// Exact, range-checked static integer; a specialized loop value is not const.
+    StaticInteger {
+        value: i128,
+        width: u32,
+        signed: bool,
+        explicit_width: bool,
+        is_const: bool,
+    },
 }
 
 impl BindingKind {
@@ -78,6 +88,7 @@ impl BindingKind {
             Self::Gate => "gate",
             Self::Subroutine { .. } => "subroutine",
             Self::Constant(_) => "constant",
+            Self::StaticInteger { .. } => "static integer",
         }
     }
 }
@@ -121,6 +132,15 @@ pub(super) struct ScopeStack {
 }
 
 impl ScopeStack {
+    pub(super) fn global_static_ids(&self) -> BTreeSet<SymbolId> {
+        self.scopes[0]
+            .bindings
+            .values()
+            .filter(|b| matches!(b.kind, BindingKind::StaticInteger { .. }))
+            .map(|b| b.id)
+            .collect()
+    }
+
     pub(super) fn new() -> Self {
         let mut symbols = Self {
             scopes: vec![Scope::new(ScopeKind::Global)],
@@ -269,7 +289,10 @@ impl ScopeStack {
                 && scope.kind == ScopeKind::Global
                 && !matches!(
                     binding.kind,
-                    BindingKind::Constant(_) | BindingKind::Gate | BindingKind::Subroutine { .. }
+                    BindingKind::Constant(_)
+                        | BindingKind::Gate
+                        | BindingKind::Subroutine { .. }
+                        | BindingKind::StaticInteger { is_const: true, .. }
                 )
             {
                 continue;
