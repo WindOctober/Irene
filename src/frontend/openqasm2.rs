@@ -640,9 +640,11 @@ impl Lowerer {
     }
 
     fn lower_barrier(&mut self, barrier: ast::Barrier) -> Result<Statement, FrontendError> {
-        let operands = barrier
-            .qubit_list()
-            .ok_or_else(|| expected!("at least one barrier operand", &barrier))?;
+        // Scheduling fences have no channel semantics. Accept the empty
+        // spelling as well, while still validating any supplied operands.
+        let Some(operands) = barrier.qubit_list() else {
+            return Ok(self.sequence(Vec::new()));
+        };
         let gate_operands = operands.gate_operands().collect::<Vec<_>>();
         validate_comma_list(
             operands.syntax(),
@@ -651,9 +653,6 @@ impl Lowerer {
         )?;
         for operand in gate_operands.iter().cloned() {
             self.lower_qubits(operand)?;
-        }
-        if gate_operands.is_empty() {
-            return Err(expected!("at least one barrier operand", &barrier));
         }
         Ok(self.sequence(Vec::new()))
     }
@@ -676,12 +675,6 @@ impl Lowerer {
         let operation = statement
             .then_branch_stmt()
             .ok_or_else(|| expected!("a single quantum operation after if", &statement))?;
-        if matches!(operation, Stmt::Barrier(_)) {
-            return Err(unsupported!(
-                "barrier in a classical conditional",
-                &operation
-            ));
-        }
         let operation = self.lower_quantum_operation(operation)?;
         let then_branch = self.ids.node(BlockData {
             classical_registers: Vec::new(),

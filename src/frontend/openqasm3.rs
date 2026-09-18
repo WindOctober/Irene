@@ -560,6 +560,16 @@ impl Lowerer {
     /// Lowers the executable statement forms currently represented by Irene's IR.
     fn lower_statement(&mut self, statement: Stmt) -> Result<Statement, FrontendError> {
         match statement {
+            // Barriers constrain scheduling, not the observable channel.
+            // Keep operand validation, but emit no quantum/classical effect.
+            Stmt::Barrier(barrier) => {
+                if let Some(operands) = barrier.qubit_list() {
+                    for operand in operands.gate_operands() {
+                        self.lower_qubits(operand)?;
+                    }
+                }
+                Ok(self.sequence(Vec::new()))
+            }
             // `reset q[0];` reinitializes one quantum wire to |0⟩.
             Stmt::Reset(reset) => {
                 let operand = reset
