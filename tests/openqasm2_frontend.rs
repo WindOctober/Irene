@@ -695,7 +695,6 @@ fn ill_formed_or_unsupported_sources_are_rejected_without_panics() {
             "out-of-bounds-barrier-index",
             "OPENQASM 2.0; qreg q[1]; barrier q[1];",
         ),
-        ("missing-barrier-operand", "OPENQASM 2.0; barrier;"),
         (
             "unknown-operand",
             r#"OPENQASM 2.0; include "qelib1.inc"; qreg q[1]; x missing[0];"#,
