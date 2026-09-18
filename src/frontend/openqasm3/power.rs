@@ -52,44 +52,9 @@ impl Lowerer {
             .node(NumericExprKind::Mul(Box::new(pi), Box::new(ratio)))
     }
 
-    /// Literal exponents only; typed constant propagation is handled separately.
+    /// The exponent must be known statically; runtime propagation is separate.
     pub(super) fn known_power(&mut self, expression: Expr) -> Result<i128, FrontendError> {
-        fn literal(expression: Expr, depth: usize) -> Result<i128, FrontendError> {
-            if depth >= 64 {
-                return Err(unsupported!("integer power expression depth", &expression));
-            }
-            match expression {
-                Expr::Literal(token) => {
-                    let ast::LiteralKind::IntNumber(number) = token.kind() else {
-                        return Err(expected!("an integer power literal", &token));
-                    };
-                    if number.to_string().len() > 128 {
-                        return Err(unsupported!("integer power literal budget", &token));
-                    }
-                    u64::try_from(exact_integer_value(number)?)
-                        .map(i128::from)
-                        .map_err(|_| expected!("an integer power literal at most 64 bits", &token))
-                }
-                Expr::ParenExpr(paren) => literal(
-                    paren
-                        .expr()
-                        .ok_or_else(|| expected!("an integer power", &paren))?,
-                    depth + 1,
-                ),
-                Expr::PrefixExpr(prefix) if matches!(prefix.op_kind(), Some(ast::UnaryOp::Neg)) => {
-                    literal(
-                        prefix
-                            .expr()
-                            .ok_or_else(|| expected!("an integer power", &prefix))?,
-                        depth + 1,
-                    )?
-                    .checked_neg()
-                    .ok_or_else(|| unsupported!("integer power overflow", &prefix))
-                }
-                other => Err(unsupported!("nonliteral integer power", &other)),
-            }
-        }
-        literal(expression, 0)
+        Ok(self.static_integer(expression, false)?.value)
     }
 
     /// Lowered single-gate broadcasts, and commuting angle-bit rotations only.
