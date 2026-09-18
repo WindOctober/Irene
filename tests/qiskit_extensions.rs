@@ -1,5 +1,5 @@
 //! Independent dense-matrix checks of the lowered IR (all basis columns).
-use irene::frontend::openqasm2;
+use irene::frontend::{openqasm2, openqasm3};
 use irene::ir::{
     Block, Gate, NumericConstant, NumericExpr, NumericExprKind, Program, StatementKind,
 };
@@ -120,11 +120,15 @@ fn q2(n: usize, call: &str) -> Program {
     .unwrap()
 }
 #[test]
-fn controlled_u_preserves_all_four_parameters() {
+fn controlled_u_preserves_all_four_parameters_in_both_languages() {
     for (theta, phi, lambda, gamma) in [(0.7_f64, -0.4, 0.2, 0.9), (0., 0., 0., 0.6)] {
         let call = format!("cu({theta},{phi},{lambda},{gamma}) q[0],q[1];");
-        let p = q2(2, &call);
-        {
+        let p3 = openqasm3::parse_str(
+            &format!("OPENQASM 3.0; include \"stdgates.inc\"; qubit[2] q; {call}"),
+            "cu-test",
+        )
+        .unwrap();
+        for p in [q2(2, &call), p3] {
             check(&p, 2, |i| {
                 let mut v = vec![(0., 0.); 4];
                 if i & 1 == 0 {
