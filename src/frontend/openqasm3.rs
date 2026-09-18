@@ -79,6 +79,8 @@ macro_rules! expected {
     }};
 }
 
+mod controlled_u;
+
 /// Parses one OpenQASM 3 source file and lowers its supported subset to Irene IR.
 ///
 /// `source_name` is used only in parser diagnostics. Includes other than
@@ -627,6 +629,9 @@ impl Lowerer {
     /// and resolved qubit operands. For example, `rz(pi/4) q[0];` retains
     /// `pi/4` as a [`NumericExpr`] rather than evaluating it as a float.
     fn lower_gate(&mut self, call: ast::GateCallExpr) -> Result<Statement, FrontendError> {
+        if call.identifier().is_some_and(|name| name.string() == "cu") {
+            return self.lower_standard_cu(call, 0);
+        }
         // Parenthesized expressions before the qubit list are gate parameters.
         let parameters = call
             .arg_list()
