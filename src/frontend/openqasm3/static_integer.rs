@@ -14,6 +14,18 @@ pub(super) struct StaticInteger {
 }
 
 impl Lowerer {
+    pub(super) fn charge_static_expansion<T: AstNode>(
+        &mut self,
+        source: &T,
+    ) -> Result<(), FrontendError> {
+        if self.static_loop_depth > 0 {
+            self.static_statements_left = self
+                .static_statements_left
+                .checked_sub(1)
+                .ok_or_else(|| unsupported!("static expansion statement budget", source))?;
+        }
+        Ok(())
+    }
     pub(super) fn static_integer(
         &self,
         expression: Expr,
@@ -238,6 +250,7 @@ impl Lowerer {
         &mut self,
         declaration: ast::ClassicalDeclarationStatement,
     ) -> Result<(), FrontendError> {
+        self.charge_static_expansion(&declaration)?;
         let ty = declaration
             .scalar_type()
             .ok_or_else(|| expected!("a static integer type", &declaration))?;
@@ -334,6 +347,140 @@ impl Lowerer {
         }
     }
 
+    fn static_range(&self, range: &ast::RangeExpr) -> Result<(i128, i128, i128), FrontendError> {
+        // Inspect delimiters too: the dependency's helper alone does not
+        // distinguish omitted range operands. Refuse all open-ended ranges.
+        let colon_count = range
+            .syntax()
+            .children_with_tokens()
+            .filter(|element| element.as_token().is_some_and(|token| token.text() == ":"))
+            .count();
+        let count = range.syntax().children().filter_map(Expr::cast).count();
+        if !(colon_count == 1 || colon_count == 2) || count != colon_count + 1 {
+            return Err(unsupported!("open-ended static range", range));
+        }
+        let (start, step, stop) = range.start_step_stop();
+        let start = self
+            .static_integer(
+                start.ok_or_else(|| expected!("a range start", range))?,
+                false,
+            )?
+            .value;
+        let stop = self
+            .static_integer(stop.ok_or_else(|| expected!("a range stop", range))?, false)?
+            .value;
+        let step = step
+            .map(|step| self.static_integer(step, false).map(|x| x.value))
+            .transpose()?
+            .unwrap_or(1);
+        if step == 0 || (step > 0 && start > stop) || (step < 0 && start < stop) {
+            return Err(unsupported!("zero-step or empty static range", range));
+        }
+        Ok((start, step, stop))
+    }
+
+    pub(super) fn static_quantum_index(
+        &self,
+        indexed: ast::IndexedIdentifier,
+    ) -> Result<QuantumOperand, FrontendError> {
+        let (name, expression) = single_index(indexed)?;
+        if let Expr::RangeExpr(range) = expression {
+            let (start, step, stop) = self.static_range(&range)?;
+            let count = ((stop - start) / step)
+                .checked_add(1)
+                .ok_or_else(|| unsupported!("static quantum slice cardinality", &range))?;
+            if count > 65536 {
+                return Err(unsupported!("static quantum slice budget", &range));
+            }
+            let cells = (0..count)
+                .map(|i| {
+                    let index = usize::try_from(start + i * step)
+                        .map_err(|_| expected!("a representable slice index", &range))?;
+                    self.checked_qubit(name.clone(), index)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(QuantumOperand::Register(cells))
+        } else {
+            Ok(QuantumOperand::Scalar(self.checked_qubit(
+                name,
+                self.static_index(expression, false)?,
+            )?))
+        }
+    }
+
+    pub(super) fn lower_static_for(
+        &mut self,
+        statement: ast::ForStmt,
+    ) -> Result<Statement, FrontendError> {
+        let ty = statement
+            .scalar_type()
+            .ok_or_else(|| expected!("an explicit loop type", &statement))?;
+        let width = self.static_integer_width(&ty)?;
+        let signed = ty.int_token().is_some();
+        let range = statement
+            .for_iterable()
+            .and_then(|iterable| iterable.range_expr())
+            .ok_or_else(|| unsupported!("non-range static iteration", &statement))?;
+        let (start, step, stop) = self.static_range(&range)?;
+        let count = ((stop - start) / step)
+            .checked_add(1)
+            .ok_or_else(|| unsupported!("static loop cardinality", &range))?;
+        if !fits(start, width, signed) || !fits(stop, width, signed) {
+            return Err(unsupported!(
+                "lossy static loop range conversion",
+                &statement
+            ));
+        }
+        if count > self.static_iterations_left as i128 || self.static_loop_depth >= 32 {
+            return Err(unsupported!(
+                "shared static iteration/depth budget",
+                &statement
+            ));
+        }
+        self.static_iterations_left -= count as usize;
+        let name = statement
+            .loop_var()
+            .ok_or_else(|| expected!("a loop variable", &statement))?
+            .string();
+        let mut statements = Vec::new();
+        self.static_loop_depth += 1;
+        let result = (|| {
+            for i in 0..count {
+                self.scopes.enter(ScopeKind::Block);
+                let lowered = (|| {
+                    self.scopes
+                        .declare(
+                            name.clone(),
+                            BindingKind::StaticInteger {
+                                value: start + i * step,
+                                width,
+                                signed,
+                                explicit_width: ty.designator().is_some(),
+                                is_const: false,
+                            },
+                        )
+                        .map_err(scope_error)?;
+                    // The iterator and braced body share one source scope.
+                    match statement.block_or_stmt() {
+                        BlockOrStmt::BlockExpr(block) => self.lower_block_contents(block),
+                        BlockOrStmt::Stmt(statement) => {
+                            let statement = self.lower_statement(statement)?;
+                            Ok(self.ids.node(BlockData {
+                                statements: vec![statement],
+                                ..BlockData::default()
+                            }))
+                        }
+                    }
+                })();
+                self.scopes.exit();
+                statements.push(self.ids.node(StatementKind::Scope(lowered?)));
+            }
+            Ok(self.sequence(statements))
+        })();
+        self.static_loop_depth -= 1;
+        result
+    }
+
     pub(super) fn is_integer_expression(&self, expr: &Expr) -> Result<bool, FrontendError> {
         match expr {
             Expr::Literal(l) => Ok(matches!(l.kind(), ast::LiteralKind::IntNumber(_))),
@@ -388,4 +535,36 @@ pub(super) fn single_index(
         return Err(unsupported!("multiple indices", &list));
     }
     Ok((name, expression))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn static_expansion_budgets_are_shared_and_refuse_complete_results() {
+        let source = "OPENQASM 3.0; include \"stdgates.inc\"; qubit q; for uint[8] i in [0:1] { const uint[8] n=1; bit c; x q; }";
+        let lower = |iterations, statements| {
+            let parsed = parse_source_string(source, Some("budget.qasm"), None::<&[PathBuf]>);
+            let syntax = parsed.syntax_ast().unwrap();
+            assert!(syntax.errors().is_empty());
+            Lowerer {
+                static_iterations_left: iterations,
+                static_statements_left: statements,
+                ..Lowerer::default()
+            }
+            .lower(syntax.tree())
+        };
+        assert!(lower(2, 6).is_ok());
+        assert!(lower(1, 6).is_err());
+        assert!(lower(2, 5).is_err());
+        let nested = format!(
+            "OPENQASM 3.0; qubit q; {} reset q; {}",
+            (0..33)
+                .map(|i| format!("for uint[8] i{i} in [0:0] {{"))
+                .collect::<String>(),
+            "}".repeat(33)
+        );
+        assert!(parse_str(&nested, "depth.qasm").is_err());
+    }
 }
