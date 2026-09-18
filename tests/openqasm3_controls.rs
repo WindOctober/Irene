@@ -1,110 +1,129 @@
-use irene::frontend::openqasm3::parse_str;
-use irene::ir::{Gate, StatementKind};
+mod common;
 
 #[test]
-fn positive_control_modifiers_preserve_gate_parameters_and_operand_order() {
-    for (name, params, expected) in [
-        ("x", "", Gate::Cx),
-        ("y", "", Gate::Cy),
-        ("z", "", Gate::Cz),
-        ("p", "(pi/7)", Gate::Cp),
-        ("rx", "(pi/7)", Gate::Crx),
-        ("ry", "(pi/7)", Gate::Cry),
-        ("rz", "(pi/7)", Gate::Crz),
-        ("cx", "", Gate::Ccx),
+fn decomposed_controls_broadcast_over_distinct_registers() {
+    for (name, gate) in [
+        ("h", Gate::H),
+        ("s", Gate::S),
+        ("sdg", Gate::Sdg),
+        ("t", Gate::T),
+        ("tdg", Gate::Tdg),
     ] {
-        for modifier in ["ctrl", "ctrl(1)"] {
-            let operands = if name == "cx" {
-                "q[2],q[0],q[1]"
-            } else {
-                "q[2],q[0]"
-            };
-            let program = parse_str(&format!(
-                "OPENQASM 3.0; include \"stdgates.inc\"; qubit[3] q; {modifier} @ {name}{params} {operands};"
-            ), "controlled-gates.qasm").unwrap();
-            let StatementKind::Apply {
-                gate,
-                parameters,
-                qubits,
-            } = &program.body.statements[0].kind
-            else {
-                panic!("expected a controlled IR gate");
-            };
-            assert_eq!(*gate, expected);
-            assert_eq!(parameters.len(), usize::from(!params.is_empty()));
-            assert_eq!(
-                qubits.iter().map(|q| q.index).collect::<Vec<_>>(),
-                if name == "cx" {
-                    vec![2, 0, 1]
-                } else {
-                    vec![2, 0]
-                }
-            );
-            let mut ids = Vec::new();
-            program.visit_ast_ids(|id| ids.push(id.index()));
-            ids.sort();
-            assert_eq!(ids, (0..program.ast_id_bound()).collect::<Vec<_>>());
-        }
-    }
-    for modifier in ["ctrl(2)", "ctrl @ ctrl", "ctrl(0x2)"] {
-        let program = parse_str(
+        let p = parse_str(
             &format!(
-                "OPENQASM 3.0; include \"stdgates.inc\"; qubit[3] q; {modifier} @ x q[1],q[2],q[0];"
+                "OPENQASM 3.0; include \"stdgates.inc\"; qubit[2] a; qubit[2] b; ctrl @ {name} a,b;"
             ),
-            "double-control.qasm",
+            "broadcast",
         )
         .unwrap();
-        assert!(matches!(
-            program.body.statements[0].kind,
-            StatementKind::Apply {
-                gate: Gate::Ccx,
-                ..
+        assert_action(&p, |state| {
+            for i in 0..2 {
+                apply(state, &[i], i + 2, single(gate, 0.0));
             }
-        ));
+        });
+        assert_fresh_ids(&p);
     }
-    let broadcast = parse_str(
-        "OPENQASM 3.0; include \"stdgates.inc\"; qubit c; qubit[2] q; ctrl @ ry(pi/7) c,q;",
-        "controlled-broadcast.qasm",
+    let p = parse_str("OPENQASM 3.0; include \"stdgates.inc\"; qubit[2] a; qubit[2] b; qubit[2] c; ctrl @ swap a,b,c;","broadcast").unwrap();
+    assert_action(&p, |state| {
+        for i in 0..2 {
+            let (control, a, b) = (1 << i, 1 << (i + 2), 1 << (i + 4));
+            for j in 0..state.len() {
+                if j & control != 0 && j & a == 0 && j & b != 0 {
+                    state.swap(j, j ^ a ^ b);
+                }
+            }
+        }
+    });
+    assert_fresh_ids(&p);
+}
+use common::unitary::{apply, assert_action, assert_fresh_ids, single};
+use irene::frontend::openqasm3::parse_str;
+use irene::ir::{Gate, Program};
+use std::f64::consts::PI;
+
+fn parse(body: &str) -> Program {
+    parse_str(
+        &format!("OPENQASM 3.0; include \"stdgates.inc\"; qubit[3] q; {body}"),
+        "controls",
     )
-    .unwrap();
-    let StatementKind::Scope(body) = &broadcast.body.statements[0].kind else {
-        panic!("expected a broadcast sequence");
-    };
-    assert_eq!(body.statements.len(), 2);
-    for (index, statement) in body.statements.iter().enumerate() {
-        let StatementKind::Apply {
-            gate,
-            parameters,
-            qubits,
-        } = &statement.kind
-        else {
-            panic!("expected a controlled broadcast gate");
-        };
-        assert_eq!(*gate, Gate::Cry);
-        assert_eq!(parameters.len(), 1);
-        assert_eq!(qubits[0].register, broadcast.quantum_registers[0].id);
-        assert_eq!(qubits[1].index, index);
-    }
-    let mut ids = Vec::new();
-    broadcast.visit_ast_ids(|id| ids.push(id.index()));
-    ids.sort();
-    assert_eq!(ids, (0..broadcast.ast_id_bound()).collect::<Vec<_>>());
+    .unwrap()
 }
 
 #[test]
-fn unsupported_control_modifiers_counts_and_invalid_operands_are_not_ignored() {
+fn positive_controls_preserve_parameters_and_operand_order() {
+    for (name, params, gate) in [
+        ("x", "", Gate::X),
+        ("y", "", Gate::Y),
+        ("z", "", Gate::Z),
+        ("p", "(pi/7)", Gate::P),
+        ("phase", "(pi/7)", Gate::P),
+        ("u1", "(pi/7)", Gate::P),
+        ("rx", "(pi/7)", Gate::Rx),
+        ("ry", "(pi/7)", Gate::Ry),
+        ("rz", "(pi/7)", Gate::Rz),
+    ] {
+        for modifier in ["ctrl", "ctrl(1)"] {
+            let p = parse(&format!("{modifier} @ {name}{params} q[2],q[0];"));
+            assert_action(&p, |state| apply(state, &[2], 0, single(gate, PI / 7.0)));
+            assert_fresh_ids(&p);
+        }
+    }
+    for (call, base) in [
+        ("ctrl @ cx", Gate::X),
+        ("ctrl @ cz", Gate::Z),
+        ("ctrl(2) @ x", Gate::X),
+        ("ctrl(2) @ z", Gate::Z),
+        ("ctrl @ ctrl @ x", Gate::X),
+        ("ctrl @ ctrl @ z", Gate::Z),
+        ("ctrl(0x2) @ x", Gate::X),
+    ] {
+        let p = parse(&format!("{call} q[1],q[2],q[0];"));
+        assert_action(&p, |state| apply(state, &[1, 2], 0, single(base, 0.0)));
+        assert_fresh_ids(&p);
+    }
+}
+
+#[test]
+fn controlled_broadcast_preserves_distinct_register_cells() {
+    let p = parse_str(
+        "OPENQASM 3.0; include \"stdgates.inc\"; qubit c; qubit[2] q; ctrl @ ry(pi/7) c,q;",
+        "broadcast",
+    )
+    .unwrap();
+    assert_action(&p, |state| {
+        apply(state, &[0], 1, single(Gate::Ry, PI / 7.0));
+        apply(state, &[0], 2, single(Gate::Ry, PI / 7.0));
+    });
+    assert_fresh_ids(&p);
+}
+
+#[test]
+fn controlled_decompositions_preserve_unitaries() {
+    for (body, gate) in [
+        ("ctrl @ h q[0],q[1];", Gate::H),
+        ("ch q[0],q[1];", Gate::H),
+        ("ctrl @ s q[0],q[1];", Gate::S),
+        ("ctrl @ sdg q[0],q[1];", Gate::Sdg),
+        ("ctrl @ t q[0],q[1];", Gate::T),
+        ("ctrl @ tdg q[0],q[1];", Gate::Tdg),
+    ] {
+        let p = parse(body);
+        assert_action(&p, |state| apply(state, &[0], 1, single(gate, 0.0)));
+        assert_fresh_ids(&p);
+    }
+    for body in ["ctrl @ swap q[0],q[1],q[2];", "cswap q[0],q[1],q[2];"] {
+        let p = parse(body);
+        assert_action(&p, |state| state.swap(3, 5));
+        assert_fresh_ids(&p);
+    }
+}
+
+#[test]
+fn invalid_control_counts_and_operands_are_rejected() {
     for instruction in [
-        "negctrl @ x q[0],q[1]",
-        "pow(0.5) @ x q[0]",
         "ctrl(0) @ x q[0]",
         "ctrl(-1) @ x q[0]",
         "ctrl(1.0) @ x q[0],q[1]",
-        "ctrl(1+0) @ x q[0],q[1]",
-        "ctrl(3) @ x q[0],q[1],q[2],q[3]",
-        "ctrl @ ctrl @ ctrl @ x q[0],q[1],q[2],q[3]",
-        "ctrl(2) @ ry(pi/3) q[0],q[1],q[2]",
-        "ctrl(2) @ h q[0],q[1],q[2]",
-        "ctrl @ gphase(pi/3) q[0]",
         "ctrl @ ry q[0],q[1]",
         "ctrl @ x q[0]",
         "ctrl @ x q[0],q[0]",
@@ -113,85 +132,10 @@ fn unsupported_control_modifiers_counts_and_invalid_operands_are_not_ignored() {
         assert!(
             parse_str(
                 &format!("OPENQASM 3.0; include \"stdgates.inc\"; qubit[4] q; {instruction};"),
-                "unsupported-control.qasm"
+                "invalid-controls"
             )
             .is_err(),
             "{instruction}"
-        );
-    }
-}
-
-#[test]
-fn positive_controls_match_native_gates_on_coherent_inputs() {
-    use irene::ir::{Program, Qubit};
-    use irene::symbolic::{ExecutionConfig, OutputSelection, execute};
-    let parse = |body: &str| {
-        parse_str(
-            &format!("OPENQASM 3.0; include \"stdgates.inc\"; qubit[3] q; h q[0]; {body}"),
-            "coherent-controls",
-        )
-        .unwrap()
-    };
-    let run = |p: &Program| {
-        let qubits = (0..3).map(|index| Qubit {
-            register: p.quantum_registers[0].id,
-            index,
-        });
-        execute(
-            p,
-            &ExecutionConfig::all_symbolic(),
-            &OutputSelection::new(qubits, []),
-        )
-        .unwrap()
-    };
-    for (modified, native) in [
-        ("ctrl @ x", "cx"),
-        ("ctrl @ y", "cy"),
-        ("ctrl @ z", "cz"),
-        ("ctrl @ p(pi/7)", "cp(pi/7)"),
-        ("ctrl @ phase(pi/7)", "cp(pi/7)"),
-        ("ctrl @ u1(pi/7)", "cp(pi/7)"),
-        ("ctrl @ rx(pi/7)", "crx(pi/7)"),
-        ("ctrl @ ry(pi/7)", "cry(pi/7)"),
-        ("ctrl @ rz(pi/7)", "crz(pi/7)"),
-    ] {
-        let left = run(&parse(&format!("{modified} q[0],q[1];")));
-        let right = run(&parse(&format!("{native} q[0],q[1];")));
-        assert_eq!(left, right, "{modified}");
-        assert!(left.components.iter().all(|c| c.output.history.is_empty()));
-    }
-    for (modified, native) in [
-        ("ctrl @ cx", "ccx"),
-        ("ctrl @ cz", "ccz"),
-        ("ctrl(2) @ x", "ccx"),
-        ("ctrl(2) @ z", "ccz"),
-        ("ctrl @ ctrl @ x", "ccx"),
-        ("ctrl @ ctrl @ z", "ccz"),
-    ] {
-        assert_eq!(
-            run(&parse(&format!("{modified} q[2],q[0],q[1];"))),
-            run(&parse(&format!("{native} q[2],q[0],q[1];"))),
-            "{modified}",
-        );
-    }
-}
-
-#[test]
-fn controls_do_not_accept_unimplemented_decompositions_or_modifiers() {
-    for body in [
-        "ctrl @ h q[0],q[1];",
-        "ctrl @ swap q[0],q[1],q[2];",
-        "ctrl @ s q[0],q[1];",
-        "ctrl @ inv @ x q[0],q[1];",
-        "inv @ ctrl @ x q[0],q[1];",
-        "pow(2) @ ctrl @ x q[0],q[1];",
-        "ctrl @ pow(2) @ x q[0],q[1];",
-        "ctrl @ cu(1,2,3,4) q[0],q[1],q[2];",
-    ] {
-        let source = format!("OPENQASM 3.0; include \"stdgates.inc\"; qubit[3] q; {body}");
-        assert!(
-            parse_str(&source, "unsupported-controls").is_err(),
-            "{body}"
         );
     }
     assert!(
@@ -208,4 +152,60 @@ fn controls_do_not_accept_unimplemented_decompositions_or_modifiers() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn extended_controls_are_rejected_or_have_the_specified_action() {
+    // Unsupported legal syntax may be implemented later, but never silently ignored.
+    for (body, controls, target, gate) in [
+        ("ctrl(1+0) @ x q[0],q[1];", vec![0], 1, Gate::X),
+        (
+            "ctrl(3) @ x q[0],q[1],q[2],q[3];",
+            vec![0, 1, 2],
+            3,
+            Gate::X,
+        ),
+        (
+            "ctrl @ ctrl @ ctrl @ x q[0],q[1],q[2],q[3];",
+            vec![0, 1, 2],
+            3,
+            Gate::X,
+        ),
+        (
+            "ctrl(2) @ ry(pi/3) q[0],q[1],q[2];",
+            vec![0, 1],
+            2,
+            Gate::Ry,
+        ),
+        ("ctrl(2) @ h q[0],q[1],q[2];", vec![0, 1], 2, Gate::H),
+        ("ctrl @ gphase(pi/3) q[0];", vec![], 0, Gate::P),
+    ] {
+        if let Ok(p) = parse_str(
+            &format!("OPENQASM 3.0; include \"stdgates.inc\"; qubit[4] q; {body}"),
+            "extended-controls",
+        ) {
+            assert_action(&p, |state| {
+                apply(state, &controls, target, single(gate, PI / 3.0))
+            });
+        }
+    }
+    if let Ok(p) = parse_str(
+        "OPENQASM 3.0; include \"stdgates.inc\"; qubit[2] q; negctrl @ x q[0],q[1];",
+        "negative-control",
+    ) {
+        assert_action(&p, |state| state.swap(0, 2));
+    }
+    if let Ok(p) = parse_str(
+        "OPENQASM 3.0; include \"stdgates.inc\"; qubit q; pow(0.5) @ x q;",
+        "fractional-power",
+    ) {
+        assert_action(&p, |state| {
+            apply(
+                state,
+                &[],
+                0,
+                [[(0.5, 0.5), (0.5, -0.5)], [(0.5, -0.5), (0.5, 0.5)]],
+            )
+        });
+    }
 }

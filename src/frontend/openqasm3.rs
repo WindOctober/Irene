@@ -80,6 +80,7 @@ macro_rules! expected {
 }
 
 mod controlled_u;
+mod power;
 
 /// Parses one OpenQASM 3 source file and lowers its supported subset to Irene IR.
 ///
@@ -627,7 +628,7 @@ impl Lowerer {
     }
 
     /// Adds positive quantum controls without measuring or splitting branches.
-    /// Only combinations with an existing exact IR gate are admitted.
+    /// Supported combinations lower to native gates or exact decompositions.
     fn lower_modified_gate(
         &mut self,
         call: ast::ModifiedGateCallExpr,
@@ -678,13 +679,12 @@ impl Lowerer {
     fn lower_gate_with_controls(
         &mut self,
         call: ast::GateCallExpr,
-        controls: usize,
+        mut controls: usize,
     ) -> Result<Statement, FrontendError> {
         if call.identifier().is_some_and(|name| name.string() == "cu") {
             return self.lower_standard_cu(call, controls);
         }
-        // Parenthesized expressions before the qubit list are gate parameters.
-        let parameters = call
+        let mut parameters = call
             .arg_list()
             .and_then(|arguments| arguments.expression_list())
             .map(|arguments| {
@@ -695,6 +695,7 @@ impl Lowerer {
             })
             .transpose()?
             .unwrap_or_default();
+        let supplied_parameter_count = parameters.len();
         // Resolve the source name through the current OpenQASM scope first,
         // then map supported standard-library aliases to one IR gate.
         let source_name = call
@@ -710,8 +711,11 @@ impl Lowerer {
             });
         }
         let normalized_name = source_name.to_ascii_lowercase();
+        if matches!(normalized_name.as_str(), "ch" | "cswap") {
+            controls += 1;
+        }
         let gate = match normalized_name.as_str() {
-            "h" => Gate::H,
+            "h" | "ch" => Gate::H,
             "x" => Gate::X,
             "y" => Gate::Y,
             "z" => Gate::Z,
@@ -722,7 +726,7 @@ impl Lowerer {
             "cx" => Gate::Cx,
             "cy" => Gate::Cy,
             "cz" => Gate::Cz,
-            "swap" => Gate::Swap,
+            "swap" | "cswap" => Gate::Swap,
             "p" | "phase" | "u1" => Gate::P,
             "rx" => Gate::Rx,
             "ry" => Gate::Ry,
@@ -735,6 +739,23 @@ impl Lowerer {
             "ccz" => Gate::Ccz,
             _ => return Err(unsupported!("gate", &call)),
         };
+        let source_parameter_count = usize::from(matches!(
+            gate,
+            Gate::P | Gate::Rx | Gate::Ry | Gate::Rz | Gate::Cp | Gate::Crx | Gate::Cry | Gate::Crz
+        ));
+        let gate = if controls == 1 && matches!(gate, Gate::S | Gate::Sdg | Gate::T | Gate::Tdg) {
+            let (n, d) = match gate {
+                Gate::S => (1, 2),
+                Gate::Sdg => (-1, 2),
+                Gate::T => (1, 4),
+                Gate::Tdg => (-1, 4),
+                _ => unreachable!(),
+            };
+            parameters.push(self.pi_multiple(n, d));
+            Gate::P
+        } else {
+            gate
+        };
         let gate = match (controls, gate) {
             (0, gate) => gate,
             (1, Gate::X) => Gate::Cx,
@@ -746,6 +767,8 @@ impl Lowerer {
             (1, Gate::Rz) => Gate::Crz,
             (1, Gate::Cx) | (2, Gate::X) => Gate::Ccx,
             (1, Gate::Cz) | (2, Gate::Z) => Gate::Ccz,
+            (1, Gate::H) => Gate::H,
+            (1, Gate::Swap) => Gate::Swap,
             _ => return Err(unsupported!("controlled gate", &call)),
         };
         // Operands after the parameter list identify the quantum wires.
@@ -755,7 +778,10 @@ impl Lowerer {
             .gate_operands()
             .map(|operand| self.lower_qubits(operand))
             .collect::<Result<Vec<_>, _>>()?;
+        let decomposed_control = controls == 1 && matches!(gate, Gate::H | Gate::Swap);
         let expected_arity = match gate {
+            Gate::H if decomposed_control => 2,
+            Gate::Swap if decomposed_control => 3,
             Gate::Cx
             | Gate::Cy
             | Gate::Cz
@@ -773,18 +799,7 @@ impl Lowerer {
                 snippet: call.syntax().text().to_string(),
             });
         }
-        let expected_parameters = match gate {
-            Gate::P
-            | Gate::Rx
-            | Gate::Ry
-            | Gate::Rz
-            | Gate::Cp
-            | Gate::Crx
-            | Gate::Cry
-            | Gate::Crz => 1,
-            _ => 0,
-        };
-        if parameters.len() != expected_parameters {
+        if supplied_parameter_count != source_parameter_count {
             return Err(FrontendError::Expected {
                 expected: "the gate's standard number of parameters",
                 snippet: call.syntax().text().to_string(),
@@ -817,6 +832,13 @@ impl Lowerer {
                 expected: "distinct qubit operands for each gate application",
                 snippet: call.syntax().text().to_string(),
             });
+        }
+        if decomposed_control {
+            let statements = expanded_qubits
+                .into_iter()
+                .map(|q| self.controlled_involution(gate, q))
+                .collect();
+            return Ok(self.sequence(statements));
         }
         let statements = expanded_qubits
             .into_iter()
