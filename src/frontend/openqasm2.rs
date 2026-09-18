@@ -954,11 +954,21 @@ impl Lowerer {
                 let [theta, phi, lambda] = parameter_array(parameters, snippet)?;
                 let [control, target] = qubit_array(qubits, snippet)?;
 
+                // qelib1 begins controlled-U3 with u1((lambda + phi) / 2)
+                // on the control. This is a relative phase between control
+                // branches, so it cannot be discarded as a global phase.
+                let first_lambda = self.ids.clone_numeric_expr(&lambda);
+                let first_phi = self.ids.clone_numeric_expr(&phi);
                 let fourth_lambda = self.ids.clone_numeric_expr(&lambda);
                 let second_phi = self.ids.clone_numeric_expr(&phi);
                 let fourth_phi = self.ids.clone_numeric_expr(&phi);
                 let fifth_theta = self.ids.clone_numeric_expr(&theta);
 
+                let first_sum = self.ids.node(NumericExprKind::Add(
+                    Box::new(first_phi),
+                    Box::new(first_lambda),
+                ));
+                let first = self.half(first_sum);
                 let difference = self
                     .ids
                     .node(NumericExprKind::Sub(Box::new(lambda), Box::new(second_phi)));
@@ -974,6 +984,7 @@ impl Lowerer {
                 let seventh = self.half(theta);
 
                 Ok(vec![
+                    self.apply(Gate::P, vec![first], vec![control.clone()]),
                     self.apply(Gate::P, vec![second], vec![target.clone()]),
                     self.apply(Gate::Cx, Vec::new(), vec![control.clone(), target.clone()]),
                     self.apply(Gate::P, vec![fourth], vec![target.clone()]),
