@@ -592,6 +592,7 @@ impl Lowerer {
                     .ok_or_else(|| expected!("an expression statement", &expression_statement))?;
                 match expression {
                     Expr::GateCallExpr(call) => self.lower_gate(call),
+                    Expr::ModifiedGateCallExpr(call) => self.lower_modified_gate(call),
                     Expr::CallExpr(call) => self.lower_subroutine_call(call, None),
                     Expr::BinExpr(binary)
                         if matches!(binary.op_kind(), Some(ast::BinaryOp::Assignment { .. })) =>
@@ -625,12 +626,62 @@ impl Lowerer {
         }
     }
 
+    /// Adds positive quantum controls without measuring or splitting branches.
+    /// Only combinations with an existing exact IR gate are admitted.
+    fn lower_modified_gate(
+        &mut self,
+        call: ast::ModifiedGateCallExpr,
+    ) -> Result<Statement, FrontendError> {
+        let mut controls = 0usize;
+        for modifier in call.modifiers() {
+            let ast::Modifier::CtrlModifier(control) = modifier else {
+                return Err(unsupported!("gate modifier", &call));
+            };
+            let count = if let Some(parameter) = control.paren_expr() {
+                // Accept literal control counts, not rounded floats or
+                // unevaluated integer expressions.
+                let Some(Expr::Literal(literal)) = parameter.expr() else {
+                    return Err(unsupported!("control count", &call));
+                };
+                let ast::LiteralKind::IntNumber(number) = literal.kind() else {
+                    return Err(unsupported!("control count", &call));
+                };
+                match exact_integer_value(number)? {
+                    value if value == BigInt::from(1) => 1,
+                    value if value == BigInt::from(2) => 2,
+                    _ => return Err(unsupported!("control count", &call)),
+                }
+            } else {
+                1
+            };
+            controls += count;
+            if controls > 2 {
+                return Err(unsupported!("control count", &call));
+            }
+        }
+        if controls == 0 {
+            return Err(unsupported!("gate modifier", &call));
+        }
+        let gate = call
+            .gate_call_expr()
+            .ok_or_else(|| unsupported!("controlled gate", &call))?;
+        self.lower_gate_with_controls(gate, controls)
+    }
+
     /// Lowers `name(parameters) qubits;` into a gate kind, exact parameters,
     /// and resolved qubit operands. For example, `rz(pi/4) q[0];` retains
     /// `pi/4` as a [`NumericExpr`] rather than evaluating it as a float.
     fn lower_gate(&mut self, call: ast::GateCallExpr) -> Result<Statement, FrontendError> {
+        self.lower_gate_with_controls(call, 0)
+    }
+
+    fn lower_gate_with_controls(
+        &mut self,
+        call: ast::GateCallExpr,
+        controls: usize,
+    ) -> Result<Statement, FrontendError> {
         if call.identifier().is_some_and(|name| name.string() == "cu") {
-            return self.lower_standard_cu(call, 0);
+            return self.lower_standard_cu(call, controls);
         }
         // Parenthesized expressions before the qubit list are gate parameters.
         let parameters = call
@@ -683,6 +734,19 @@ impl Lowerer {
             "ccx" => Gate::Ccx,
             "ccz" => Gate::Ccz,
             _ => return Err(unsupported!("gate", &call)),
+        };
+        let gate = match (controls, gate) {
+            (0, gate) => gate,
+            (1, Gate::X) => Gate::Cx,
+            (1, Gate::Y) => Gate::Cy,
+            (1, Gate::Z) => Gate::Cz,
+            (1, Gate::P) => Gate::Cp,
+            (1, Gate::Rx) => Gate::Crx,
+            (1, Gate::Ry) => Gate::Cry,
+            (1, Gate::Rz) => Gate::Crz,
+            (1, Gate::Cx) | (2, Gate::X) => Gate::Ccx,
+            (1, Gate::Cz) | (2, Gate::Z) => Gate::Ccz,
+            _ => return Err(unsupported!("controlled gate", &call)),
         };
         // Operands after the parameter list identify the quantum wires.
         let operands = call
