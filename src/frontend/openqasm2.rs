@@ -6,6 +6,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::rc::Rc;
 use std::str::FromStr;
 
 use bigdecimal::{BigDecimal, num_bigint::BigInt};
@@ -386,7 +387,8 @@ struct Lowerer {
     quantum_registers: Vec<crate::ir::Register>,
     classical_registers: Vec<crate::ir::Register>,
     qelib1_loaded: bool,
-    custom_gates: BTreeMap<String, CustomGate>,
+    custom_gates: BTreeMap<String, Rc<CustomGate>>,
+    extension_gates: BTreeSet<String>,
     gate_frame: Option<GateFrame>,
 }
 
@@ -399,6 +401,7 @@ impl Default for Lowerer {
             classical_registers: Vec::new(),
             qelib1_loaded: false,
             custom_gates: BTreeMap::new(),
+            extension_gates: BTreeSet::new(),
             gate_frame: None,
         }
     }
@@ -513,6 +516,7 @@ impl Lowerer {
         }
         self.scopes.declare_qelib1_gates().map_err(scope_error)?;
         self.qelib1_loaded = true;
+        self.install_qiskit_extensions()?;
         Ok(())
     }
 
@@ -785,7 +789,13 @@ impl Lowerer {
                 actual: binding.kind.description(),
             });
         }
-        let custom = self.custom_gates.get(&source_name).cloned();
+        let custom = if let Some(frame) = &self.gate_frame {
+            // A gate body keeps declaration-time bindings, even if a corpus
+            // extension is subsequently replaced by a source definition.
+            frame.gates.get(&source_name).cloned().flatten()
+        } else {
+            self.custom_gates.get(&source_name).cloned()
+        };
         let definition = gate_definition(&source_name);
         if definition.is_none() && custom.is_none() {
             return Err(FrontendError::Unsupported {
