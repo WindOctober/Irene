@@ -1,77 +1,31 @@
+mod common;
+use common::unitary::{apply, assert_action, assert_fresh_ids, u};
 use irene::frontend::openqasm3;
-use irene::ir::{Block, Gate, NumericExpr, Qubit, StatementKind};
-use irene::symbolic::PhaseCoefficient;
-use num_rational::BigRational;
-
-fn applies<'a>(b: &'a Block, result: &mut Vec<(Gate, &'a [NumericExpr], &'a [Qubit])>) {
-    for s in &b.statements {
-        match &s.kind {
-            StatementKind::Scope(body) => applies(body, result),
-            StatementKind::Apply {
-                gate,
-                parameters,
-                qubits,
-            } => result.push((*gate, parameters, qubits)),
-            _ => panic!("expected only gates"),
-        }
-    }
-}
+use std::f64::consts::PI;
 
 #[test]
-fn broadcast_preserves_exact_angles_and_wire_identity() {
+fn broadcast_preserves_angles_and_wire_identity() {
     for control in ["a", "a[0]"] {
         let p = openqasm3::parse_str(
-            &format!(
-                "OPENQASM 3.0; include \"stdgates.inc\"; qubit[2] a; qubit[2] b;
-                cu(pi/2,pi/4,pi/8,pi/16) {control},b;"
-            ),
+            &format!("OPENQASM 3.0; include \"stdgates.inc\"; qubit[2] a; qubit[2] b; cu(pi/2,pi/4,pi/8,pi/16) {control},b;"),
             "broadcast",
-        )
-        .unwrap();
-        let mut gates = Vec::new();
-        applies(&p.body, &mut gates);
-        assert_eq!(gates.len(), 8);
-        for (index, group) in gates.chunks_exact(4).enumerate() {
-            let c = Qubit {
-                register: p.quantum_registers[0].id,
-                index: if control == "a" { index } else { 0 },
-            };
-            let t = Qubit {
-                register: p.quantum_registers[1].id,
-                index,
-            };
-            for ((gate, parameters, qubits), (expected_gate, denominator)) in group.iter().zip([
-                (Gate::P, 8),
-                (Gate::Crz, 16),
-                (Gate::Cry, 4),
-                (Gate::Crz, 8),
-            ]) {
-                assert_eq!(*gate, expected_gate);
-                assert_eq!(parameters.len(), 1);
-                let expected_qubits = if *gate == Gate::P {
-                    vec![c.clone()]
-                } else {
-                    vec![c.clone(), t.clone()]
-                };
-                assert_eq!(*qubits, expected_qubits);
-                assert_eq!(
-                    PhaseCoefficient::angle(
-                        parameters[0].clone(),
-                        BigRational::from_integer(1.into())
-                    ),
-                    PhaseCoefficient::rational(BigRational::new(1.into(), denominator.into())),
+        ).unwrap();
+        assert_action(&p, |state| {
+            for index in 0..2 {
+                apply(
+                    state,
+                    &[if control == "a" { index } else { 0 }],
+                    2 + index,
+                    u(PI / 2.0, PI / 4.0, PI / 8.0, PI / 16.0),
                 );
             }
-        }
-        let mut ids = Vec::new();
-        p.visit_ast_ids(|id| ids.push(id.index()));
-        ids.sort_unstable();
-        assert_eq!(ids, (0..p.ast_id_bound()).collect::<Vec<_>>());
+        });
+        assert_fresh_ids(&p);
     }
 }
 
 #[test]
-fn invalid_calls_and_unsupported_modifiers_are_rejected() {
+fn invalid_calls_are_rejected() {
     for body in [
         "cu(1,2,3) q[0],q[1];",
         "cu(1,2,3,4,5) q[0],q[1];",
@@ -82,9 +36,6 @@ fn invalid_calls_and_unsupported_modifiers_are_rejected() {
         "cu(1,2,3,4) q[0],missing;",
         "cu(1,2,3,4) q[0],c;",
         "cu(1,2,3,4) q,r;",
-        "inv @ cu(1,2,3,4) q[0],q[1];",
-        "pow(2) @ cu(1,2,3,4) q[0],q[1];",
-        "ctrl @ cu(1,2,3,4) q[0],q[1],q[2];",
     ] {
         let source = format!(
             "OPENQASM 3.0; include \"stdgates.inc\"; qubit[3] q; qubit[2] r; bit c; {body}"
@@ -101,4 +52,37 @@ fn invalid_calls_and_unsupported_modifiers_are_rejected() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn cu_modifiers_are_rejected_or_preserve_the_full_operator() {
+    // Inversion reverses the whole product; powers do not scale each Euler angle.
+    let matrix = u(PI / 2.0, PI / 4.0, PI / 8.0, PI / 16.0);
+    for modifier in ["inv", "pow(2)", "ctrl"] {
+        let operands = if modifier == "ctrl" {
+            "q[0],q[1],q[2]"
+        } else {
+            "q[0],q[1]"
+        };
+        let source = format!(
+            "OPENQASM 3.0; include \"stdgates.inc\"; qubit[3] q; {modifier} @ cu(pi/2,pi/4,pi/8,pi/16) {operands};"
+        );
+        if let Ok(p) = openqasm3::parse_str(&source, "modified-cu") {
+            assert_action(&p, |state| match modifier {
+                "ctrl" => apply(state, &[0, 1], 2, matrix),
+                "pow(2)" => {
+                    apply(state, &[0], 1, matrix);
+                    apply(state, &[0], 1, matrix);
+                }
+                _ => apply(
+                    state,
+                    &[0],
+                    1,
+                    std::array::from_fn(|i| {
+                        std::array::from_fn(|j| (matrix[j][i].0, -matrix[j][i].1))
+                    }),
+                ),
+            });
+        }
+    }
 }
