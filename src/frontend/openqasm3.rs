@@ -82,6 +82,8 @@ macro_rules! expected {
 mod controlled_u;
 mod power;
 mod static_integer;
+mod uint;
+mod word;
 
 /// Parses one OpenQASM 3 source file and lowers its supported subset to Irene IR.
 ///
@@ -202,6 +204,10 @@ enum BitOperand {
     Bool(ClassicalBit),
     Bit(ClassicalBit),
     Register(Vec<ClassicalBit>),
+    Uint {
+        bits: Vec<ClassicalBit>,
+        explicit_width: bool,
+    },
 }
 
 impl BitOperand {
@@ -209,7 +215,7 @@ impl BitOperand {
     fn into_cells(self) -> Vec<ClassicalBit> {
         match self {
             Self::Bool(bit) | Self::Bit(bit) => vec![bit],
-            Self::Register(bits) => bits,
+            Self::Register(bits) | Self::Uint { bits, .. } => bits,
         }
     }
 
@@ -219,6 +225,13 @@ impl BitOperand {
             Self::Bool(_) => BitType::Bool,
             Self::Bit(_) => BitType::Bit,
             Self::Register(bits) => BitType::Register { width: bits.len() },
+            Self::Uint {
+                bits,
+                explicit_width,
+            } => BitType::Uint {
+                width: bits.len(),
+                explicit_width: *explicit_width,
+            },
         }
     }
 }
@@ -238,6 +251,8 @@ enum TypedClassicalExpr {
     Integer {
         bits: Vec<ClassicalExpr>,
         signedness: Signedness,
+        // Target-default integers do not admit explicit-width bit operations.
+        explicit_width: bool,
     },
     IntegerLiteral(BigInt),
 }
@@ -547,9 +562,11 @@ impl Lowerer {
             BitType::Bool
         } else if scalar_type.bit_token().is_some() {
             self.static_bit_type(scalar_type.designator(), "a bit array width")?
+        } else if scalar_type.uint_token().is_some() {
+            self.uint_storage_type(&scalar_type)?
         } else {
             return Err(unsupported!(
-                "classical type other than bool or bit",
+                "classical type other than bool, bit or uint",
                 &scalar_type
             ));
         };
@@ -1129,6 +1146,10 @@ impl Lowerer {
         rhs: Expr,
         snippet: String,
     ) -> Result<Statement, FrontendError> {
+        if let BitType::Uint { width, .. } = targets.ty() {
+            let values = self.uint_value(rhs, width)?;
+            return Ok(self.assign_cells(targets.into_cells(), values));
+        }
         match rhs {
             // `c = measure q;` produces a quantum measurement for each
             // matching scalar/register cell rather than a classical Assign.
@@ -1192,13 +1213,10 @@ impl Lowerer {
                 snippet,
             });
         }
-        let statements = targets
-            .into_cells()
-            .into_iter()
-            .zip(values.into_bit_cells().expect("checked bit value"))
-            .map(|(target, value)| self.ids.node(StatementKind::Assign { target, value }))
-            .collect();
-        Ok(self.sequence(statements))
+        Ok(self.assign_cells(
+            targets.into_cells(),
+            values.into_bit_cells().expect("checked bit value"),
+        ))
     }
 
     /// Lowers bitwise compound assignment to an ordinary read-modify-write.
@@ -1207,6 +1225,14 @@ impl Lowerer {
         &mut self,
         assignment: ast::BinExpr,
     ) -> Result<Statement, FrontendError> {
+        let lhs = assignment
+            .lhs()
+            .ok_or_else(|| expected!("an assignment target", &assignment))?;
+        if let Ok(targets) = self.lower_bit_operand(lhs.clone())
+            && matches!(targets.ty(), BitType::Uint { .. })
+        {
+            return self.uint_compound_assignment(targets, assignment);
+        }
         let operation = match assignment.op_kind() {
             Some(ast::BinaryOp::Assignment {
                 op: Some(ast::ArithOp::BitAnd),
@@ -1237,17 +1263,16 @@ impl Lowerer {
                 &assignment
             ));
         }
-        let statements = targets
-            .into_cells()
-            .into_iter()
+        let targets = targets.into_cells();
+        let values = targets
+            .iter()
             .zip(values.into_bit_cells().expect("checked bit value"))
             .map(|(target, right)| {
                 let left = self.ids.node(ClassicalExprKind::Bit(target.clone()));
-                let value = self.bitwise_scalar(operation, left, right);
-                self.ids.node(StatementKind::Assign { target, value })
+                self.bitwise_scalar(operation, left, right)
             })
             .collect();
-        Ok(self.sequence(statements))
+        Ok(self.assign_cells(targets, values))
     }
 
     /// Resolves an assignment destination such as `flag` or `bits[2]`.
@@ -1745,6 +1770,11 @@ impl Lowerer {
                 let right_source = binary
                     .rhs()
                     .ok_or_else(|| expected!("a right operand", &binary))?;
+                if let Some(ast::BinaryOp::ArithOp(op @ (ast::ArithOp::Shl | ast::ArithOp::Shr))) =
+                    binary.op_kind()
+                {
+                    return self.uint_shift(op, left_source, right_source, &binary);
+                }
                 let left = self.lower_typed_classical_expr(left_source)?;
                 let right = self.lower_typed_classical_expr(right_source)?;
                 match binary.op_kind() {
@@ -1811,6 +1841,17 @@ impl Lowerer {
                     .map(|bit| self.ids.node(ClassicalExprKind::Bit(bit)))
                     .collect(),
             ),
+            BitOperand::Uint {
+                bits,
+                explicit_width,
+            } => TypedClassicalExpr::Integer {
+                bits: bits
+                    .into_iter()
+                    .map(|bit| self.ids.node(ClassicalExprKind::Bit(bit)))
+                    .collect(),
+                signedness: Signedness::Unsigned,
+                explicit_width,
+            },
         }
     }
 
@@ -1853,7 +1894,11 @@ impl Lowerer {
                 }
                 _ => return Err(expected!("an integer cast matching its bit width", &cast)),
             };
-            return Ok(TypedClassicalExpr::Integer { bits, signedness });
+            return Ok(TypedClassicalExpr::Integer {
+                bits,
+                signedness,
+                explicit_width: true,
+            });
         }
 
         if ty.bool_token().is_some() {
@@ -1873,11 +1918,11 @@ impl Lowerer {
                     .and_then(|e| self.static_index(e, true))?;
                 let bits = match value {
                     TypedClassicalExpr::Register(bits)
-                    | TypedClassicalExpr::Integer { bits, .. }
-                        if bits.len() == width =>
-                    {
-                        bits
-                    }
+                    | TypedClassicalExpr::Integer {
+                        bits,
+                        explicit_width: true,
+                        ..
+                    } if bits.len() == width => bits,
                     TypedClassicalExpr::Bool(value) | TypedClassicalExpr::Bit(value)
                         if width == 1 =>
                     {
@@ -1991,13 +2036,20 @@ impl Lowerer {
                     .map(|value| negate(self, value))
                     .collect(),
             )),
-            TypedClassicalExpr::Integer { bits, signedness } => Ok(TypedClassicalExpr::Integer {
+            TypedClassicalExpr::Integer {
+                bits,
+                signedness,
+                explicit_width: true,
+            } => Ok(TypedClassicalExpr::Integer {
                 bits: bits.into_iter().map(|value| negate(self, value)).collect(),
                 signedness,
+                explicit_width: true,
             }),
-            TypedClassicalExpr::IntegerLiteral(_) => {
-                Err(expected!("a width-bearing bitwise-not operand", source))
-            }
+            TypedClassicalExpr::IntegerLiteral(_)
+            | TypedClassicalExpr::Integer {
+                explicit_width: false,
+                ..
+            } => Err(expected!("a width-bearing bitwise-not operand", source)),
         }
     }
 
@@ -2020,10 +2072,12 @@ impl Lowerer {
                     TypedClassicalExpr::Integer {
                         bits: left,
                         signedness: left_signedness,
+                        explicit_width: true,
                     },
                     TypedClassicalExpr::Integer {
                         bits: right,
                         signedness: right_signedness,
+                        explicit_width: true,
                     },
                 ) if left_signedness == right_signedness && left.len() == right.len() => {
                     Ok(TypedClassicalExpr::Integer {
@@ -2033,6 +2087,7 @@ impl Lowerer {
                             .map(|(left, right)| self.bitwise_scalar(operation, left, right))
                             .collect(),
                         signedness: left_signedness,
+                        explicit_width: true,
                     })
                 }
                 _ => Err(expected!(
@@ -2281,16 +2336,23 @@ impl Lowerer {
                 TypedClassicalExpr::Integer {
                     bits: left,
                     signedness: left_signedness,
+                    explicit_width: left_explicit,
                 },
                 TypedClassicalExpr::Integer {
                     bits: right,
                     signedness: right_signedness,
+                    explicit_width: right_explicit,
                 },
-            ) if left_signedness == right_signedness && left.len() == right.len() => {
+            ) if left_signedness == right_signedness
+                && left.len() == right.len()
+                && left_explicit == right_explicit =>
+            {
                 Ok((left, right, left_signedness))
             }
             (
-                TypedClassicalExpr::Integer { bits, signedness },
+                TypedClassicalExpr::Integer {
+                    bits, signedness, ..
+                },
                 TypedClassicalExpr::IntegerLiteral(value),
             ) => {
                 let literal = self.integer_literal_bits(value, bits.len(), signedness, source)?;
@@ -2298,7 +2360,9 @@ impl Lowerer {
             }
             (
                 TypedClassicalExpr::IntegerLiteral(value),
-                TypedClassicalExpr::Integer { bits, signedness },
+                TypedClassicalExpr::Integer {
+                    bits, signedness, ..
+                },
             ) => {
                 let literal = self.integer_literal_bits(value, bits.len(), signedness, source)?;
                 Ok((literal, bits, signedness))
@@ -2314,12 +2378,12 @@ impl Lowerer {
     ///
     /// For example, `-2` at type `int[3]` becomes `[0, 1, 1]`, with the least
     /// significant bit first.
-    fn integer_literal_bits(
+    fn integer_literal_bits<T: AstNode>(
         &mut self,
         value: BigInt,
         width: usize,
         signedness: Signedness,
-        source: &ast::BinExpr,
+        source: &T,
     ) -> Result<Vec<ClassicalExpr>, FrontendError> {
         let modulus = BigInt::from(1_u8) << width;
         let bit_pattern = if signedness == Signedness::Signed {
@@ -2460,7 +2524,14 @@ impl Lowerer {
         index: usize,
     ) -> Result<ClassicalBit, FrontendError> {
         let binding = self.scopes.lookup(&name).map_err(scope_error)?;
-        let BindingKind::ClassicalBit(BitType::Register { width }) = binding.kind else {
+        let BindingKind::ClassicalBit(
+            BitType::Register { width }
+            | BitType::Uint {
+                width,
+                explicit_width: true,
+            },
+        ) = binding.kind
+        else {
             return Err(FrontendError::WrongIdentifierKind {
                 name,
                 expected: "classical bit register",
@@ -2478,6 +2549,7 @@ impl Lowerer {
     fn classical_cells(&self, name: String) -> Result<BitOperand, FrontendError> {
         let binding = self.scopes.lookup(&name).map_err(scope_error)?;
         match binding.kind {
+            BindingKind::ClassicalBit(ty @ BitType::Uint { .. }) => Ok(bit_operand(binding.id, ty)),
             BindingKind::ClassicalBit(BitType::Bool) => Ok(BitOperand::Bool(ClassicalBit {
                 register: binding.id,
                 index: 0,
@@ -2571,6 +2643,15 @@ fn bit_operand(register: SymbolId, ty: BitType) -> BitOperand {
                 .map(|index| ClassicalBit { register, index })
                 .collect(),
         ),
+        BitType::Uint {
+            width,
+            explicit_width,
+        } => BitOperand::Uint {
+            bits: (0..width)
+                .map(|index| ClassicalBit { register, index })
+                .collect(),
+            explicit_width,
+        },
     }
 }
 
