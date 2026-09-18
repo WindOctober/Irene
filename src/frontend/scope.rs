@@ -39,13 +39,14 @@ pub(super) enum BitType {
     Bool,
     Bit,
     Register { width: usize },
+    Uint { width: usize, explicit_width: bool },
 }
 
 impl BitType {
     pub(super) fn width(self) -> usize {
         match self {
             Self::Bool | Self::Bit => 1,
-            Self::Register { width } => width,
+            Self::Register { width } | Self::Uint { width, .. } => width,
         }
     }
 }
@@ -84,6 +85,7 @@ impl BindingKind {
             Self::ClassicalBit(BitType::Bool) => "Boolean",
             Self::ClassicalBit(BitType::Bit) => "classical bit",
             Self::ClassicalBit(BitType::Register { .. }) => "classical bit register",
+            Self::ClassicalBit(BitType::Uint { .. }) => "unsigned integer",
             Self::NumericInput(_) => "numeric input",
             Self::Gate => "gate",
             Self::Subroutine { .. } => "subroutine",
