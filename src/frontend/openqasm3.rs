@@ -634,13 +634,37 @@ impl Lowerer {
         call: ast::ModifiedGateCallExpr,
     ) -> Result<Statement, FrontendError> {
         let mut controls = 0usize;
-        for modifier in call.modifiers() {
+        let mut inverse = false;
+        let mut has_inverse = false;
+        let mut power = 1_i128;
+        let mut has_power = false;
+        for (index, modifier) in call.modifiers().enumerate() {
+            if index >= 16 {
+                return Err(unsupported!("gate modifier budget", &call));
+            }
+            if matches!(modifier, ast::Modifier::InvModifier(_)) {
+                inverse = !inverse;
+                has_inverse = true;
+                continue;
+            }
+            if let ast::Modifier::PowModifier(p) = &modifier {
+                has_power = true;
+                let expression = p
+                    .paren_expr()
+                    .and_then(|e| e.expr())
+                    .ok_or_else(|| expected!("an integer power", p))?;
+                power = power
+                    .checked_mul(self.known_power(expression)?)
+                    .ok_or_else(|| unsupported!("combined integer power overflow", p))?;
+                continue;
+            }
             let ast::Modifier::CtrlModifier(control) = modifier else {
                 return Err(unsupported!("gate modifier", &call));
             };
             let count = if let Some(parameter) = control.paren_expr() {
-                // Accept literal control counts, not rounded floats or
-                // unevaluated integer expressions.
+                // Restrict this entrance to small integer literals. Do not
+                // silently choose a width/overflow model for constant integer
+                // arithmetic, or round a float into a control count.
                 let Some(Expr::Literal(literal)) = parameter.expr() else {
                     return Err(unsupported!("control count", &call));
                 };
@@ -660,13 +684,37 @@ impl Lowerer {
                 return Err(unsupported!("control count", &call));
             }
         }
-        if controls == 0 {
+        if controls == 0 && !has_inverse && !has_power {
             return Err(unsupported!("gate modifier", &call));
         }
         let gate = call
             .gate_call_expr()
             .ok_or_else(|| unsupported!("controlled gate", &call))?;
-        self.lower_gate_with_controls(gate, controls)
+        if inverse {
+            power = power
+                .checked_neg()
+                .ok_or_else(|| unsupported!("integer power overflow", &call))?;
+        }
+        // Reduce the entire controlled involution before lowering its
+        // multi-gate decomposition; do not distribute powers through AB.
+        let source_name = gate.identifier().map(|id| id.string().to_ascii_lowercase());
+        // CU lowers to P; CRz; CRy; CRz, not a commuting rotation family.
+        // Gate-wise scaling would change (AB)^k into A^k B^k, and k=-1
+        // would also omit reversal of the decomposition. Only the identity
+        // and unchanged-gate powers are valid through this lowering path.
+        if source_name.as_deref() == Some("cu") && !matches!(power, 0 | 1) {
+            return Err(unsupported!(
+                "nontrivial power or inverse of composite cu",
+                &call
+            ));
+        }
+        if matches!(source_name.as_deref(), Some("h" | "swap" | "ch" | "cswap")) {
+            power = power.rem_euclid(2);
+        }
+        let scratch = self.ids.clone();
+        let lowered = self.lower_gate_with_controls(gate, controls)?;
+        self.ids = scratch;
+        Ok(self.power_statement(lowered, power))
     }
 
     /// Lowers `name(parameters) qubits;` into a gate kind, exact parameters,

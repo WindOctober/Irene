@@ -77,7 +77,7 @@ impl<T: Hash> Hash for AstNode<T> {
 }
 
 /// Monotone allocator for the unified program-local AST-ID namespace.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub(crate) struct AstIdGenerator {
     next: usize,
 }
