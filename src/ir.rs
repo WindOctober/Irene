@@ -235,6 +235,8 @@ pub enum Gate {
     Cry,
     Crz,
     Ccx,
+    /// Controlled-controlled Z: |abc> maps to (-1)^(abc) |abc>.
+    Ccz,
 }
 
 /// A scalar Boolean expression used by assignments and classical control.

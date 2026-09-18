@@ -279,12 +279,12 @@ impl ScopeStack {
         Err(ScopeError::Unknown(name.to_owned()))
     }
 
-    /// Adds the names made visible by `include "stdgates.inc"`.
+    /// Adds `stdgates.inc` names and supported corpus extensions (such as CCZ).
     pub(super) fn declare_standard_gates(&mut self) -> Result<(), ScopeError> {
         for name in [
             "p", "x", "y", "z", "h", "s", "sdg", "t", "tdg", "sx", "rx", "ry", "rz", "cx", "cy",
             "cz", "cp", "crx", "cry", "crz", "ch", "swap", "ccx", "cswap", "cu", "CX", "phase",
-            "cphase", "id", "u1", "u2", "u3",
+            "cphase", "id", "u1", "u2", "u3", "ccz",
         ] {
             self.declare(name, BindingKind::Gate)?;
         }
@@ -292,12 +292,12 @@ impl ScopeStack {
     }
 
     /// Adds the canonical `qelib1.inc` names and the small set of historical
-    /// Qiskit aliases used by Irene's frozen OpenQASM 2 corpora.
+    /// Qiskit aliases and extensions used by Irene's frozen OpenQASM 2 corpora.
     pub(super) fn declare_qelib1_gates(&mut self) -> Result<(), ScopeError> {
         for name in [
             "u3", "u2", "u1", "cx", "id", "u0", "u", "p", "x", "y", "z", "h", "s", "sdg", "t",
             "tdg", "rx", "ry", "rz", "sx", "sxdg", "cz", "cy", "swap", "ch", "ccx", "cswap", "crx",
-            "cry", "crz", "cu1", "cp", "cu3",
+            "cry", "crz", "cu1", "cp", "cu3", "ccz",
         ] {
             self.declare(name, BindingKind::Gate)?;
         }

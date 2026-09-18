@@ -359,7 +359,7 @@ impl GateDefinition {
                     | Gate::Crx
                     | Gate::Cry
                     | Gate::Crz => 2,
-                    Gate::Ccx => 3,
+                    Gate::Ccx | Gate::Ccz => 3,
                     _ => 1,
                 };
                 (parameters, qubits)
@@ -1337,6 +1337,7 @@ fn gate_definition(name: &str) -> Option<GateDefinition> {
         "swap" => GateDefinition::Native(Gate::Swap),
         "ch" => GateDefinition::Ch,
         "ccx" => GateDefinition::Native(Gate::Ccx),
+        "ccz" => GateDefinition::Native(Gate::Ccz),
         "cswap" => GateDefinition::Cswap,
         "crx" => GateDefinition::Native(Gate::Crx),
         "cry" => GateDefinition::Native(Gate::Cry),
