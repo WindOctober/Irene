@@ -1,15 +1,10 @@
-# Irene benchmarks
+# Benchmarks
 
-This directory contains equivalence tasks with reliable `eq` or `neq` ground
-truth, plus explicitly marked standalone programs that may become tasks later.
-All programs use:
+The corpus contains 1,982 paired cases: 1,228 EQ and 754 NEQ.
+Label sources and comparison semantics are documented for each collection.
 
-- UTF-8 text;
-- LF line endings;
-- the `.qasm` extension;
-- an `OPENQASM 2.0;` or `OPENQASM 3.0;` header.
-
-The current sources are:
+All programs use UTF-8, LF line endings, a `.qasm` extension and an
+`OPENQASM 2.0;` or `OPENQASM 3.0;` header. [SCHEMA.md](SCHEMA.md) defines the manifests.
 
 ```text
 benchmarks/
@@ -27,67 +22,54 @@ benchmarks/
         └── programs/
 ```
 
-See [`SCHEMA.md`](SCHEMA.md) for the manifest schema. The corpus has 1,982 paired
-cases: 1,232 `eq` and 750 `neq`. This includes 180 first-pass IterTestQ cases
-with **upstream numerical QCEC reference labels**, not exact certificates,
-and 111 audited CaQR pairs (108 of which perform no qubit reuse).
-The [Quokka collection](quokka/README.md) adds 923 official origin-versus-opt,
-gm and flip tasks: 317 expected EQ and 606 expected NEQ. These are upstream
-reference labels, not independently certified truth; shift variants are excluded.
-QSeqSim additionally contributes 21 unpaired
-programs, which are not counted as equivalence cases.
+## Collections
 
-See [the external-source first-pass report](EXTERNAL_IMPORT_REPORT.md) for
-coverage, exclusions, reproduction commands, and current Irene results.
-The IterTestQ selection is not the full Figshare corpus; the complete archive
-and a full comparison inventory are retained locally under
-`var/benchmark-sources/` at the workspace root.
+| Collection | Paired cases | Scope |
+| --- | ---: | --- |
+| SQbricks explicit lists | 242 | sanity-unit: 42 NEQ; sanity-hybrid: 21 NEQ; sanity-partial: 9 NEQ; unit-vs-hybrid: 170 EQ |
+| SQbricks generated | 490 | qiskit-hybrid: 88; owm-vs-qiskit: 55; owm-vs-tele: 347 |
+| Qubit reuse | 10 | EQ pairs with measurement, reset and physical-qubit reuse |
+| OpenQASM 3 transformations | 26 | 14 EQ and 12 NEQ |
+| IterTestQ | 180 | Static-unitary sample with upstream numerical QCEC reference labels |
+| CaQR | 111 | Explicit output mappings; 108 pairs perform no qubit reuse |
+| Quokka | 923 | Official opt/gm/flip pairs; 316 EQ and 607 NEQ |
 
-## Import audit storage
+QSeqSim contains 21 standalone programs, each with `paired = false` and no truth label.
+They cover RUS, quantum random walks, Grover and random while loops.
 
-For CaQR, IterTestQ and Quokka, manifests retain source paths, reference labels
-and semantic input/output mappings. Detailed per-case provenance and import
-reports live outside the benchmark tree, under
-`var/benchmark-sources/import-audits/<collection>/` at the workspace root.
-Import scripts write these audit records there as well; they are not solver results.
+OpenQASM 3 transformations cover inverse QFT, teleportation, IPE, RUS,
+repetition-code QEC, fault-tolerant gate teleportation, magic-state injection,
+MBQC, remote CNOT, dynamic GHZ and amplitude-damping environment reuse.
+The SQbricks-packaged `qft_4_feynman.qasm` corresponds to Feynman's `qft_4.qasm`.
 
-## Inclusion scope
+## Comparison semantics
 
-The corpus includes every task from the SQbricks explicit two-path lists:
+`truth` is the expected result under the manifest's `equivalence` semantics.
+Every pair explicitly specifies `input_pairs` and `output_pairs`; only listed
+outputs are observable. Unlisted ancillas, intermediate measurement bits and
+garbage are discarded. Hybrid interfaces may pair a quantum output with its
+corresponding classical measurement result.
 
-- `sanity-unit`: 42 `neq` cases;
-- `sanity-hybrid`: 21 `neq` cases;
-- `sanity-partial`: 9 `neq` cases;
-- `unit-vs-hybrid`: 170 `eq` cases.
+SQbricks `sanity-partial` uses partial/discard semantics, not full quantum-state
+equivalence. IterTestQ's numerical reference labels and Quokka's upstream expected
+labels are not independent exact certificates.
 
-The generated manifest materializes three SQbricks transformation suites as
-self-contained program pairs:
+## Using the corpus
 
-- `qiskit-hybrid`: 88 cases;
-- `owm-vs-qiskit`: 55 cases;
-- `owm-vs-tele`: 347 cases.
+Program paths in each manifest are relative to that manifest's directory.
+All referenced programs are included in this repository. `source_*` fields
+identify files in the upstream source; they are provenance, not runtime paths.
 
-Qubit reuse contributes 10 generated `eq` pairs whose
-right-hand programs use measurement, reset, and physical-qubit reuse.
+The CLI compares declaration-order interfaces and does not load manifests.
+For explicit mappings or zero-initialized inputs, construct an
+`EquivalenceConfig` from the manifest's interface and call `equivalence::analyze`.
+See [interface semantics](../docs/architecture.md#frontend-and-interface).
 
-OpenQASM 3 program transformations contribute fourteen `eq` and twelve `neq`
-pairs. They cover inverse QFT, teleportation, IPE, RUS, repetition-code QEC,
-fault-tolerant gate teleportation, magic-state injection, MBQC, remote CNOT,
-dynamic GHZ preparation, and amplitude-damping environment reuse.
+## Sources
 
-QSeqSim contributes standalone RUS, quantum-random-walk, Grover, and random
-while-loop programs. Every QSeqSim entry has `paired = false` and no truth
-label.
+- [IterTestQ](itertestq/README.md) and [CaQR](caqr/README.md): source selection
+  and interface semantics.
+- [Quokka](quokka/README.md): official variants and exact-angle label semantics.
 
-The SQbricks-packaged name `qft_4_feynman.qasm` is used for the corresponding
-Feynman source `qft_4.qasm`.
-
-`truth` is the expected result under the `equivalence` semantics declared in
-the manifest. In particular, `sanity-partial` uses the SQbricks partial/discard
-semantics and must not be interpreted as full quantum-state equivalence.
-
-Every case explicitly declares `input_pairs` and `output_pairs`. Only bits in
-`output_pairs` are compared; unlisted ancillas, intermediate measurement bits,
-and garbage are outside the observable interface. A hybrid case may use a
-quantum/classical output pair when one side retains a quantum bit and the other
-side emits its corresponding measurement result.
+Each manifest records its source repository, revision, source paths and comparison
+interface. Source links and licenses are documented in the collection READMEs.

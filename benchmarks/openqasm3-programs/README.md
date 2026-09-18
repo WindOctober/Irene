@@ -19,7 +19,7 @@ inverse-QFT feedback angle, a missing teleportation phase correction,
 overwritten measurement history during qubit reuse, a logical QEC phase error,
 and an incorrect RUS compensation angle.
 
-The additional fixed instances cover:
+Other families cover:
 
 - logical T gate teleportation on a three-qubit repetition code;
 - physical `Ry(pi/4)` magic-state injection;
@@ -38,7 +38,7 @@ measurement layers. Environment reuse reduces two damping ancillas to one.
 Magic-state and MBQC cases model fault-tolerant or measurement-based lowering,
 where resource states may be prepared off the online data path.
 
-Each new family also has a non-equivalent partner whose defect occurs in a
+Each of these families also has a non-equivalent partner whose defect occurs in a
 later measurement branch, parity computation, adaptive angle, correction, or
 reuse step. These are intended to require phase-sensitive or branch-sensitive
 witnesses rather than only computational-basis testing.

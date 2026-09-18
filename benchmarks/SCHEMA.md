@@ -49,7 +49,7 @@ this means measuring the quantum endpoint in the Z basis and comparing the
 resulting classical values. It does not mean coherence-preserving quantum-wire
 equality.
 
-`qbircks_compatible` records only whether the current HQbricks/QbIRcks
+`qbircks_compatible` records only whether the HQbricks/QbIRcks
 OpenQASM 2 frontend can parse both inputs. It is not part of the ground truth.
 
 Closed programs may set `initial_state = "zero"` and leave `input_pairs`
@@ -61,7 +61,7 @@ Allowed `equivalence` values are:
 - `hybrid`: SQbricks hybrid-circuit equivalence;
 - `partial`: partial equivalence with observable/discard semantics.
 
-Standalone programs that do not yet form an equivalence task use `[[program]]`:
+Standalone programs without a comparison partner use `[[program]]`:
 
 ```toml
 [[program]]
