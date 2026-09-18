@@ -59,6 +59,33 @@ fn collect_applies<'a>(block: &'a Block, applies: &mut Vec<(Gate, &'a [NumericEx
     }
 }
 
+fn collect_apply_details<'a>(
+    block: &'a Block,
+    applies: &mut Vec<(Gate, &'a [NumericExpr], &'a [Qubit])>,
+) {
+    for statement in &block.statements {
+        match &statement.kind {
+            StatementKind::Apply {
+                gate,
+                parameters,
+                qubits,
+            } => applies.push((*gate, parameters, qubits)),
+            StatementKind::Scope(body) => collect_apply_details(body, applies),
+            StatementKind::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                collect_apply_details(then_branch, applies);
+                collect_apply_details(else_branch, applies);
+            }
+            StatementKind::Reset(_)
+            | StatementKind::Measure { .. }
+            | StatementKind::Assign { .. } => {}
+        }
+    }
+}
+
 fn exact_rational(expression: &NumericExpr) -> Option<BigRational> {
     match &expression.kind {
         NumericExprKind::Rational(value) => Some(value.clone()),
@@ -87,6 +114,9 @@ fn pi_coefficient(expression: &NumericExpr) -> Option<BigRational> {
             }
         }
         NumericExprKind::Div(left, right) => Some(pi_coefficient(left)? / exact_rational(right)?),
+        NumericExprKind::Rational(value) if value == &BigRational::from_integer(0.into()) => {
+            Some(BigRational::from_integer(0.into()))
+        }
         NumericExprKind::Rational(_) | NumericExprKind::Constant(_) | NumericExprKind::Input(_) => {
             None
         }
@@ -264,6 +294,117 @@ fn qelib_universal_gates_preserve_exact_parameters() {
     );
     assert_pi_over(&applies[8].1[0], 13);
     assert_pi_over(&applies[9].1[0], 19);
+}
+
+#[test]
+fn cu3_lowering_includes_exact_control_phase_for_each_broadcast_pair() {
+    let program = parse(
+        r#"
+        OPENQASM 2.0;
+        include "qelib1.inc";
+        qreg control[2];
+        qreg target[2];
+        cu3(pi / 3, pi / 5, pi / 7) control, target;
+        "#,
+    );
+
+    let mut applies = Vec::new();
+    collect_apply_details(&program.body, &mut applies);
+    assert_eq!(applies.len(), 16);
+
+    for (index, expansion) in applies.chunks_exact(8).enumerate() {
+        assert_eq!(
+            expansion
+                .iter()
+                .map(|(gate, _, _)| *gate)
+                .collect::<Vec<_>>(),
+            [
+                Gate::P,
+                Gate::P,
+                Gate::Cx,
+                Gate::P,
+                Gate::Ry,
+                Gate::Cx,
+                Gate::Ry,
+                Gate::P,
+            ]
+        );
+        assert_eq!(expansion[0].2, [qubit(&program, "control", index)]);
+        assert_eq!(
+            pi_coefficient(&expansion[0].1[0]),
+            Some(BigRational::new(6.into(), 35.into()))
+        );
+        assert_eq!(expansion[1].2, [qubit(&program, "target", index)]);
+        assert_eq!(
+            pi_coefficient(&expansion[1].1[0]),
+            Some(BigRational::new((-1).into(), 35.into()))
+        );
+    }
+}
+
+#[test]
+fn cu3_special_case_has_exact_cz_matrix_semantics() {
+    let program = parse(
+        r#"
+        OPENQASM 2.0;
+        include "qelib1.inc";
+        qreg q[2];
+        cu3(0, pi, 0) q[0], q[1];
+        "#,
+    );
+    let control = qubit(&program, "q", 0);
+    let target = qubit(&program, "q", 1);
+    let mut applies = Vec::new();
+    collect_apply_details(&program.body, &mut applies);
+
+    // Track exact powers of i for every computational-basis column. The
+    // resulting exponents [0, 0, 0, 2] are diag(1, 1, 1, -1), exactly CZ.
+    let mut diagonal_quarter_turns = Vec::new();
+    for control_input in [false, true] {
+        for target_input in [false, true] {
+            let control_value = control_input;
+            let mut target_value = target_input;
+            let mut quarter_turns = BigRational::from_integer(0.into());
+            for (gate, parameters, qubits) in &applies {
+                match gate {
+                    Gate::P => {
+                        let value = if *qubits == std::slice::from_ref(&control) {
+                            control_value
+                        } else {
+                            assert_eq!(*qubits, std::slice::from_ref(&target));
+                            target_value
+                        };
+                        if value {
+                            quarter_turns += pi_coefficient(&parameters[0])
+                                .expect("cu3 special-case phase is a rational multiple of pi")
+                                * BigRational::from_integer(2.into());
+                        }
+                    }
+                    Gate::Cx => {
+                        assert_eq!(*qubits, [control.clone(), target.clone()]);
+                        target_value ^= control_value;
+                    }
+                    Gate::Ry => assert_eq!(
+                        exact_rational(&parameters[0]),
+                        Some(BigRational::from_integer(0.into())),
+                        "cu3(0, pi, 0) has only identity Y rotations"
+                    ),
+                    gate => panic!("unexpected gate in cu3 lowering: {gate:?}"),
+                }
+            }
+            assert_eq!((control_value, target_value), (control_input, target_input));
+            diagonal_quarter_turns.push(quarter_turns);
+        }
+    }
+    assert_eq!(
+        diagonal_quarter_turns,
+        [
+            BigRational::from_integer(0.into()),
+            BigRational::from_integer(0.into()),
+            BigRational::from_integer(0.into()),
+            BigRational::from_integer(2.into()),
+        ]
+    );
 }
 
 #[test]
