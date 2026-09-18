@@ -8,11 +8,14 @@ pub(super) struct CustomGate {
     pub parameters: Vec<String>,
     pub qubits: Vec<String>,
     body: Vec<Stmt>,
+    // None denotes the native gate with this name; Some pins a macro definition.
+    gates: BTreeMap<String, Option<Rc<CustomGate>>>,
 }
 
 pub(super) struct GateFrame {
     pub parameters: BTreeMap<String, (NumericExpr, ConstantValue)>,
     pub qubits: BTreeMap<String, Qubit>,
+    pub gates: BTreeMap<String, Option<Rc<CustomGate>>>,
 }
 
 fn formal_names(list: Option<ast::ParamList>) -> Result<Vec<String>, FrontendError> {
@@ -79,6 +82,24 @@ fn validate_parameter(expr: Expr, parameters: &[String]) -> Result<(), FrontendE
 }
 
 impl Lowerer {
+    pub(super) fn install_qiskit_extensions(&mut self) -> Result<(), FrontendError> {
+        let parsed = oq3_syntax::SourceFile::parse_check_lex(include_str!("qiskit_extensions.inc"));
+        assert!(
+            parsed.errors().is_empty(),
+            "embedded extension library must parse: {:?}",
+            parsed.errors()
+        );
+        for statement in parsed.tree().statements() {
+            let Stmt::Gate(gate) = statement else {
+                unreachable!("only gate definitions")
+            };
+            let name = gate.name().unwrap().string();
+            self.declare_custom_gate(gate)?;
+            self.extension_gates.insert(name);
+        }
+        Ok(())
+    }
+
     pub(super) fn declare_custom_gate(&mut self, gate: ast::Gate) -> Result<(), FrontendError> {
         let name = gate
             .name()
@@ -108,6 +129,7 @@ impl Lowerer {
             return Err(expected!("no empty gate-body statements", &body));
         }
         let statements = body.statements().collect::<Vec<_>>();
+        let mut gates = BTreeMap::new();
         for statement in &statements {
             let (operands, arity) = match statement {
                 Stmt::Barrier(b) if b.qubit_list().is_none() => continue,
@@ -156,6 +178,7 @@ impl Lowerer {
                     if count != np {
                         return Err(expected!("declared gate parameter arity", &call));
                     }
+                    gates.insert(called.clone(), self.custom_gates.get(&called).cloned());
                     (call.qubit_list(), Some(nq))
                 }
                 _ => {
@@ -187,18 +210,21 @@ impl Lowerer {
         }
         // ccz is an Irene convenience extension, not a canonical qelib1 gate.
         // An explicit source definition takes precedence over that extension.
-        if !(name == "ccz" && self.qelib1_loaded && !self.custom_gates.contains_key(&name)) {
+        if !self.extension_gates.remove(&name)
+            && !(name == "ccz" && self.qelib1_loaded && !self.custom_gates.contains_key(&name))
+        {
             self.scopes
                 .declare(name.clone(), BindingKind::Gate)
                 .map_err(scope_error)?;
         }
         self.custom_gates.insert(
             name,
-            CustomGate {
+            Rc::new(CustomGate {
                 parameters,
                 qubits,
                 body: statements,
-            },
+                gates,
+            }),
         );
         Ok(())
     }
@@ -218,6 +244,7 @@ impl Lowerer {
                 .zip(parameters.into_iter().zip(constants))
                 .collect(),
             qubits: gate.qubits.iter().cloned().zip(qubits).collect(),
+            gates: gate.gates.clone(),
         };
         let previous = self.gate_frame.replace(frame);
         let result = gate
