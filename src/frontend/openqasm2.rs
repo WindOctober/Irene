@@ -4,7 +4,7 @@
 //! therefore treats its AST as an untrusted parse tree and performs the
 //! version-specific name, type, shape, arity, and bounds checks itself.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::str::FromStr;
 
@@ -84,7 +84,9 @@ macro_rules! expected {
     }};
 }
 
+mod custom_gates;
 mod scientific;
+use custom_gates::{CustomGate, GateFrame};
 
 /// Parses one self-contained OpenQASM 2.0 source and lowers it to shared IR.
 ///
@@ -384,6 +386,8 @@ struct Lowerer {
     quantum_registers: Vec<crate::ir::Register>,
     classical_registers: Vec<crate::ir::Register>,
     qelib1_loaded: bool,
+    custom_gates: BTreeMap<String, CustomGate>,
+    gate_frame: Option<GateFrame>,
 }
 
 impl Default for Lowerer {
@@ -394,6 +398,8 @@ impl Default for Lowerer {
             quantum_registers: Vec::new(),
             classical_registers: Vec::new(),
             qelib1_loaded: false,
+            custom_gates: BTreeMap::new(),
+            gate_frame: None,
         }
     }
 }
@@ -481,7 +487,7 @@ impl Lowerer {
                 body.statements.push(self.lower_statement(statement)?);
                 Ok(())
             }
-            Stmt::Gate(gate) => Err(unsupported!("custom gate declaration", &gate)),
+            Stmt::Gate(gate) => self.declare_custom_gate(gate),
             other => Err(unsupported!("statement", &other)),
         }
     }
@@ -779,11 +785,14 @@ impl Lowerer {
                 actual: binding.kind.description(),
             });
         }
-        let definition =
-            gate_definition(&source_name).ok_or_else(|| FrontendError::Unsupported {
+        let custom = self.custom_gates.get(&source_name).cloned();
+        let definition = gate_definition(&source_name);
+        if definition.is_none() && custom.is_none() {
+            return Err(FrontendError::Unsupported {
                 construct: "gate",
                 snippet: call.syntax().text().to_string(),
-            })?;
+            });
+        }
         let argument_list = call.arg_list();
         if source_name == "CX" && argument_list.is_some() {
             return Err(expected!(
@@ -813,7 +822,10 @@ impl Lowerer {
             },
             None => Vec::new(),
         };
-        let (parameter_arity, qubit_arity) = definition.signature();
+        let (parameter_arity, qubit_arity) = custom.as_ref().map_or_else(
+            || definition.unwrap().signature(),
+            |gate| (gate.parameters.len(), gate.qubits.len()),
+        );
         if parameter_expressions.len() != parameter_arity {
             return Err(expected!("the gate's declared number of parameters", &call));
         }
@@ -863,19 +875,39 @@ impl Lowerer {
             ));
         }
 
-        if matches!(definition, GateDefinition::Identity { .. }) {
+        if matches!(definition, Some(GateDefinition::Identity { .. })) {
             return Ok(self.sequence(Vec::new()));
         }
 
         let snippet = call.syntax().text().to_string();
         let mut statements = Vec::new();
         for qubits in expanded_qubits {
+            // Macro arguments are templates, not retained IR nodes.
+            let retained_ids = custom.as_ref().map(|_| std::mem::take(&mut self.ids));
             let parameters = parameter_expressions
                 .iter()
                 .cloned()
                 .map(|expression| self.lower_numeric_expr(expression))
-                .collect::<Result<Vec<_>, _>>()?;
-            statements.extend(self.expand_gate(definition, parameters, qubits, &snippet)?);
+                .collect::<Result<Vec<_>, _>>();
+            if let Some(ids) = retained_ids {
+                self.ids = ids;
+            }
+            let parameters = parameters?;
+            if let Some(custom) = &custom {
+                let constants = parameter_expressions
+                    .iter()
+                    .cloned()
+                    .map(|expr| self.validate_constant_expression(expr))
+                    .collect::<Result<Vec<_>, _>>()?;
+                statements.push(self.expand_custom_gate(custom, parameters, constants, qubits)?);
+            } else {
+                statements.extend(self.expand_gate(
+                    definition.unwrap(),
+                    parameters,
+                    qubits,
+                    &snippet,
+                )?);
+            }
         }
         Ok(self.sequence(statements))
     }
@@ -1024,6 +1056,12 @@ impl Lowerer {
     }
 
     fn lower_numeric_expr(&mut self, expression: Expr) -> Result<NumericExpr, FrontendError> {
+        if let Expr::Identifier(identifier) = &expression
+            && let Some(frame) = &self.gate_frame
+            && let Some((value, _)) = frame.parameters.get(&identifier.string())
+        {
+            return Ok(self.ids.clone_numeric_expr(value));
+        }
         match expression {
             Expr::Literal(literal) => match literal.kind() {
                 ast::LiteralKind::IntNumber(number) => {
@@ -1105,6 +1143,12 @@ impl Lowerer {
         &self,
         expression: Expr,
     ) -> Result<ConstantValue, FrontendError> {
+        if let Expr::Identifier(identifier) = &expression
+            && let Some(frame) = &self.gate_frame
+            && let Some((_, value)) = frame.parameters.get(&identifier.string())
+        {
+            return Ok(value.clone());
+        }
         match expression {
             Expr::Literal(literal) => match literal.kind() {
                 ast::LiteralKind::IntNumber(number) => Ok(ConstantValue::rational(
@@ -1182,6 +1226,17 @@ impl Lowerer {
     }
 
     fn lower_qubits(&self, operand: GateOperand) -> Result<QuantumOperand, FrontendError> {
+        if let Some(frame) = &self.gate_frame {
+            if let GateOperand::Identifier(identifier) = &operand
+                && let Some(qubit) = frame.qubits.get(&identifier.string())
+            {
+                return Ok(QuantumOperand::Scalar(qubit.clone()));
+            }
+            return Err(unsupported!(
+                "gate body operand outside formal qubits",
+                &operand
+            ));
+        }
         match operand {
             GateOperand::Identifier(identifier) => self.quantum_register(identifier.string()),
             GateOperand::IndexedIdentifier(indexed) => {
