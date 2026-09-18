@@ -1678,6 +1678,26 @@ impl Lowerer {
             // `bool ready` and `bit flag` are scalar; `bit[n] bits` is a register.
             Expr::Identifier(identifier) => {
                 let name = identifier.string();
+                if matches!(
+                    self.scopes.lookup(&name).map_err(scope_error)?.kind,
+                    BindingKind::StaticInteger { .. }
+                ) {
+                    let value = self.static_integer(Expr::Identifier(identifier), false)?;
+                    return Ok(TypedClassicalExpr::Integer {
+                        bits: (0..value.width.expect("static binding is sized"))
+                            .map(|i| {
+                                self.ids
+                                    .node(ClassicalExprKind::Bool(value.value & (1_i128 << i) != 0))
+                            })
+                            .collect(),
+                        signedness: if value.signed {
+                            Signedness::Signed
+                        } else {
+                            Signedness::Unsigned
+                        },
+                        explicit_width: value.explicit_width,
+                    });
+                }
                 let operand = self.classical_cells(name)?;
                 Ok(self.bit_operand_expr(operand))
             }
@@ -1876,28 +1896,32 @@ impl Lowerer {
             } else {
                 Signedness::Unsigned
             };
-            let width = ty
-                .designator()
-                .ok_or_else(|| expected!("an explicitly sized integer cast", &cast))?
-                .expr()
-                .ok_or_else(|| expected!("an integer cast width", &cast))
-                .and_then(|e| self.static_index(e, true))?;
+            let explicit_width = ty.designator().is_some();
+            let width = match ty.designator() {
+                Some(designator) => self.static_index(
+                    designator
+                        .expr()
+                        .ok_or_else(|| expected!("an integer cast width", &cast))?,
+                    true,
+                )?,
+                None => static_integer::DEFAULT_INTEGER_WIDTH as usize,
+            };
             if width == 0 {
                 return Err(expected!("a non-empty integer cast", &cast));
             }
             let value = self.lower_typed_classical_expr(operand)?;
             let bits = match value {
-                TypedClassicalExpr::Register(bits) | TypedClassicalExpr::Integer { bits, .. }
-                    if bits.len() == width =>
-                {
-                    bits
+                TypedClassicalExpr::Register(_) if !explicit_width => {
+                    return Err(expected!("an explicitly sized integer cast", &cast));
                 }
+                TypedClassicalExpr::Register(bits) if explicit_width && bits.len() == width => bits,
+                TypedClassicalExpr::Integer { bits, .. } if bits.len() == width => bits,
                 _ => return Err(expected!("an integer cast matching its bit width", &cast)),
             };
             return Ok(TypedClassicalExpr::Integer {
                 bits,
                 signedness,
-                explicit_width: true,
+                explicit_width,
             });
         }
 
@@ -1912,10 +1936,12 @@ impl Lowerer {
         if ty.bit_token().is_some() {
             let value = self.lower_typed_classical_expr(operand)?;
             if let Some(designator) = ty.designator() {
-                let width = designator
-                    .expr()
-                    .ok_or_else(|| expected!("a bit cast width", &designator))
-                    .and_then(|e| self.static_index(e, true))?;
+                let width = self.static_index(
+                    designator
+                        .expr()
+                        .ok_or_else(|| expected!("a bit cast width", &designator))?,
+                    true,
+                )?;
                 let bits = match value {
                     TypedClassicalExpr::Register(bits)
                     | TypedClassicalExpr::Integer {
