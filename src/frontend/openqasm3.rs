@@ -79,6 +79,8 @@ macro_rules! expected {
     }};
 }
 
+mod angle;
+mod constants;
 mod controlled_u;
 mod power;
 mod static_integer;
@@ -204,6 +206,7 @@ enum BitOperand {
     Bool(ClassicalBit),
     Bit(ClassicalBit),
     Register(Vec<ClassicalBit>),
+    Angle(Vec<ClassicalBit>),
     Uint {
         bits: Vec<ClassicalBit>,
         explicit_width: bool,
@@ -215,7 +218,7 @@ impl BitOperand {
     fn into_cells(self) -> Vec<ClassicalBit> {
         match self {
             Self::Bool(bit) | Self::Bit(bit) => vec![bit],
-            Self::Register(bits) | Self::Uint { bits, .. } => bits,
+            Self::Register(bits) | Self::Angle(bits) | Self::Uint { bits, .. } => bits,
         }
     }
 
@@ -225,6 +228,7 @@ impl BitOperand {
             Self::Bool(_) => BitType::Bool,
             Self::Bit(_) => BitType::Bit,
             Self::Register(bits) => BitType::Register { width: bits.len() },
+            Self::Angle(bits) => BitType::Angle { width: bits.len() },
             Self::Uint {
                 bits,
                 explicit_width,
@@ -248,10 +252,12 @@ enum TypedClassicalExpr {
     Bool(ClassicalExpr),
     Bit(ClassicalExpr),
     Register(Vec<ClassicalExpr>),
+    Angle(Vec<ClassicalExpr>),
     Integer {
         bits: Vec<ClassicalExpr>,
         signedness: Signedness,
-        // Target-default integers do not admit explicit-width bit operations.
+        // A target-default integer is still a distinct source type. In
+        // particular, OpenQASM forbids bit-level operations on that type.
         explicit_width: bool,
     },
     IntegerLiteral(BigInt),
@@ -272,6 +278,9 @@ impl TypedClassicalExpr {
             Self::Register(values) => Some(BitType::Register {
                 width: values.len(),
             }),
+            Self::Angle(values) => Some(BitType::Angle {
+                width: values.len(),
+            }),
             Self::Integer { .. } | Self::IntegerLiteral(_) => None,
         }
     }
@@ -280,7 +289,7 @@ impl TypedClassicalExpr {
     fn into_bit_cells(self) -> Option<Vec<ClassicalExpr>> {
         match self {
             Self::Bool(value) | Self::Bit(value) => Some(vec![value]),
-            Self::Register(values) => Some(values),
+            Self::Register(values) | Self::Angle(values) => Some(values),
             Self::Integer { .. } | Self::IntegerLiteral(_) => None,
         }
     }
@@ -562,11 +571,15 @@ impl Lowerer {
             BitType::Bool
         } else if scalar_type.bit_token().is_some() {
             self.static_bit_type(scalar_type.designator(), "a bit array width")?
+        } else if scalar_type.angle_token().is_some() {
+            BitType::Angle {
+                width: self.angle_width(&scalar_type)?,
+            }
         } else if scalar_type.uint_token().is_some() {
             self.uint_storage_type(&scalar_type)?
         } else {
             return Err(unsupported!(
-                "classical type other than bool, bit or uint",
+                "classical type other than bool, bit, angle or uint",
                 &scalar_type
             ));
         };
@@ -593,6 +606,7 @@ impl Lowerer {
     }
 
     /// Lowers the executable statement forms currently represented by Irene's IR.
+
     fn lower_statement(&mut self, statement: Stmt) -> Result<Statement, FrontendError> {
         self.charge_static_expansion(&statement)?;
         match statement {
@@ -661,8 +675,9 @@ impl Lowerer {
         }
     }
 
-    /// Adds positive quantum controls without measuring or splitting branches.
-    /// Supported combinations lower to native gates or exact decompositions.
+    /// Positive controls supported directly by the existing exact IR gates.
+    /// Controls precede the original operands; no ancilla or global-phase
+    /// quotient is introduced. Unsupported modifiers are never discarded.
     fn lower_modified_gate(
         &mut self,
         call: ast::ModifiedGateCallExpr,
@@ -766,18 +781,33 @@ impl Lowerer {
         if call.identifier().is_some_and(|name| name.string() == "cu") {
             return self.lower_standard_cu(call, controls);
         }
-        let mut parameters = call
+        // Parenthesized expressions before the qubit list are gate parameters.
+        let parameter_sources: Vec<_> = call
             .arg_list()
             .and_then(|arguments| arguments.expression_list())
-            .map(|arguments| {
-                arguments
-                    .exprs()
-                    .map(|expression| self.lower_numeric_expr(expression))
-                    .collect::<Result<Vec<_>, _>>()
-            })
-            .transpose()?
+            .map(|arguments| arguments.exprs().collect())
             .unwrap_or_default();
-        let supplied_parameter_count = parameters.len();
+        let angle_scratch_ids = self.ids.clone();
+        let angle_bits =
+            if parameter_sources.len() == 1 && self.is_angle_expression(&parameter_sources[0])? {
+                let TypedClassicalExpr::Angle(bits) =
+                    self.lower_angle_expression(parameter_sources[0].clone())?
+                else {
+                    unreachable!()
+                };
+                Some(bits)
+            } else {
+                None
+            };
+        let mut parameters = if angle_bits.is_some() {
+            vec![]
+        } else {
+            parameter_sources
+                .iter()
+                .cloned()
+                .map(|e| self.lower_numeric_expr(e))
+                .collect::<Result<Vec<_>, _>>()?
+        };
         // Resolve the source name through the current OpenQASM scope first,
         // then map supported standard-library aliases to one IR gate.
         let source_name = call
@@ -881,7 +911,7 @@ impl Lowerer {
                 snippet: call.syntax().text().to_string(),
             });
         }
-        if supplied_parameter_count != source_parameter_count {
+        if parameter_sources.len() != source_parameter_count {
             return Err(FrontendError::Expected {
                 expected: "the gate's standard number of parameters",
                 snippet: call.syntax().text().to_string(),
@@ -914,6 +944,14 @@ impl Lowerer {
                 expected: "distinct qubit operands for each gate application",
                 snippet: call.syntax().text().to_string(),
             });
+        }
+        if let Some(bits) = angle_bits {
+            self.ids = angle_scratch_ids;
+            let statements = expanded_qubits
+                .into_iter()
+                .map(|qubits| self.angle_gate(gate, &bits, qubits))
+                .collect();
+            return Ok(self.sequence(statements));
         }
         if decomposed_control {
             let statements = expanded_qubits
@@ -1150,6 +1188,10 @@ impl Lowerer {
             let values = self.uint_value(rhs, width)?;
             return Ok(self.assign_cells(targets.into_cells(), values));
         }
+        if let BitType::Angle { width } = targets.ty() {
+            let values = self.angle_value(rhs, width, false)?;
+            return self.assign_bit_values(targets, values, snippet);
+        }
         match rhs {
             // `c = measure q;` produces a quantum measurement for each
             // matching scalar/register cell rather than a classical Assign.
@@ -1232,6 +1274,17 @@ impl Lowerer {
             && matches!(targets.ty(), BitType::Uint { .. })
         {
             return self.uint_compound_assignment(targets, assignment);
+        }
+        if self.is_angle_expression(&lhs)? {
+            let targets = self.lower_bit_operand(lhs.clone())?;
+            let Some(ast::BinaryOp::Assignment { op: Some(op) }) = assignment.op_kind() else {
+                return Err(unsupported!("angle compound assignment", &assignment));
+            };
+            let rhs = assignment
+                .rhs()
+                .ok_or_else(|| expected!("an assignment value", &assignment))?;
+            let values = self.angle_binary(op, lhs, rhs, &assignment)?;
+            return self.assign_bit_values(targets, values, assignment.syntax().text().to_string());
         }
         let operation = match assignment.op_kind() {
             Some(ast::BinaryOp::Assignment {
@@ -1444,7 +1497,6 @@ impl Lowerer {
                 {
                     self.lower_static_constant(declaration)?;
                 }
-                // `bit local;` belongs to this block and is removed on scope exit.
                 Stmt::ClassicalDeclarationStatement(declaration) => {
                     let (register, initializer) = self.lower_classical_declaration(declaration)?;
                     lowered.classical_registers.push(register);
@@ -1616,12 +1668,12 @@ impl Lowerer {
         let mut lowered = self.ids.node(BlockData::default());
         for statement in block.statements() {
             match statement {
-                // `bit local;` belongs to this block and is removed on scope exit.
                 Stmt::ClassicalDeclarationStatement(declaration)
                     if declaration.const_token().is_some() =>
                 {
                     self.lower_static_constant(declaration)?;
                 }
+                // `bit local;` belongs to this block and is removed on scope exit.
                 Stmt::ClassicalDeclarationStatement(declaration) => {
                     let (register, initializer) = self.lower_classical_declaration(declaration)?;
                     lowered.classical_registers.push(register);
@@ -1673,6 +1725,9 @@ impl Lowerer {
         &mut self,
         expression: Expr,
     ) -> Result<TypedClassicalExpr, FrontendError> {
+        if self.is_angle_expression(&expression)? {
+            return self.lower_angle_expression(expression);
+        }
         match expression {
             // An unindexed name preserves its declared type and shape:
             // `bool ready` and `bit flag` are scalar; `bit[n] bits` is a register.
@@ -1861,6 +1916,11 @@ impl Lowerer {
                     .map(|bit| self.ids.node(ClassicalExprKind::Bit(bit)))
                     .collect(),
             ),
+            BitOperand::Angle(bits) => TypedClassicalExpr::Angle(
+                bits.into_iter()
+                    .map(|bit| self.ids.node(ClassicalExprKind::Bit(bit)))
+                    .collect(),
+            ),
             BitOperand::Uint {
                 bits,
                 explicit_width,
@@ -1944,6 +2004,7 @@ impl Lowerer {
                 )?;
                 let bits = match value {
                     TypedClassicalExpr::Register(bits)
+                    | TypedClassicalExpr::Angle(bits)
                     | TypedClassicalExpr::Integer {
                         bits,
                         explicit_width: true,
@@ -1980,6 +2041,7 @@ impl Lowerer {
         match value {
             TypedClassicalExpr::Bool(_)
             | TypedClassicalExpr::Bit(_)
+            | TypedClassicalExpr::Angle(_)
             | TypedClassicalExpr::Register(_) => Ok(value),
             TypedClassicalExpr::IntegerLiteral(value)
                 if value == BigInt::from(0_u8) || value == BigInt::from(1_u8) =>
@@ -2026,7 +2088,9 @@ impl Lowerer {
     fn truth_expr(&mut self, value: TypedClassicalExpr) -> ClassicalExpr {
         match value {
             TypedClassicalExpr::Bool(value) | TypedClassicalExpr::Bit(value) => value,
-            TypedClassicalExpr::Register(bits) | TypedClassicalExpr::Integer { bits, .. } => {
+            TypedClassicalExpr::Register(bits)
+            | TypedClassicalExpr::Angle(bits)
+            | TypedClassicalExpr::Integer { bits, .. } => {
                 let mut bits = bits.into_iter();
                 let Some(mut value) = bits.next() else {
                     return self.ids.node(ClassicalExprKind::Bool(false));
@@ -2053,6 +2117,7 @@ impl Lowerer {
         let negate =
             |this: &mut Self, value| this.ids.node(ClassicalExprKind::Not(Box::new(value)));
         match value {
+            TypedClassicalExpr::Angle(_) => Err(unsupported!("angle complement dispatch", source)),
             TypedClassicalExpr::Bool(value) | TypedClassicalExpr::Bit(value) => {
                 Ok(TypedClassicalExpr::Bit(negate(self, value)))
             }
@@ -2342,6 +2407,7 @@ impl Lowerer {
                 TypedClassicalExpr::Bool(right) | TypedClassicalExpr::Bit(right),
             ) => Ok((vec![left], vec![right])),
             (TypedClassicalExpr::Register(left), TypedClassicalExpr::Register(right))
+            | (TypedClassicalExpr::Angle(left), TypedClassicalExpr::Angle(right))
                 if left.len() == right.len() =>
             {
                 Ok((left, right))
@@ -2552,6 +2618,7 @@ impl Lowerer {
         let binding = self.scopes.lookup(&name).map_err(scope_error)?;
         let BindingKind::ClassicalBit(
             BitType::Register { width }
+            | BitType::Angle { width }
             | BitType::Uint {
                 width,
                 explicit_width: true,
@@ -2575,6 +2642,9 @@ impl Lowerer {
     fn classical_cells(&self, name: String) -> Result<BitOperand, FrontendError> {
         let binding = self.scopes.lookup(&name).map_err(scope_error)?;
         match binding.kind {
+            BindingKind::ClassicalBit(ty @ BitType::Angle { .. }) => {
+                Ok(bit_operand(binding.id, ty))
+            }
             BindingKind::ClassicalBit(ty @ BitType::Uint { .. }) => Ok(bit_operand(binding.id, ty)),
             BindingKind::ClassicalBit(BitType::Bool) => Ok(BitOperand::Bool(ClassicalBit {
                 register: binding.id,
@@ -2629,7 +2699,6 @@ impl Lowerer {
         });
         self.ids.node(StatementKind::Scope(body))
     }
-
     /// Copies a classical expression with fresh AST IDs for the copied tree.
     fn clone_classical_expr(&mut self, expression: &ClassicalExpr) -> ClassicalExpr {
         let kind = match &expression.kind {
@@ -2665,6 +2734,11 @@ fn bit_operand(register: SymbolId, ty: BitType) -> BitOperand {
         BitType::Bool => BitOperand::Bool(ClassicalBit { register, index: 0 }),
         BitType::Bit => BitOperand::Bit(ClassicalBit { register, index: 0 }),
         BitType::Register { width } => BitOperand::Register(
+            (0..width)
+                .map(|index| ClassicalBit { register, index })
+                .collect(),
+        ),
+        BitType::Angle { width } => BitOperand::Angle(
             (0..width)
                 .map(|index| ClassicalBit { register, index })
                 .collect(),

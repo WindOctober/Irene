@@ -36,6 +36,7 @@ impl QuantumType {
 /// distinction while allowing the language's implicit scalar bool/bit casts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum BitType {
+    Angle { width: usize },
     Bool,
     Bit,
     Register { width: usize },
@@ -46,7 +47,7 @@ impl BitType {
     pub(super) fn width(self) -> usize {
         match self {
             Self::Bool | Self::Bit => 1,
-            Self::Register { width } | Self::Uint { width, .. } => width,
+            Self::Register { width } | Self::Angle { width } | Self::Uint { width, .. } => width,
         }
     }
 }
@@ -85,6 +86,7 @@ impl BindingKind {
             Self::ClassicalBit(BitType::Bool) => "Boolean",
             Self::ClassicalBit(BitType::Bit) => "classical bit",
             Self::ClassicalBit(BitType::Register { .. }) => "classical bit register",
+            Self::ClassicalBit(BitType::Angle { .. }) => "fixed-width angle",
             Self::ClassicalBit(BitType::Uint { .. }) => "unsigned integer",
             Self::NumericInput(_) => "numeric input",
             Self::Gate => "gate",
