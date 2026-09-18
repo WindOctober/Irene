@@ -676,6 +676,7 @@ impl Lowerer {
             "cry" => Gate::Cry,
             "crz" => Gate::Crz,
             "ccx" => Gate::Ccx,
+            "ccz" => Gate::Ccz,
             _ => return Err(unsupported!("gate", &call)),
         };
         // Operands after the parameter list identify the quantum wires.
@@ -694,7 +695,7 @@ impl Lowerer {
             | Gate::Crx
             | Gate::Cry
             | Gate::Crz => 2,
-            Gate::Ccx => 3,
+            Gate::Ccx | Gate::Ccz => 3,
             _ => 1,
         };
         if operands.len() != expected_arity {

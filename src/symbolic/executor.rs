@@ -558,6 +558,7 @@ impl Executor {
             | Gate::Tdg
             | Gate::Cx
             | Gate::Ccx
+            | Gate::Ccz
             | Gate::Cy
             | Gate::Cz
             | Gate::Swap
@@ -644,6 +645,16 @@ impl Executor {
                     &predicate.and(&control).and(&target),
                     PhaseCoefficient::rational(ratio(1, 2)),
                 );
+            }
+            Gate::Ccz => {
+                // CCZ is diagonal: add predicate*a*b*c/2 turns without
+                // changing any output or introducing coherent paths.
+                let active = qubits.iter().fold(predicate.clone(), |active, qubit| {
+                    active.and(&component.output.quantum[qubit])
+                });
+                component
+                    .phase
+                    .add_boolean(&active, PhaseCoefficient::rational(ratio(1, 2)));
             }
             Gate::Swap => {
                 let second = qubits[1].clone();
@@ -879,6 +890,7 @@ fn is_monomial_gate(gate: Gate) -> bool {
             | Gate::Tdg
             | Gate::Cx
             | Gate::Ccx
+            | Gate::Ccz
             | Gate::Cy
             | Gate::Cz
             | Gate::Swap
