@@ -954,10 +954,10 @@ impl Lowerer {
                 let [theta, phi, lambda] = parameter_array(parameters, snippet)?;
                 let [control, target] = qubit_array(qubits, snippet)?;
 
-                let fourth_lambda = self.clone_numeric_expr(&lambda);
-                let second_phi = self.clone_numeric_expr(&phi);
-                let fourth_phi = self.clone_numeric_expr(&phi);
-                let fifth_theta = self.clone_numeric_expr(&theta);
+                let fourth_lambda = self.ids.clone_numeric_expr(&lambda);
+                let second_phi = self.ids.clone_numeric_expr(&phi);
+                let fourth_phi = self.ids.clone_numeric_expr(&phi);
+                let fifth_theta = self.ids.clone_numeric_expr(&theta);
 
                 let difference = self
                     .ids
@@ -1291,35 +1291,6 @@ impl Lowerer {
             index,
         })
     }
-
-    fn clone_numeric_expr(&mut self, expression: &NumericExpr) -> NumericExpr {
-        let kind = match &expression.kind {
-            NumericExprKind::Rational(value) => NumericExprKind::Rational(value.clone()),
-            NumericExprKind::Constant(value) => NumericExprKind::Constant(*value),
-            NumericExprKind::Input(value) => NumericExprKind::Input(*value),
-            NumericExprKind::Neg(inner) => {
-                NumericExprKind::Neg(Box::new(self.clone_numeric_expr(inner)))
-            }
-            NumericExprKind::Add(left, right) => NumericExprKind::Add(
-                Box::new(self.clone_numeric_expr(left)),
-                Box::new(self.clone_numeric_expr(right)),
-            ),
-            NumericExprKind::Sub(left, right) => NumericExprKind::Sub(
-                Box::new(self.clone_numeric_expr(left)),
-                Box::new(self.clone_numeric_expr(right)),
-            ),
-            NumericExprKind::Mul(left, right) => NumericExprKind::Mul(
-                Box::new(self.clone_numeric_expr(left)),
-                Box::new(self.clone_numeric_expr(right)),
-            ),
-            NumericExprKind::Div(left, right) => NumericExprKind::Div(
-                Box::new(self.clone_numeric_expr(left)),
-                Box::new(self.clone_numeric_expr(right)),
-            ),
-        };
-        self.ids.node(kind)
-    }
-
     fn sequence(&mut self, mut statements: Vec<Statement>) -> Statement {
         if statements.len() == 1 {
             return statements.remove(0);

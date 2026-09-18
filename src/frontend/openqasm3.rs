@@ -747,7 +747,7 @@ impl Lowerer {
                 } else {
                     parameters
                         .iter()
-                        .map(|parameter| self.clone_numeric_expr(parameter))
+                        .map(|parameter| self.ids.clone_numeric_expr(parameter))
                         .collect()
                 };
                 self.ids.node(StatementKind::Apply {
@@ -2265,38 +2265,6 @@ impl Lowerer {
             ..BlockData::default()
         });
         self.ids.node(StatementKind::Scope(body))
-    }
-
-    /// Copies an expression while allocating fresh AST IDs for every new node.
-    ///
-    /// Ordinary `Clone` would duplicate IDs; this form is used when register
-    /// broadcasting emits the same gate parameter into multiple IR statements.
-    fn clone_numeric_expr(&mut self, expression: &NumericExpr) -> NumericExpr {
-        let kind = match &expression.kind {
-            NumericExprKind::Rational(value) => NumericExprKind::Rational(value.clone()),
-            NumericExprKind::Constant(value) => NumericExprKind::Constant(*value),
-            NumericExprKind::Input(value) => NumericExprKind::Input(*value),
-            NumericExprKind::Neg(inner) => {
-                NumericExprKind::Neg(Box::new(self.clone_numeric_expr(inner)))
-            }
-            NumericExprKind::Add(left, right) => NumericExprKind::Add(
-                Box::new(self.clone_numeric_expr(left)),
-                Box::new(self.clone_numeric_expr(right)),
-            ),
-            NumericExprKind::Sub(left, right) => NumericExprKind::Sub(
-                Box::new(self.clone_numeric_expr(left)),
-                Box::new(self.clone_numeric_expr(right)),
-            ),
-            NumericExprKind::Mul(left, right) => NumericExprKind::Mul(
-                Box::new(self.clone_numeric_expr(left)),
-                Box::new(self.clone_numeric_expr(right)),
-            ),
-            NumericExprKind::Div(left, right) => NumericExprKind::Div(
-                Box::new(self.clone_numeric_expr(left)),
-                Box::new(self.clone_numeric_expr(right)),
-            ),
-        };
-        self.ids.node(kind)
     }
 
     /// Copies a classical expression with fresh AST IDs for the copied tree.

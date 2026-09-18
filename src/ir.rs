@@ -83,6 +83,23 @@ pub(crate) struct AstIdGenerator {
 }
 
 impl AstIdGenerator {
+    /// Copies a numeric expression with fresh identities for every node.
+    /// Ordinary Clone preserves IDs and is unsuitable for gate expansion.
+    pub(crate) fn clone_numeric_expr(&mut self, expression: &NumericExpr) -> NumericExpr {
+        let mut child = |e: &NumericExpr| Box::new(self.clone_numeric_expr(e));
+        let kind = match &expression.kind {
+            NumericExprKind::Neg(a) => NumericExprKind::Neg(child(a)),
+            NumericExprKind::Add(a, b) => NumericExprKind::Add(child(a), child(b)),
+            NumericExprKind::Sub(a, b) => NumericExprKind::Sub(child(a), child(b)),
+            NumericExprKind::Mul(a, b) => NumericExprKind::Mul(child(a), child(b)),
+            NumericExprKind::Div(a, b) => NumericExprKind::Div(child(a), child(b)),
+            NumericExprKind::Rational(value) => NumericExprKind::Rational(value.clone()),
+            NumericExprKind::Constant(value) => NumericExprKind::Constant(*value),
+            NumericExprKind::Input(id) => NumericExprKind::Input(*id),
+        };
+        self.node(kind)
+    }
+
     pub(crate) fn starting_at(next: usize) -> Self {
         Self { next }
     }
@@ -396,3 +413,6 @@ impl AstNode<ProgramData> {
         count(&self.body)
     }
 }
+
+#[cfg(test)]
+mod tests;
