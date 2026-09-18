@@ -18,8 +18,8 @@ compare the full circuit interface, hybrid cases pair measured classical bits
 with their corresponding outputs, and partial cases list only logical inputs
 and observable outputs, excluding reset ancillas and garbage.
 
-These pairs were reconstructed from the original program interfaces and the
-SQbricks transformer input/output maps; they are not arguments passed explicitly
+These pairs follow the original program interfaces and the SQbricks transformer
+input/output maps; they are not arguments passed explicitly
 by the benchmark driver. The SQbricks driver first applies deferred measurement
 and then compares all lifted quantum wires with empty pair lists. Its
 `sanity-partial` branch also does not propagate the partial-interface parameters.
@@ -28,8 +28,8 @@ suite instead of reproducing that script behavior.
 
 ## Generated program pairs
 
-`generated/manifest.toml` contains 490 additional `eq` cases materialized from
-the SQbricks single-program transformation lists. It stores the generated QASM
+`generated/manifest.toml` contains 490 cases (487 EQ and 3 NEQ) from the
+SQbricks single-program transformation lists. It stores the generated QASM
 programs and the input/output maps returned by the SQbricks OWM and
 teleportation transformations:
 
