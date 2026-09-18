@@ -84,6 +84,8 @@ macro_rules! expected {
     }};
 }
 
+mod scientific;
+
 /// Parses one self-contained OpenQASM 2.0 source and lowers it to shared IR.
 ///
 /// `qelib1.inc` is an intrinsic library.  No include path is read, which keeps
@@ -186,7 +188,8 @@ fn source_snippet(source: &str) -> String {
 }
 
 fn parse_str_inner(source: &str) -> Result<Program, FrontendError> {
-    let parsed = oq3_syntax::SourceFile::parse_check_lex(source);
+    let source = scientific::normalize(source);
+    let parsed = oq3_syntax::SourceFile::parse_check_lex(&source);
     if !parsed.errors().is_empty() {
         let diagnostics = parsed
             .errors()
