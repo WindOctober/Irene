@@ -23,6 +23,8 @@ pub enum SymbolicError {
     UnknownClassicalOutput(ClassicalBit),
     #[error("classical bit is read before it is assigned: {0:?}")]
     UninitializedClassical(ClassicalBit),
+    #[error("numeric gate-parameter domain cannot be established: {0}")]
+    NumericDomain(&'static str),
 }
 
 /// Selects the quantum state from which symbolic execution starts.
@@ -180,6 +182,7 @@ pub fn execute(
     config: &ExecutionConfig,
     output_selection: &OutputSelection,
 ) -> Result<HybridPathSum, SymbolicError> {
+    validate::numeric_domains(program)?;
     let plan = slice::build_slice_plan(program, output_selection)?;
     validate::definite_assignment(program, output_selection)?;
     let mut hps = simplify(execute_with_plan(program, config, &plan)?);
