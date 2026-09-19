@@ -9,7 +9,7 @@ use crate::ir::{
 };
 
 use super::optimize::slice::{self, DiscardSet, OutputSelection, SlicePlan};
-use super::optimize::{merge_components, simplify, simplify_component};
+use super::optimize::{merge_coherent_components, merge_components, simplify, simplify_component};
 use super::validate;
 use super::{BooleanPolynomial, PhaseCoefficient, PhasePolynomial, Scalar, Variable};
 
@@ -249,7 +249,7 @@ fn execute_with_plan(
         next_path: 0,
         ids: AstIdGenerator::starting_at(program.ast_id_bound()),
     };
-    let components = executor.execute_block(vec![component], &program.body, plan)?;
+    let components = executor.execute_block(vec![component], &program.body, plan, true)?;
     Ok(HybridPathSum { input, components })
 }
 
@@ -312,7 +312,16 @@ impl Executor {
         mut components: Vec<Component>,
         block: &Block,
         plan: &SlicePlan,
+        complete_component_set: bool,
     ) -> Result<Vec<Component>, SymbolicError> {
+        // A partial branch must retain the environment labels that separate
+        // it from siblings outside this call. Only a complete join may merge
+        // density weights; coherent amplitude merging is safe in either case.
+        let merge: fn(Vec<Component>) -> Vec<Component> = if complete_component_set {
+            merge_components
+        } else {
+            merge_coherent_components
+        };
         // Entry discard sets primarily occur on `if` branches. Backward analysis
         // takes the union of both branches' dependencies before the `if`, so a
         // value needed only by the sibling branch is still present here. The
@@ -326,7 +335,7 @@ impl Executor {
                 discard.apply(component);
             }
             if components.len() > 1 {
-                components = merge_components(components);
+                components = merge(components);
             }
         }
         for statement in &block.statements {
@@ -341,7 +350,9 @@ impl Executor {
                     then_branch,
                     else_branch,
                 } => self.execute_if(components, condition, then_branch, else_branch, plan)?,
-                StatementKind::Scope(body) => self.execute_block(components, body, plan)?,
+                StatementKind::Scope(body) => {
+                    self.execute_block(components, body, plan, complete_component_set)?
+                }
                 _ => components
                     .into_iter()
                     .map(|mut component| {
@@ -365,7 +376,7 @@ impl Executor {
             // Merge only at those events instead of rescanning after every
             // unitary statement.
             if components.len() > 1 && (is_join || is_reset || discard.is_some()) {
-                components = merge_components(components);
+                components = merge(components);
             }
         }
         let removes_locals = !block.classical_registers.is_empty();
@@ -375,7 +386,7 @@ impl Executor {
             }
         }
         if components.len() > 1 && removes_locals {
-            components = merge_components(components);
+            components = merge(components);
         }
         Ok(components)
     }
@@ -429,10 +440,10 @@ impl Executor {
                 else_component.guard.push(condition);
             }
             if simplify_component(&mut then_component) {
-                result.extend(self.execute_block(vec![then_component], then_branch, plan)?);
+                result.extend(self.execute_block(vec![then_component], then_branch, plan, false)?);
             }
             if simplify_component(&mut else_component) {
-                result.extend(self.execute_block(vec![else_component], else_branch, plan)?);
+                result.extend(self.execute_block(vec![else_component], else_branch, plan, false)?);
             }
         }
         Ok(result)
