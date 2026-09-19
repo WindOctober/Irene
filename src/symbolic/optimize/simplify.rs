@@ -12,19 +12,21 @@ use crate::symbolic::{
 };
 
 use super::guard_rows::eliminate_guard_path;
+use super::reduce_path_sums;
 
 #[cfg(test)]
 mod graph_tests;
 
-/// Simplifies every reachable HPS component without enumerating assignments.
+/// Simplifies every reachable HPS component without global path enumeration.
 ///
 /// Guard XOR terms are reduced over GF(2), retaining each shared Boolean
 /// factor as a formal column. Unique owned-path pivots are substituted through
-/// every semantic field. A BDD handles remaining nonlinear implications.
+/// every semantic field. A BDD handles remaining nonlinear implications;
+/// exact local Fourier/Omega rules sum eligible bound paths in closed form.
 pub fn simplify(mut hps: HybridPathSum) -> HybridPathSum {
     let mut components = Vec::with_capacity(hps.components.len());
     for mut component in hps.components {
-        if simplify_component(&mut component) {
+        if reduce_path_sums(&mut component) {
             components.push(component);
         }
     }

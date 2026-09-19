@@ -2,10 +2,12 @@
 
 mod guard_rows;
 mod merge;
+mod path_sum;
 mod simplify;
 pub(crate) mod slice;
 
 pub(crate) use merge::merge_components;
+pub(crate) use path_sum::reduce_path_sums;
 pub(crate) use simplify::simplify;
 pub(crate) use simplify::simplify_component;
 pub use slice::OutputSelection;
