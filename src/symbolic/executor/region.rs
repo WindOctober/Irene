@@ -124,6 +124,15 @@ impl Executor {
         if prefix.is_empty() || prefix.len() > MAX_COMPONENTS {
             return None;
         }
+        // TODO: Preselect candidate starts by tracing dependencies backwards
+        // from each measurement result's last use, rather than retrying
+        // overlapping forward windows at every retained statement. Track
+        // reaching measurement definitions (not just reused classical names)
+        // and all quantum operands, including entangling gates and corrections.
+        // Initially keep a contiguous source-order window covering those
+        // dependencies; skipping or reordering intervening gates requires an
+        // independent commutation proof. Reuse the exact local summary check
+        // and ordinary-execution fallback; candidate selection is not a proof.
         let mut boundary = Boundary::default();
         let mut length = None;
         for (index, statement) in statements.iter().take(MAX_STATEMENTS).enumerate() {
