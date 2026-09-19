@@ -21,6 +21,45 @@ mod tests;
 #[cfg(test)]
 mod history_tests;
 
+#[cfg(test)]
+mod history_phase_tests;
+
+/// Cancels common Clifford phases that depend only on hidden history values.
+///
+/// Multiplying an extended state by `(-1)^f(h)` applies a diagonal unitary to
+/// the hidden environment `h`; tracing that environment is invariant under
+/// the unitary. We greedily toggle the frequent linear and quadratic forms
+/// `h_i/2` and `h_i*h_j/2` only when doing so strictly shortens the exact phase
+/// polynomial. Every accepted step is semantic, while the size test merely
+/// chooses a useful representative.
+fn cancel_half_turn_history_phases(component: &mut Component) {
+    const HISTORY_LIMIT: usize = 64;
+
+    let history = component
+        .output
+        .history
+        .iter()
+        .map(HistoryEntry::value)
+        .filter(|value| value.is_affine())
+        .cloned()
+        .collect::<Vec<_>>();
+    // A large history must not suppress the linear single-history scan.
+    // Only the genuinely quadratic pair search retains a scheduling limit.
+    let pairs = (0..history.len())
+        .flat_map(|left| {
+            let history = &history;
+            (left + 1..history.len()).map(move |right| history[left].and(&history[right]))
+        })
+        .take(if history.len() <= HISTORY_LIMIT {
+            usize::MAX
+        } else {
+            0
+        });
+    component
+        .phase
+        .shorten_half_turns(history.iter().cloned().chain(pairs));
+}
+
 /// A closed-form rule available to the path-sum reducer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PathRule {
@@ -46,6 +85,9 @@ enum PathRule {
 pub(crate) fn reduce_path_sums(component: &mut Component, allow_history: bool) -> bool {
     if !simplify_component(component) {
         return false;
+    }
+    if allow_history {
+        cancel_half_turn_history_phases(component);
     }
     loop {
         // Visit every current path once before starting another fixed-point

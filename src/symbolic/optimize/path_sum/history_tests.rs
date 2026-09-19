@@ -50,8 +50,8 @@ fn conjugate(a: &Eighth) -> Eighth {
 
 // Exact reduced density map, including independent ket/bra inputs and
 // cross-component terms. Compare maps, not only diagonal probabilities.
-type Density = BTreeMap<(usize, usize, Vec<bool>, Vec<bool>), Eighth>;
-fn density(components: &[Component]) -> Density {
+pub(super) type Density = BTreeMap<(usize, usize, Vec<bool>, Vec<bool>), Eighth>;
+pub(super) fn density(components: &[Component]) -> Density {
     let mut amplitudes = Vec::new();
     for component in components {
         let quantum = component.output.quantum.len();
