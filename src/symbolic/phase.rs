@@ -438,6 +438,69 @@ impl PhasePolynomial {
             self.add_selector(p.clone(), c);
         }
     }
+    /// Add selected half-turns, touching only the existing half-turn
+    /// selectors and a possible collision at the new parity key. This is the
+    /// same strict storage-size test as cloning the whole phase per candidate.
+    /// The caller must prove each added phase is irrelevant at its boundary
+    /// (for example, a common function of traced-out history). Arbitrary
+    /// candidates do not preserve the phase or a coherent sum of components.
+    pub(crate) fn shorten_half_turns(
+        &mut self,
+        values: impl IntoIterator<Item = BooleanPolynomial>,
+    ) {
+        let half = PhaseCoefficient::rational(ratio(1, 2));
+        let mut keys = self
+            .selectors
+            .iter()
+            .filter(|(_, c)| **c == half)
+            .map(|(p, _)| p.clone())
+            .collect::<std::collections::BTreeSet<_>>();
+        let mut old_size: usize = keys.iter().map(BooleanPolynomial::storage_size).sum();
+        for value in values {
+            // Without a half-turn selector, adding a half-turn cannot remove
+            // an existing selector or strictly reduce the representation.
+            if keys.is_empty() {
+                break;
+            }
+            if value.is_zero() {
+                continue;
+            }
+            let parity =
+                BooleanPolynomial::xor_all(std::iter::once(value).chain(keys.iter().cloned()))
+                    .factored();
+            let mut combined = half.clone();
+            let mut before = old_size;
+            if !keys.contains(&parity)
+                && let Some(existing) = self.selectors.get(&parity)
+            {
+                before += parity.storage_size();
+                combined.add_assign(existing.clone());
+            }
+            let after = if parity.is_zero() || combined.is_zero() {
+                0
+            } else {
+                parity.storage_size()
+            };
+            if after >= before {
+                continue;
+            }
+            for key in &keys {
+                self.selectors.remove(key);
+            }
+            keys.clear();
+            old_size = 0;
+            if !parity.is_zero() {
+                self.selectors.remove(&parity);
+                if !combined.is_zero() {
+                    if combined == half {
+                        keys.insert(parity.clone());
+                        old_size = after;
+                    }
+                    self.selectors.insert(parity, combined);
+                }
+            }
+        }
+    }
     fn add_selector(&mut self, p: BooleanPolynomial, c: PhaseCoefficient) {
         if p.is_zero() || c.is_zero() {
             return;
