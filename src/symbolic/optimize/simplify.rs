@@ -3,24 +3,24 @@ use std::collections::{BTreeMap, BTreeSet};
 #[cfg(test)]
 mod scalar_tests;
 
-use bitgauss::BitMatrix;
 use num_rational::BigRational;
 use oxidd::bdd::BDDFunction;
 use oxidd::{BooleanFunction, Manager, ManagerRef};
 
 use crate::symbolic::{
-    BooleanPolynomial, Component, HistoryEntry, HybridPathSum, Monomial, Scalar, Variable,
+    BooleanPolynomial, Component, HistoryEntry, HybridPathSum, Scalar, Variable,
 };
+
+use super::guard_rows::eliminate_guard_path;
 
 #[cfg(test)]
 mod graph_tests;
 
 /// Simplifies every reachable HPS component without enumerating assignments.
 ///
-/// Affine guard equations are reduced over GF(2). Guards containing products,
-/// such as `x*y ⊕ y0 = 0`, are represented by a BDD for exact satisfiability
-/// and implication checks. Substitutions are propagated through all semantic
-/// fields of the component.
+/// Guard XOR terms are reduced over GF(2), retaining each shared Boolean
+/// factor as a formal column. Unique owned-path pivots are substituted through
+/// every semantic field. A BDD handles remaining nonlinear implications.
 pub fn simplify(mut hps: HybridPathSum) -> HybridPathSum {
     let mut components = Vec::with_capacity(hps.components.len());
     for mut component in hps.components {
@@ -39,13 +39,10 @@ pub fn simplify(mut hps: HybridPathSum) -> HybridPathSum {
 /// more paths or phases.
 pub(crate) fn simplify_component(component: &mut Component) -> bool {
     loop {
-        match solve_affine_guard(&component.guard, &component.path_support) {
-            Inference::Unsatisfiable => return false,
-            Inference::Substitute(variable, replacement) => {
-                substitute_component(component, &variable, &replacement);
-                continue;
-            }
-            Inference::None => {}
+        match eliminate_guard_path(component) {
+            Err(()) => return false,
+            Ok(true) => continue,
+            Ok(false) => {}
         }
 
         if !component.guard.iter().any(|equation| !equation.is_affine()) {
@@ -68,79 +65,6 @@ enum Inference {
     Unsatisfiable,
     Substitute(Variable, BooleanPolynomial),
     None,
-}
-
-/// Row-reduces the affine part of a guard over GF(2).
-///
-/// For example, the equations `y0 ⊕ y1 = 0` and `y1 ⊕ x0 ⊕ 1 = 0`
-/// yield `y0 = 1 ⊕ x0` and `y1 = 1 ⊕ x0`. Path columns precede input
-/// columns, so elimination solves paths in terms of free program inputs.
-fn solve_affine_guard(guard: &[BooleanPolynomial], path_support: &BTreeSet<usize>) -> Inference {
-    let equations: Vec<_> = guard
-        .iter()
-        .filter(|equation| equation.is_affine())
-        .collect();
-    if equations.is_empty() {
-        return Inference::None;
-    }
-
-    let variables = affine_variable_order(&equations);
-    let constant_column = variables.len();
-    let mut matrix = BitMatrix::build(equations.len(), constant_column + 1, |row, column| {
-        if column == constant_column {
-            equations[row].affine_coefficient(&Monomial::one()).unwrap()
-        } else {
-            equations[row]
-                .affine_coefficient(&Monomial::variable(variables[column].clone()))
-                .unwrap()
-        }
-    });
-    matrix.gauss(true);
-
-    for row in 0..equations.len() {
-        let pivot = (0..variables.len()).find(|column| matrix.bit(row, *column));
-        let Some(pivot) = pivot else {
-            if matrix.bit(row, constant_column) {
-                return Inference::Unsatisfiable;
-            }
-            continue;
-        };
-
-        let Variable::Path(path) = &variables[pivot] else {
-            continue;
-        };
-        if !path_support.contains(path) {
-            continue;
-        }
-
-        let mut replacement = BooleanPolynomial::from(matrix.bit(row, constant_column));
-        for (column, variable) in variables.iter().enumerate() {
-            if column != pivot && matrix.bit(row, column) {
-                replacement = replacement.xor(&BooleanPolynomial::variable(variable.clone()));
-            }
-        }
-        return Inference::Substitute(variables[pivot].clone(), replacement);
-    }
-
-    Inference::None
-}
-
-fn affine_variable_order(equations: &[&BooleanPolynomial]) -> Vec<Variable> {
-    let all: BTreeSet<_> = equations
-        .iter()
-        .flat_map(|equation| equation.variables())
-        .collect();
-    let mut paths: Vec<_> = all
-        .iter()
-        .filter(|variable| matches!(variable, Variable::Path(_)))
-        .cloned()
-        .collect();
-    paths.sort_by(|left, right| right.cmp(left));
-    paths.extend(
-        all.into_iter()
-            .filter(|variable| matches!(variable, Variable::Input(_))),
-    );
-    paths
 }
 
 /// Uses a BDD when at least one guard equation is nonlinear.
@@ -315,7 +239,7 @@ fn guard_variables(guard: &[BooleanPolynomial]) -> BTreeSet<Variable> {
 }
 
 /// Applies one proven equality to every semantic field of a component.
-fn substitute_component(
+pub(crate) fn substitute_component(
     component: &mut Component,
     variable: &Variable,
     replacement: &BooleanPolynomial,

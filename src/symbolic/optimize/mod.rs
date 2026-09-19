@@ -1,5 +1,6 @@
 //! Semantics-preserving simplifications for symbolic HPS states.
 
+mod guard_rows;
 mod merge;
 mod simplify;
 pub(crate) mod slice;
