@@ -3,6 +3,9 @@ use std::collections::{BTreeMap, BTreeSet};
 #[cfg(test)]
 mod scalar_tests;
 
+#[cfg(test)]
+mod normalization_tests;
+
 use num_rational::BigRational;
 use oxidd::bdd::BDDFunction;
 use oxidd::{BooleanFunction, Manager, ManagerRef};
@@ -44,6 +47,57 @@ pub fn simplify(mut hps: HybridPathSum) -> HybridPathSum {
 /// more paths or phases.
 pub(crate) fn simplify_component(component: &mut Component) -> bool {
     loop {
+        // Normalize graph cancellations in semantic fields. Keep original
+        // guard rows for row-space inference; add reduced rows as consequences
+        // only when useful, so factorization does not hide affine columns.
+        for value in component
+            .output
+            .quantum
+            .values_mut()
+            .chain(component.output.classical.values_mut())
+        {
+            *value = value.factored();
+        }
+        for entry in &mut component.output.history {
+            let value = entry.value_mut();
+            *value = value.factored();
+        }
+        let normalized: Vec<_> = component
+            .guard
+            .iter()
+            .map(|g| {
+                let factored = g.factored();
+                // A compact nonlinear XAG may denote an affine constraint.
+                // Recover it semantically before the row-space solver; do
+                // not build a decision diagram for an entire large guard.
+                if !factored.is_affine()
+                    && factored.storage_size() <= 1024
+                    && factored.variables().len() <= 16
+                    && let Some(roots) = BooleanPolynomial::normalize_local(&[factored.clone()])
+                {
+                    let reduced = &roots[0];
+                    if reduced.is_affine() {
+                        return reduced.clone();
+                    }
+                }
+                factored
+            })
+            .collect();
+        if normalized.iter().any(BooleanPolynomial::is_one) {
+            return false;
+        }
+        component.guard = component
+            .guard
+            .iter()
+            .zip(&normalized)
+            .filter(|(_, reduced)| !reduced.is_zero())
+            .map(|(original, _)| original.clone())
+            .collect();
+        for reduced in normalized {
+            if !reduced.is_zero() && reduced.is_affine() && !component.guard.contains(&reduced) {
+                component.guard.push(reduced);
+            }
+        }
         match eliminate_guard_path(component) {
             Err(()) => return false,
             Ok(true) => continue,

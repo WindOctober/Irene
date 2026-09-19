@@ -529,7 +529,15 @@ fn nonlinear_predicate_remains_exact_without_world_splitting() {
     assert_eq!(hps.components.len(), 1);
     assert!(component.guard.is_empty());
     assert_eq!(component.path_support, [0, 1].into());
-    assert_eq!(component.output.quantum[&q0], left.xor(&left.and(&right)));
+    let mut expected = component.clone();
+    expected
+        .output
+        .quantum
+        .insert(q0, left.xor(&left.and(&right)));
+    super::optimize::assert_density(
+        std::slice::from_ref(component),
+        std::slice::from_ref(&expected),
+    );
 }
 
 #[test]
