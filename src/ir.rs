@@ -5,6 +5,8 @@ use std::ops::{Deref, DerefMut};
 
 use num_rational::BigRational;
 
+pub mod unitary;
+
 /// Program-local identity shared by every owned IR node.
 ///
 /// IDs are dense, allocated monotonically, and used only for indexing side
