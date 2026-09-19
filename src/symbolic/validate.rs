@@ -6,6 +6,9 @@ use crate::ir::{Block, ClassicalBit, ClassicalExpr, ClassicalExprKind, Program, 
 
 use super::{OutputSelection, SymbolicError};
 
+mod numeric;
+pub(crate) use numeric::numeric_domains;
+
 /// Checks that every classical read has a value on every control-flow path.
 ///
 /// This pass deliberately runs before sliced execution. Otherwise an `if` affecting
