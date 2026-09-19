@@ -531,8 +531,10 @@ impl Executor {
     /// Applies a side-effect-free unitary block under one symbolic predicate.
     ///
     /// [`is_predicable_block`] ensures that every retained statement has an
-    /// exact guarded basis-state transformer and that no branch-local partial
-    /// trace is skipped here.
+    /// exact guarded basis-state transformer. Liveness-only discard markers
+    /// inside the branch are deliberately skipped: the slice plan places their
+    /// union on the enclosing `if`, where it is applied once after both guarded
+    /// branch effects have joined.
     fn execute_predicated_block(
         &mut self,
         component: &mut Component,
@@ -998,19 +1000,17 @@ fn compact_components(
 
 /// Whether a sliced block can be executed as one guarded basis transformer.
 ///
-/// Branch-local discard points are deliberately excluded: partial trace under
-/// a symbolic predicate needs its own density-level rule and cannot be applied
-/// to the unsplit component unconditionally. Blocks with classical mutation,
-/// measurement, reset, or non-monomial gates likewise use ordinary splitting.
+/// Discard markers are generated only by output slicing and may be delayed to
+/// the enclosing join. Semantic effects such as classical mutation,
+/// measurement, reset, or non-monomial gates still require ordinary splitting.
+/// The two branches need not have equal discard sets: their live-input union
+/// remains available through both guarded transformations and is traced once
+/// using the enclosing `if` marker.
 fn is_predicable_block(block: &Block, plan: &SlicePlan) -> bool {
     block.classical_registers.is_empty()
-        && plan.discard_set(block.ast_id).is_none()
         && block.statements.iter().all(|statement| {
             if !plan.retains(statement.ast_id) {
                 return true;
-            }
-            if plan.discard_set(statement.ast_id).is_some() {
-                return false;
             }
             match &statement.kind {
                 StatementKind::Apply { gate, .. } => is_monomial_gate(*gate),
@@ -1105,3 +1105,6 @@ pub(crate) fn classical_cells(registers: &[Register]) -> impl Iterator<Item = Cl
 
 #[cfg(test)]
 mod compaction_tests;
+
+#[cfg(test)]
+mod predication_tests;
