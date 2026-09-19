@@ -8,6 +8,9 @@ use crate::ir::{NumericConstant, NumericExpr, NumericExprKind, SymbolId};
 
 use super::{BooleanPolynomial, Monomial, Variable};
 
+#[cfg(test)]
+mod rewrite_tests;
+
 /// One basis element in a normalized symbolic angle.
 ///
 /// Linear expressions use dedicated atoms, so `theta / 2 + theta / 2`
@@ -365,9 +368,75 @@ impl PhasePolynomial {
             .flat_map(BooleanPolynomial::variables)
             .collect()
     }
-    /// Retain the Boolean selector as a shared graph; do not distribute XOR.
+    /// Subtract the phase at the all-zero assignment. This removes only a
+    /// constant and is valid at a density boundary, never for coherent merging.
+    pub(crate) fn remove_global_phase(&mut self) {
+        let mut constant = PhaseCoefficient::default();
+        for (p, c) in &self.selectors {
+            if p.evaluate::<std::convert::Infallible>(|_| Ok(false))
+                .unwrap()
+            {
+                constant.add_assign(c.clone());
+            }
+        }
+        self.add_boolean(&BooleanPolynomial::one(), constant.scaled(BigInt::from(-1)));
+    }
     pub(crate) fn add_boolean(&mut self, p: &BooleanPolynomial, c: PhaseCoefficient) {
-        self.add_selector(p.clone(), c);
+        if p.is_zero() || c.is_zero() {
+            return;
+        }
+        // Local weighted-XAG rewrite, not an ANF conversion: each fanin is an
+        // arbitrary shared function. c*(a XOR b)=ca+cb-2c(a AND b).
+        // This exposes phase cancellations in Clifford+T decompositions while
+        // leaving larger parity arithmetic compact. Only this explicitly
+        // expanding rewrite is bounded by a fanin limit (at most 255 subsets).
+        if c.as_rational() != Some(ratio(1, 2))
+            && let fanins = p.xor_terms()
+            && fanins.len() <= 8
+            && fanins.len() > 1
+        {
+            let mut lifted = BTreeMap::<BooleanPolynomial, PhaseCoefficient>::new();
+            for term in fanins {
+                let products: Vec<_> = lifted
+                    .iter()
+                    .map(|(value, coefficient)| (value.and(&term), coefficient.scaled((-2).into())))
+                    .collect();
+                for (value, coefficient) in std::iter::once((term, c.clone())).chain(products) {
+                    if value.is_zero() || coefficient.is_zero() {
+                        continue;
+                    }
+                    let mut coefficient_sum = lifted.remove(&value).unwrap_or_default();
+                    coefficient_sum.add_assign(coefficient);
+                    if !coefficient_sum.is_zero() {
+                        lifted.insert(value, coefficient_sum);
+                    }
+                }
+            }
+            for (value, coefficient) in lifted {
+                self.add_boolean(&value, coefficient);
+            }
+            return;
+        }
+        // Half-turn arithmetic is exactly Boolean XOR. Combine the parity
+        // graph and factor shared children, retaining AND subgraphs unexpanded.
+        if c.as_rational() == Some(ratio(1, 2)) {
+            let mut parity = p.clone();
+            let keys: Vec<_> = self
+                .selectors
+                .iter()
+                .filter(|(_, c)| c.as_rational() == Some(ratio(1, 2)))
+                .map(|(p, _)| p.clone())
+                .collect();
+            for key in keys {
+                self.selectors.remove(&key);
+                parity = parity.xor(&key);
+            }
+            if !parity.is_zero() {
+                self.add_selector(parity.factored(), c);
+            }
+        } else {
+            self.add_selector(p.clone(), c);
+        }
     }
     fn add_selector(&mut self, p: BooleanPolynomial, c: PhaseCoefficient) {
         if p.is_zero() || c.is_zero() {

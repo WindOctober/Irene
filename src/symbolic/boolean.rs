@@ -1,7 +1,7 @@
 use crate::ir::Qubit;
 use std::collections::{BTreeSet, HashMap};
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Variable {
@@ -35,6 +35,9 @@ impl Monomial {
 pub struct BooleanPolynomial(Arc<Node>);
 struct Node {
     expression: Expression,
+    /// None marks an already normalized node; never store an Arc to self.
+    /// Changed forms own only rebuilt nodes/subgraphs, not the source root.
+    normalized: OnceLock<Option<BooleanPolynomial>>,
 }
 impl fmt::Debug for Node {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -81,7 +84,10 @@ impl Default for BooleanPolynomial {
 
 impl BooleanPolynomial {
     fn node(expression: Expression) -> Self {
-        Self(Arc::new(Node { expression }))
+        Self(Arc::new(Node {
+            expression,
+            normalized: OnceLock::new(),
+        }))
     }
     pub(crate) fn expression(&self) -> &Expression {
         &self.0.expression
@@ -124,6 +130,69 @@ impl BooleanPolynomial {
             1 => xs.into_iter().next().unwrap(),
             _ => Self::node(Expression::Xor(xs)),
         }
+    }
+    /// Bottom-up, non-distributing graph normalization. Memoization is only
+    /// keyed by nodes of the live source DAG; temporary rewrite nodes are never
+    /// entered by address (their allocations can otherwise be reused).
+    pub(crate) fn factored(&self) -> Self {
+        fn root(p: BooleanPolynomial) -> BooleanPolynomial {
+            if !matches!(p.expression(), Expression::Xor(_)) {
+                return p;
+            }
+            let mut xs = p.xor_fanins();
+            loop {
+                let mut uses =
+                    std::collections::BTreeMap::<BooleanPolynomial, Vec<BooleanPolynomial>>::new();
+                for term in &xs {
+                    for factor in term.and_fanins() {
+                        uses.entry(factor).or_default().push(term.clone());
+                    }
+                }
+                let Some((factor, terms)) = uses.into_iter().find(|(_, terms)| terms.len() > 1)
+                else {
+                    break;
+                };
+                let remainder = BooleanPolynomial::xor_all(terms.into_iter().map(|term| {
+                    xs.remove(&term);
+                    BooleanPolynomial::and_all(
+                        term.and_fanins().into_iter().filter(|p| *p != factor),
+                    )
+                }));
+                let term = factor.and(&root(remainder));
+                for part in term.xor_fanins() {
+                    if !xs.insert(part.clone()) {
+                        xs.remove(&part);
+                    }
+                }
+            }
+            BooleanPolynomial::from_xor(xs)
+        }
+        fn visit(
+            p: &BooleanPolynomial,
+            memo: &mut HashMap<usize, BooleanPolynomial>,
+        ) -> BooleanPolynomial {
+            if let Some(cached) = p.0.normalized.get() {
+                return cached.clone().unwrap_or_else(|| p.clone());
+            }
+            if let Some(value) = memo.get(&p.key()) {
+                return value.clone();
+            }
+            let value = match p.expression() {
+                Expression::Constant(_) | Expression::Variable(_) => p.clone(),
+                Expression::Xor(xs) => root(BooleanPolynomial::xor_all(
+                    xs.iter().map(|x| visit(x, memo)),
+                )),
+                Expression::And(xs) => {
+                    BooleanPolynomial::and_all(xs.iter().map(|x| visit(x, memo)))
+                }
+            };
+            let unchanged = value == *p;
+            let value = if unchanged { p.clone() } else { value };
+            let _ = p.0.normalized.set((!unchanged).then(|| value.clone()));
+            memo.insert(p.key(), value.clone());
+            value
+        }
+        visit(self, &mut HashMap::new())
     }
     /// Merge already materialized XOR fanins, with no size admission cap.
     /// Work is proportional to the supplied fanins (up to ordered-set costs);
@@ -573,3 +642,6 @@ impl fmt::Display for BooleanPolynomial {
 }
 #[cfg(test)]
 mod representation_tests;
+
+#[cfg(test)]
+mod factoring_tests;
