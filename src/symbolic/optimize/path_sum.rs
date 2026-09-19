@@ -18,6 +18,9 @@ use super::simplify_component;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod history_tests;
+
 /// A closed-form rule available to the path-sum reducer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PathRule {
@@ -27,14 +30,20 @@ enum PathRule {
     Fourier,
     /// `sum_y i^(±y) (-1)^(y f) A` becomes one phase and a `sqrt(2)` factor.
     Omega,
+    /// A hidden affine history bit `y xor f` separates the two values of `y`.
+    History,
 }
 
 /// Eliminates every path variable accepted by one of the exact local rules.
 ///
+/// With `allow_history`, preserves the reduced density map rather than the
+/// full history-indexed amplitude. The caller must provide a single component
+/// or separately certify isolation from all siblings before and after rewriting.
+///
 /// For example, the intermediate path in `H; H` has phase
 /// `y0 * (x xor y1) / 2`. The Fourier rule replaces its sum by the guard
 /// `x xor y1 = 0`; ordinary guard simplification then substitutes `y1 = x`.
-pub(crate) fn reduce_path_sums(component: &mut Component) -> bool {
+pub(crate) fn reduce_path_sums(component: &mut Component, allow_history: bool) -> bool {
     if !simplify_component(component) {
         return false;
     }
@@ -51,13 +60,22 @@ pub(crate) fn reduce_path_sums(component: &mut Component) -> bool {
         // once per round instead of rescanning every output expression for
         // every candidate path.
         let mut blocked = paths_in_guard_scalar_or_outputs(component);
-        // These coherent rules require the path to be absent from history.
-        // Eligible candidates are rechecked after earlier rewrites in a round.
-        for entry in &component.output.history {
-            let value = match entry {
-                HistoryEntry::Write { value, .. } | HistoryEntry::Discard { value } => value,
-            };
-            blocked.extend(value.variables());
+        // Fourier/Omega require no history occurrence; History requires no
+        // phase occurrence. Cache this necessary condition once per round.
+        // A rewrite may unblock an earlier path, which is reconsidered in
+        // the next round. Eligible candidates still get the dynamic checks
+        // in reduce_path, so stale information can only defer a rewrite.
+        let phase_variables = component.phase.variables();
+        for variable in component
+            .output
+            .history
+            .iter()
+            .map(HistoryEntry::value)
+            .flat_map(BooleanPolynomial::variables)
+        {
+            if !allow_history || phase_variables.contains(&variable) {
+                blocked.insert(variable.clone());
+            }
         }
         let mut reduced = false;
         for path in paths {
@@ -65,7 +83,7 @@ pub(crate) fn reduce_path_sums(component: &mut Component) -> bool {
             if blocked.contains(&variable) || !component.path_support.contains(&path) {
                 continue;
             }
-            if reduce_path(component, &variable) {
+            if reduce_path(component, &variable, allow_history) {
                 reduced = true;
                 if !simplify_component(component) {
                     return false;
@@ -114,6 +132,14 @@ impl PathRule {
                     Scalar::sqrt(Scalar::rational(integer(2))),
                 );
             }
+            (Self::History, PhaseProfile::Absent) => {
+                eliminate_history_path(component, variable);
+                remove_path(
+                    component,
+                    variable,
+                    Scalar::sqrt(Scalar::rational(integer(2))),
+                );
+            }
             _ => unreachable!("a path rule is selected from its matching profile"),
         }
     }
@@ -121,7 +147,7 @@ impl PathRule {
 
 /// Classifies one path once, then dispatches to the matching closed-form rule.
 /// This avoids rescanning the component's phase separately for every rule.
-fn reduce_path(component: &mut Component, variable: &Variable) -> bool {
+fn reduce_path(component: &mut Component, variable: &Variable, allow_history: bool) -> bool {
     // A previous elimination in the same round can introduce `variable` into
     // an output or scalar. Recheck dynamically even though the round-level
     // blocked set filtered its original state.
@@ -129,17 +155,23 @@ fn reduce_path(component: &mut Component, variable: &Variable) -> bool {
         return false;
     }
     let profile = phase_profile(component, variable);
+    // Unsupported phases have no local rule, independent of the history.
+    // A history pivot is only needed for the phase-absent History rule.
     if matches!(profile, PhaseProfile::Unsupported) {
         return false;
     }
-    let history_is_absent = component.output.history.iter().all(|entry| {
-        let value = match entry {
-            HistoryEntry::Write { value, .. } | HistoryEntry::Discard { value } => value,
-        };
-        !value.variables().contains(variable)
-    });
+    let history_is_absent = component
+        .output
+        .history
+        .iter()
+        .all(|entry| !HistoryEntry::value(entry).variables().contains(variable));
     let rule = match (&profile, history_is_absent) {
         (PhaseProfile::Absent, true) => PathRule::Vacuous,
+        (PhaseProfile::Absent, false)
+            if allow_history && history_pivot(component, variable).is_some() =>
+        {
+            PathRule::History
+        }
         (PhaseProfile::Fourier(_), true) => PathRule::Fourier,
         (PhaseProfile::Omega { .. }, true) => PathRule::Omega,
         _ => return false,
@@ -269,6 +301,51 @@ fn collect_scalar_variables(scalar: &Scalar, variables: &mut BTreeSet<Variable>)
             collect_scalar_variables(when_false, variables);
         }
     }
+}
+
+/// Finds a hidden history pivot of the form `y xor f`.
+///
+/// Every history row containing the path must have derivative one in `y`,
+/// hence the form `y xor f` with `f` independent of `y`. A pivot row can then
+/// be XORed into the other rows to remove their `y` dependence. These
+/// are invertible GF(2) row operations, so equality of the complete history
+/// vector is unchanged.
+fn history_pivot(component: &Component, variable: &Variable) -> Option<usize> {
+    let mut position = None;
+    for (index, entry) in component.output.history.iter().enumerate() {
+        let value = HistoryEntry::value(entry);
+        if !value.variables().contains(variable) {
+            continue;
+        }
+        let derivative = value
+            .substitute(variable, &BooleanPolynomial::zero())
+            .xor(&value.substitute(variable, &BooleanPolynomial::one()));
+        if !derivative.is_one() {
+            return None;
+        }
+        position.get_or_insert(index);
+    }
+    position
+}
+
+/// Eliminates one full-rank affine history column by Gaussian row operations.
+///
+/// For example, `[y xor x, y xor z]` becomes `[x xor z]` after the first row
+/// is used as the pivot and summed out. The two values of the removed pivot
+/// are orthogonal worlds with the same visible state, hence the `sqrt(2)`
+/// scalar supplied by [`PathRule::History`].
+fn eliminate_history_path(component: &mut Component, variable: &Variable) {
+    let position = history_pivot(component, variable)
+        .expect("the history rule is selected only for an affine pivot");
+    let pivot_value = HistoryEntry::value(&component.output.history[position]).clone();
+    for (index, entry) in component.output.history.iter_mut().enumerate() {
+        if index == position || !HistoryEntry::value(entry).variables().contains(variable) {
+            continue;
+        }
+        let value = HistoryEntry::value(entry).xor(&pivot_value);
+        *HistoryEntry::value_mut(entry) = value;
+    }
+    component.output.history.remove(position);
 }
 
 /// Tests exact dependence through the scalar's existing substitution rules.

@@ -95,6 +95,22 @@ pub enum HistoryEntry {
     Discard { value: BooleanPolynomial },
 }
 
+impl HistoryEntry {
+    /// The recorded Boolean value, independent of how it became hidden.
+    pub(crate) fn value(&self) -> &BooleanPolynomial {
+        match self {
+            Self::Write { value, .. } | Self::Discard { value } => value,
+        }
+    }
+
+    /// Mutates the recorded value without changing its kind or write target.
+    pub(crate) fn value_mut(&mut self) -> &mut BooleanPolynomial {
+        match self {
+            Self::Write { value, .. } | Self::Discard { value } => value,
+        }
+    }
+}
+
 /// Quantum memory, current classical memory, and measurement/decoherence history.
 ///
 /// The paper uses a stack of classical-memory snapshots. Irene keeps current

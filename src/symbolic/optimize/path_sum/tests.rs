@@ -30,22 +30,22 @@ fn add_phase(c: &mut Component, selector: &BooleanPolynomial, n: i64, d: i64) {
         .add_boolean(selector, PhaseCoefficient::rational(ratio(n, d)));
 }
 fn run(c: &mut Component) -> bool {
-    reduce_path_sums(c)
+    reduce_path_sums(c, false)
 }
 fn step(c: &mut Component, variable: &Variable) -> bool {
-    reduce_path(c, variable)
+    reduce_path(c, variable, false)
 }
 
 // Independent exact arithmetic in Q(zeta_8), with zeta_8^4 = -1.
 // It checks amplitudes, including global phase, not only their probabilities.
-type Eighth = [BigRational; 4];
-fn zero() -> Eighth {
+pub(super) type Eighth = [BigRational; 4];
+pub(super) fn zero() -> Eighth {
     std::array::from_fn(|_| integer(0))
 }
 fn rational(value: BigRational) -> Eighth {
     [value, integer(0), integer(0), integer(0)]
 }
-fn multiply(a: &Eighth, b: &Eighth) -> Eighth {
+pub(super) fn multiply(a: &Eighth, b: &Eighth) -> Eighth {
     let mut result = zero();
     for i in 0..4 {
         for j in 0..4 {
@@ -101,8 +101,8 @@ fn scalar(s: &Scalar, eval: &impl Fn(&BooleanPolynomial) -> bool) -> Eighth {
         _ => panic!("unsupported scalar in the independent test oracle"),
     }
 }
-type Vector = BTreeMap<(usize, Vec<bool>), Eighth>;
-fn vector(c: &Component) -> Vector {
+pub(super) type Vector = BTreeMap<(usize, Vec<bool>), Eighth>;
+pub(super) fn vector(c: &Component) -> Vector {
     let mut result = Vector::new();
     for input in 0usize..4 {
         for path in 0usize..(1 << c.path_support.len()) {
