@@ -24,9 +24,12 @@ mod graph_tests;
 /// every semantic field. A BDD handles remaining nonlinear implications;
 /// exact local Fourier/Omega rules sum eligible bound paths in closed form.
 pub fn simplify(mut hps: HybridPathSum) -> HybridPathSum {
+    // History elimination preserves a reduced density map. Restrict it to
+    // a singleton so deleting a record cannot create cross-component terms.
+    let allow_history_elimination = hps.components.len() == 1;
     let mut components = Vec::with_capacity(hps.components.len());
     for mut component in hps.components {
-        if reduce_path_sums(&mut component) {
+        if reduce_path_sums(&mut component, allow_history_elimination) {
             components.push(component);
         }
     }
