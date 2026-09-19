@@ -9,7 +9,9 @@ use crate::ir::{
 };
 
 use super::optimize::slice::{self, DiscardSet, OutputSelection, SlicePlan};
-use super::optimize::{merge_coherent_components, merge_components, simplify, simplify_component};
+use super::optimize::{
+    collapse_local_history, merge_coherent_components, merge_components, simplify, simplify_component,
+};
 use super::validate;
 use super::{BooleanPolynomial, PhaseCoefficient, PhasePolynomial, Scalar, Variable};
 
@@ -203,6 +205,11 @@ pub fn execute(
     validate::definite_assignment(program, output_selection)?;
     let mut hps = simplify(execute_with_plan(program, config, &plan)?);
     hps.components = merge_components(hps.components);
+    // This is the complete final state, not one successor of an unfinished
+    // branch. A singleton has no outside coherent summands to protect.
+    if let [component] = hps.components.as_mut_slice() {
+        collapse_local_history(component);
+    }
     Ok(hps)
 }
 
