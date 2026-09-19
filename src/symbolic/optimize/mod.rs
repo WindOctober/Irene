@@ -17,6 +17,8 @@ pub(crate) use merge::{merge_coherent_components, merge_components};
 pub(crate) use path_sum::reduce_path_sums;
 pub(crate) use simplify::simplify;
 pub(crate) use simplify::simplify_component;
+#[cfg(test)]
+pub(crate) use simplify::substitute_component;
 pub use slice::OutputSelection;
 
 #[cfg(test)]

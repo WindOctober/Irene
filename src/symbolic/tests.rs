@@ -655,7 +655,7 @@ fn predicated_else_uses_the_complementary_condition() {
 }
 
 #[test]
-fn branch_local_partial_trace_uses_explicit_components() {
+fn branch_local_partial_trace_preserves_the_observed_distribution() {
     let measured = qubit(0, 0);
     let environment = qubit(0, 1);
     let output = qubit(0, 2);
@@ -693,11 +693,33 @@ fn branch_local_partial_trace_uses_explicit_components() {
     let hps = execute_observed(
         &program,
         &ExecutionConfig::zero(),
-        &OutputSelection::new([output], [outcome]),
+        &OutputSelection::new([output.clone()], [outcome.clone()]),
     )
     .unwrap();
 
-    assert_eq!(hps.components.len(), 2);
+    // c=0 leaves the output at zero with probability 1/2.
+    // c=1 gives an equal classical mixture of output zero and one.
+    let expected: Vec<_> = [(false, false), (true, false), (true, true)]
+        .into_iter()
+        .map(|(c, value)| super::Component {
+            guard: Vec::new(),
+            path_support: Default::default(),
+            phase: super::PhasePolynomial::zero(),
+            scalar: if c {
+                Scalar::rational(ratio(1, 2))
+            } else {
+                Scalar::sqrt(Scalar::rational(ratio(1, 2)))
+            },
+            output: super::HybridMemory {
+                quantum: [(output.clone(), BooleanPolynomial::from(value))].into(),
+                classical: [(outcome.clone(), BooleanPolynomial::from(c))].into(),
+                history: vec![HistoryEntry::Discard {
+                    value: BooleanPolynomial::from(value),
+                }],
+            },
+        })
+        .collect();
+    super::optimize::assert_density(&hps.components, &expected);
 }
 
 #[test]

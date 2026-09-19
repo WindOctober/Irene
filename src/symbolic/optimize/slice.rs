@@ -242,10 +242,11 @@ fn analyze_block(block: &Block, mut live: LiveSet, plan: &mut SlicePlan) -> Bloc
                 else_branch,
             } => {
                 // Both branches must start from one common pre-`if` memory, so
-                // their input dependencies are unioned. Each branch receives
-                // an entry discard set for the part of that union needed only by
-                // the opposite branch. For example, if only the then branch
-                // uses `a`, the else block traces out `a` immediately.
+                // their input dependencies are unioned. Branch-local discard
+                // sets remain available to the ordinary split execution, while
+                // the complete `before - after` set is also placed at the join.
+                // A predicated execution can then keep every branch dependency
+                // alive temporarily and project it exactly once after the `if`.
                 let after = live.clone();
                 let then_analysis = analyze_block(then_branch, after.clone(), plan);
                 let else_analysis = analyze_block(else_branch, after.clone(), plan);
@@ -273,6 +274,7 @@ fn analyze_block(block: &Block, mut live: LiveSet, plan: &mut SlicePlan) -> Bloc
                         else_branch.ast_id,
                         DiscardSet::between(&before, &else_analysis.live),
                     );
+                    plan.set_discard(statement.ast_id, DiscardSet::between(&before, &after));
                     plan.retain(statement.ast_id);
                     live = before;
                     retained = true;
