@@ -10,7 +10,8 @@ use crate::ir::{
 
 use super::optimize::slice::{self, DiscardSet, OutputSelection, SlicePlan};
 use super::optimize::{
-    collapse_local_history, merge_coherent_components, merge_components, simplify, simplify_component,
+    collapse_local_history, merge_coherent_components, merge_components, merge_feedback_groups,
+    simplify, simplify_component,
 };
 use super::validate;
 use super::{BooleanPolynomial, PhaseCoefficient, PhasePolynomial, Scalar, Variable};
@@ -255,6 +256,7 @@ fn execute_with_plan(
     let mut executor = Executor {
         next_path: 0,
         ids: AstIdGenerator::starting_at(program.ast_id_bound()),
+        pending_feedback: BTreeSet::new(),
     };
     let components = executor.execute_block(vec![component], &program.body, plan, true)?;
     Ok(HybridPathSum { input, components })
@@ -305,9 +307,25 @@ fn initial_memory(
 struct Executor {
     next_path: usize,
     ids: AstIdGenerator,
+    // Retired controls in a partial successor wait for a complete join.
+    pending_feedback: BTreeSet<ClassicalBit>,
 }
 
 impl Executor {
+    fn merge_pending_feedback(
+        &mut self,
+        components: Vec<Component>,
+        complete: bool,
+    ) -> Vec<Component> {
+        if !complete || self.pending_feedback.is_empty() {
+            return components;
+        }
+        let retired: Vec<_> = std::mem::take(&mut self.pending_feedback)
+            .into_iter()
+            .collect();
+        merge_feedback_groups(components, &retired)
+    }
+
     /// Executes original IR statements using an AST-ID-indexed slice plan.
     ///
     /// Statements run in source order. At lexical scope exit, block-local
@@ -377,7 +395,10 @@ impl Executor {
                 for component in &mut components {
                     discard.apply(component);
                 }
+                self.pending_feedback
+                    .extend(discard.classical.iter().cloned());
             }
+            components = self.merge_pending_feedback(components, complete_component_set);
             // Branch joins, information-destroying resets, and discard
             // boundaries can make previously distinct components identical.
             // Merge only at those events instead of rescanning after every
@@ -390,7 +411,11 @@ impl Executor {
         for component in &mut components {
             for bit in classical_cells(&block.classical_registers) {
                 component.output.classical.remove(&bit);
+                self.pending_feedback.insert(bit);
             }
+        }
+        if removes_locals {
+            components = self.merge_pending_feedback(components, complete_component_set);
         }
         if components.len() > 1 && removes_locals {
             components = merge(components);
@@ -447,10 +472,20 @@ impl Executor {
                 else_component.guard.push(condition);
             }
             if simplify_component(&mut then_component) {
-                result.extend(self.execute_block(vec![then_component], then_branch, plan, false)?);
+                result.extend(self.execute_block(
+                    vec![then_component],
+                    then_branch,
+                    plan,
+                    false,
+                )?);
             }
             if simplify_component(&mut else_component) {
-                result.extend(self.execute_block(vec![else_component], else_branch, plan, false)?);
+                result.extend(self.execute_block(
+                    vec![else_component],
+                    else_branch,
+                    plan,
+                    false,
+                )?);
             }
         }
         Ok(result)

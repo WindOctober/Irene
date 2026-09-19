@@ -50,6 +50,47 @@ pub(crate) fn local_history_has_work(component: &Component) -> bool {
         })
 }
 
+/// Normal form for comparing isolated measurement branches. Coordinate changes
+/// are exact bijections; only history/global phase is quotiented out. No history
+/// coordinate is deleted here: branches must remain orthogonal until the
+/// density-weight merge has been certified.
+pub(super) fn normalize_feedback_branch(component: &mut Component) -> bool {
+    if !reduce_path_sums(component, false) {
+        return false;
+    }
+    normalize_coordinates_and_phase(component);
+    if !reduce_path_sums(component, false) {
+        return false;
+    }
+    // Alpha-rename bound paths through a disjoint scratch range; input names
+    // are never renamed. This compares branches allocating different fresh H
+    // paths without identifying ket/bra inputs or enumerating assignments.
+    let paths: Vec<_> = component.path_support.iter().copied().collect();
+    let Some(start) = paths.last().copied().unwrap_or(0).checked_add(1) else {
+        return false;
+    };
+    if start.checked_add(paths.len()).is_none() {
+        return false;
+    }
+    for (i, path) in paths.iter().enumerate() {
+        substitute_component(
+            component,
+            &Variable::Path(*path),
+            &BooleanPolynomial::variable(Variable::Path(start + i)),
+        );
+        component.path_support.insert(start + i);
+    }
+    for i in 0..paths.len() {
+        substitute_component(
+            component,
+            &Variable::Path(start + i),
+            &BooleanPolynomial::variable(Variable::Path(i)),
+        );
+        component.path_support.insert(i);
+    }
+    true
+}
+
 fn normalize_coordinates_and_phase(candidate: &mut Component) {
     let mut fixed = BTreeSet::new();
     // Read each value AFTER preceding substitutions. Earlier visible values

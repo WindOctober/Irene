@@ -16,7 +16,7 @@ use crate::symbolic::{BooleanPolynomial, Component, HistoryEntry, PhaseCoefficie
 use super::simplify_component;
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;
 
 /// First combines amplitudes within each classical world, then combines
 /// orthogonal worlds using density weight.
