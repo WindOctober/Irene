@@ -253,23 +253,17 @@ pub enum ScalarEvaluationError {
     MissingNumericInput(usize),
 }
 
-/// Evaluates an ANF Boolean expression under one concrete path assignment.
+/// Evaluates a Boolean graph under one concrete assignment.
 fn evaluate_boolean(
     polynomial: &BooleanPolynomial,
     bindings: &BTreeMap<Variable, bool>,
 ) -> Result<bool, ScalarEvaluationError> {
-    let mut value = false;
-    for monomial in polynomial.terms() {
-        let mut term = true;
-        for variable in monomial.variables() {
-            term &= bindings
-                .get(variable)
-                .copied()
-                .ok_or_else(|| ScalarEvaluationError::MissingBoolean(variable.clone()))?;
-        }
-        value ^= term;
-    }
-    Ok(value)
+    polynomial.evaluate(|variable| {
+        bindings
+            .get(variable)
+            .copied()
+            .ok_or_else(|| ScalarEvaluationError::MissingBoolean(variable.clone()))
+    })
 }
 
 /// Evaluates a source-preserving angle expression without first converting it
