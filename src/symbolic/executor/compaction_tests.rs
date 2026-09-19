@@ -124,6 +124,7 @@ fn executor() -> Executor {
         boundaries_since_compaction: 0,
         compaction_interval: MIN_COMPACTION_INTERVAL,
         pending_feedback: BTreeSet::new(),
+        summarize_regions: false,
     }
 }
 

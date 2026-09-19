@@ -8,6 +8,8 @@ use crate::ir::{
     NumericExprKind, Program, Qubit, Register, StatementKind,
 };
 
+mod region;
+
 use super::optimize::slice::{self, DiscardSet, OutputSelection, SlicePlan};
 use super::optimize::{
     collapse_local_history, local_history_has_work, merge_coherent_components, merge_components,
@@ -257,6 +259,7 @@ fn execute_with_plan(
         next_path: 0,
         ids: AstIdGenerator::starting_at(program.ast_id_bound()),
         pending_feedback: BTreeSet::new(),
+        summarize_regions: true,
         boundaries_since_compaction: 0,
         compaction_interval: MIN_COMPACTION_INTERVAL,
     };
@@ -311,6 +314,8 @@ struct Executor {
     ids: AstIdGenerator,
     // Retired controls in a partial successor wait for a complete join.
     pending_feedback: BTreeSet<ClassicalBit>,
+    // Summary execution itself must not recursively attempt summaries.
+    summarize_regions: bool,
     boundaries_since_compaction: usize,
     compaction_interval: usize,
 }
@@ -390,8 +395,44 @@ impl Executor {
             }
             components = self.compact_at_boundary(components, complete_component_set);
         }
-        for statement in &block.statements {
+        components =
+            self.execute_statements(components, &block.statements, plan, complete_component_set)?;
+        let removes_locals = !block.classical_registers.is_empty();
+        for component in &mut components {
+            for bit in classical_cells(&block.classical_registers) {
+                component.output.classical.remove(&bit);
+                self.pending_feedback.insert(bit);
+            }
+        }
+        if removes_locals {
+            components = self.merge_pending_feedback(components, complete_component_set);
+            components = self.compact_at_boundary(components, complete_component_set);
+        }
+        Ok(components)
+    }
+
+    fn execute_statements(
+        &mut self,
+        mut components: Vec<Component>,
+        statements: &[crate::ir::Statement],
+        plan: &SlicePlan,
+        complete_component_set: bool,
+    ) -> Result<Vec<Component>, SymbolicError> {
+        let mut summarized_until = 0;
+        for (index, statement) in statements.iter().enumerate() {
+            if index < summarized_until {
+                continue;
+            }
             if !plan.retains(statement.ast_id) {
+                continue;
+            }
+            if self.summarize_regions
+                && complete_component_set
+                && let Some((length, composed)) =
+                    self.summarize_region(&components, &statements[index..], plan)
+            {
+                components = composed;
+                summarized_until = index + length;
                 continue;
             }
             let is_join = matches!(&statement.kind, StatementKind::If { .. });
@@ -422,6 +463,10 @@ impl Executor {
                 for component in &mut components {
                     discard.apply(component);
                 }
+                // All successors have returned to this common boundary. The
+                // last-use controls select LOCAL measurement groups, including
+                // those split by earlier corrections. Unrelated components
+                // need not agree with the group or be absent.
                 self.pending_feedback
                     .extend(discard.classical.iter().cloned());
             }
@@ -443,19 +488,6 @@ impl Executor {
                     components = self.compact_at_boundary(components, complete_component_set);
                 }
             }
-        }
-        let removes_locals = !block.classical_registers.is_empty();
-        for component in &mut components {
-            for bit in classical_cells(&block.classical_registers) {
-                component.output.classical.remove(&bit);
-                self.pending_feedback.insert(bit);
-            }
-        }
-        if removes_locals {
-            components = self.merge_pending_feedback(components, complete_component_set);
-        }
-        if removes_locals {
-            components = self.compact_at_boundary(components, complete_component_set);
         }
         Ok(components)
     }
