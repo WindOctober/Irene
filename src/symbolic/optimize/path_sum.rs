@@ -15,6 +15,8 @@ use crate::symbolic::{
 
 use super::simplify_component;
 
+mod joint_phase;
+
 #[cfg(test)]
 mod tests;
 
@@ -196,7 +198,12 @@ fn reduce_path(component: &mut Component, variable: &Variable, allow_history: bo
     if occurs_in_guard_scalar_or_outputs(component, variable) {
         return false;
     }
-    let profile = phase_profile(component, variable);
+    let mut profile = phase_profile(component, variable);
+    if matches!(profile, PhaseProfile::Unsupported) {
+        // Individual selectors may cancel in the whole phase derivative.
+        // Only a failed syntactic classification needs joint cofactoring.
+        profile = joint_phase::profile(component, variable);
+    }
     // Unsupported phases have no local rule, independent of the history.
     // A history pivot is only needed for the phase-absent History rule.
     if matches!(profile, PhaseProfile::Unsupported) {
