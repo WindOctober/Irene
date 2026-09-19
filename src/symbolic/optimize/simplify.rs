@@ -1,6 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+#[cfg(test)]
+mod scalar_tests;
+
 use bitgauss::BitMatrix;
+use num_rational::BigRational;
 use oxidd::bdd::BDDFunction;
 use oxidd::{BooleanFunction, Manager, ManagerRef};
 
@@ -351,7 +355,7 @@ fn simplify_scalar(scalar: &Scalar) -> Scalar {
         Scalar::Rational(_) | Scalar::Sin(_) | Scalar::Cos(_) => scalar.clone(),
         Scalar::Sqrt(value) => Scalar::sqrt(simplify_scalar(value)),
         Scalar::Add(left, right) => simplify_scalar(left).sum(simplify_scalar(right)),
-        Scalar::Mul(left, right) => simplify_scalar(left).multiply(simplify_scalar(right)),
+        Scalar::Mul(_, _) => simplify_product(scalar),
         Scalar::Neg(value) => simplify_scalar(value).negate(),
         Scalar::Inverse(value) => simplify_scalar(value).inverse(),
         Scalar::Select {
@@ -363,5 +367,63 @@ fn simplify_scalar(scalar: &Scalar) -> Scalar {
             simplify_scalar(when_true),
             simplify_scalar(when_false),
         ),
+    }
+}
+
+/// Canonicalizes an associative, commutative product of real scalar factors.
+///
+/// Rational factors and square roots of non-negative rationals are collected
+/// exactly. For example, `2 * 2 * (1/2) * sqrt(1/2)^2` becomes `1`; remaining
+/// symbolic factors are sorted before rebuilding the product tree.
+fn simplify_product(scalar: &Scalar) -> Scalar {
+    let mut rational = BigRational::from_integer(1.into());
+    let mut radicand = BigRational::from_integer(1.into());
+    let mut factors = Vec::new();
+    collect_product(scalar, &mut rational, &mut radicand, &mut factors);
+    if rational == BigRational::from_integer(0.into()) {
+        return Scalar::zero();
+    }
+
+    let root = Scalar::sqrt(Scalar::rational(radicand));
+    match root {
+        Scalar::Rational(value) => rational *= value,
+        root => factors.push(root),
+    }
+    if rational != BigRational::from_integer(1.into()) || factors.is_empty() {
+        factors.push(Scalar::rational(rational));
+    }
+    factors.sort();
+    factors
+        .into_iter()
+        .reduce(|left, right| Scalar::Mul(Box::new(left), Box::new(right)))
+        .unwrap_or_else(Scalar::one)
+}
+
+fn collect_product(
+    scalar: &Scalar,
+    rational: &mut BigRational,
+    radicand: &mut BigRational,
+    factors: &mut Vec<Scalar>,
+) {
+    match scalar {
+        Scalar::Mul(left, right) => {
+            collect_product(left, rational, radicand, factors);
+            collect_product(right, rational, radicand, factors);
+        }
+        Scalar::Rational(value) => *rational *= value,
+        Scalar::Sqrt(value) => {
+            let value = simplify_scalar(value);
+            match value {
+                Scalar::Rational(value) if value >= BigRational::from_integer(0.into()) => {
+                    *radicand *= value;
+                }
+                value => factors.push(Scalar::sqrt(value)),
+            }
+        }
+        Scalar::Neg(value) => {
+            *rational = -rational.clone();
+            collect_product(value, rational, radicand, factors);
+        }
+        scalar => factors.push(simplify_scalar(scalar)),
     }
 }
