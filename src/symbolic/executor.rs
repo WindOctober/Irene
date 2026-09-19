@@ -10,8 +10,8 @@ use crate::ir::{
 
 use super::optimize::slice::{self, DiscardSet, OutputSelection, SlicePlan};
 use super::optimize::{
-    collapse_local_history, merge_coherent_components, merge_components, merge_feedback_groups,
-    simplify, simplify_component,
+    collapse_local_history, local_history_has_work, merge_coherent_components, merge_components,
+    merge_feedback_groups, reduce_path_sums, simplify, simplify_component,
 };
 use super::validate;
 use super::{BooleanPolynomial, PhaseCoefficient, PhasePolynomial, Scalar, Variable};
@@ -257,6 +257,8 @@ fn execute_with_plan(
         next_path: 0,
         ids: AstIdGenerator::starting_at(program.ast_id_bound()),
         pending_feedback: BTreeSet::new(),
+        boundaries_since_compaction: 0,
+        compaction_interval: MIN_COMPACTION_INTERVAL,
     };
     let components = executor.execute_block(vec![component], &program.body, plan, true)?;
     Ok(HybridPathSum { input, components })
@@ -309,7 +311,12 @@ struct Executor {
     ids: AstIdGenerator,
     // Retired controls in a partial successor wait for a complete join.
     pending_feedback: BTreeSet<ClassicalBit>,
+    boundaries_since_compaction: usize,
+    compaction_interval: usize,
 }
+
+const MIN_COMPACTION_INTERVAL: usize = 32;
+const MAX_COMPACTION_INTERVAL: usize = 512;
 
 impl Executor {
     fn merge_pending_feedback(
@@ -326,6 +333,36 @@ impl Executor {
         merge_feedback_groups(components, &retired)
     }
 
+    /// Batches single-component maintenance to avoid rescanning every live
+    /// path after each of thousands of adjacent reset/discard boundaries.
+    /// Multi-component joins are compacted immediately so branch growth stays
+    /// bounded. Unproductive singleton scans back off to at most 512
+    /// boundaries; a path reduction restores the short interval. Phase-only
+    /// cleanup does not reset backoff if the live path count stays unchanged.
+    /// This changes scheduling only. Final execution still runs the complete
+    /// fixed point, and partial branch sets still forbid history compression.
+    fn compact_at_boundary(
+        &mut self,
+        components: Vec<Component>,
+        complete_component_set: bool,
+    ) -> Vec<Component> {
+        self.boundaries_since_compaction += 1;
+        if components.len() > 1 || self.boundaries_since_compaction >= self.compaction_interval {
+            self.boundaries_since_compaction = 0;
+            let before = compaction_size(&components);
+            let components = compact_components(components, complete_component_set);
+            let after = compaction_size(&components);
+            self.compaction_interval = if after.0 < before.0 || after.1 < before.1 || before.0 > 1 {
+                MIN_COMPACTION_INTERVAL
+            } else {
+                (self.compaction_interval * 2).min(MAX_COMPACTION_INTERVAL)
+            };
+            components
+        } else {
+            components
+        }
+    }
+
     /// Executes original IR statements using an AST-ID-indexed slice plan.
     ///
     /// Statements run in source order. At lexical scope exit, block-local
@@ -339,14 +376,6 @@ impl Executor {
         plan: &SlicePlan,
         complete_component_set: bool,
     ) -> Result<Vec<Component>, SymbolicError> {
-        // A partial branch must retain the environment labels that separate
-        // it from siblings outside this call. Only a complete join may merge
-        // density weights; coherent amplitude merging is safe in either case.
-        let merge: fn(Vec<Component>) -> Vec<Component> = if complete_component_set {
-            merge_components
-        } else {
-            merge_coherent_components
-        };
         // Entry discard sets primarily occur on `if` branches. Backward analysis
         // takes the union of both branches' dependencies before the `if`, so a
         // value needed only by the sibling branch is still present here. The
@@ -359,9 +388,7 @@ impl Executor {
             for component in &mut components {
                 discard.apply(component);
             }
-            if components.len() > 1 {
-                components = merge(components);
-            }
+            components = self.compact_at_boundary(components, complete_component_set);
         }
         for statement in &block.statements {
             if !plan.retains(statement.ast_id) {
@@ -403,8 +430,18 @@ impl Executor {
             // boundaries can make previously distinct components identical.
             // Merge only at those events instead of rescanning after every
             // unitary statement.
-            if components.len() > 1 && (is_join || is_reset || discard.is_some()) {
-                components = merge(components);
+            if is_join || is_reset || discard.is_some() {
+                // At a last-use boundary, correction outcomes can have just
+                // become hidden. Do not defer this opportunity behind the
+                // ordinary singleton backoff (up to 512 later boundaries).
+                if complete_component_set
+                    && discard.is_some()
+                    && components.iter().any(local_history_has_work)
+                {
+                    components = compact_components(components, true);
+                } else {
+                    components = self.compact_at_boundary(components, complete_component_set);
+                }
             }
         }
         let removes_locals = !block.classical_registers.is_empty();
@@ -417,8 +454,8 @@ impl Executor {
         if removes_locals {
             components = self.merge_pending_feedback(components, complete_component_set);
         }
-        if components.len() > 1 && removes_locals {
-            components = merge(components);
+        if removes_locals {
+            components = self.compact_at_boundary(components, complete_component_set);
         }
         Ok(components)
     }
@@ -920,6 +957,45 @@ impl Executor {
     }
 }
 
+fn compaction_size(components: &[Component]) -> (usize, usize) {
+    (
+        components.len(),
+        components
+            .iter()
+            .map(|component| component.path_support.len())
+            .sum(),
+    )
+}
+
+/// Applies exact maintenance at discard/join boundaries: amplitude-preserving
+/// for partial states, and density-preserving for complete states.
+///
+/// These boundaries are the earliest points where a newly hidden value can be
+/// summarized. Reducing there prevents completed teleportation gadgets from
+/// accumulating one enormous phase polynomial. Recursive branch execution is
+/// marked as only a subset of the full component sum, where density/history
+/// compression is forbidden even for an apparent singleton: it could erase
+/// the tag that keeps an outer sibling incoherent. Top-level execution and
+/// the final HPS pass see the complete set and may compress it.
+fn compact_components(
+    mut components: Vec<Component>,
+    complete_component_set: bool,
+) -> Vec<Component> {
+    let allow_history_elimination = complete_component_set && components.len() == 1;
+    components.retain_mut(|component| {
+        reduce_path_sums(component, allow_history_elimination) && component.scalar != Scalar::zero()
+    });
+    if complete_component_set {
+        let mut components = merge_components(components);
+        if let [component] = components.as_mut_slice() {
+            collapse_local_history(component);
+        }
+        components
+    } else {
+        merge_coherent_components(components)
+    }
+}
+
 /// Whether a sliced block can be executed as one guarded basis transformer.
 ///
 /// Branch-local discard points are deliberately excluded: partial trace under
@@ -1026,3 +1102,6 @@ pub(crate) fn classical_cells(registers: &[Register]) -> impl Iterator<Item = Cl
         })
     })
 }
+
+#[cfg(test)]
+mod compaction_tests;

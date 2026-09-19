@@ -120,7 +120,7 @@ fn density(components: &[Component]) -> Density {
     }
     result
 }
-pub(in crate::symbolic::optimize) fn assert_density(a: &[Component], b: &[Component]) {
+pub(crate) fn assert_density(a: &[Component], b: &[Component]) {
     let a = density(a);
     let b = density(b);
     for key in a.keys().chain(b.keys()) {
