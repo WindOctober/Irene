@@ -1,4 +1,5 @@
 use std::fs;
+pub(crate) mod constraint_rows;
 use std::path::{Path, PathBuf};
 
 use oq3_lexer::{TokenKind, tokenize};
