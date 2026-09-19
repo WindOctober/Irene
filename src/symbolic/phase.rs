@@ -77,6 +77,13 @@ impl PhaseCoefficient {
         self.rational_turns.clone()
     }
 
+    /// Returns the exact coefficient when it contains no symbolic angle atom.
+    pub(crate) fn as_rational(&self) -> Option<BigRational> {
+        self.angle_terms
+            .is_empty()
+            .then(|| self.rational_turns.clone())
+    }
+
     /// Decomposes the linear angle fragment into canonical basis coefficients.
     ///
     /// For example, `(theta + pi) / 2` becomes
@@ -143,14 +150,17 @@ impl PhaseCoefficient {
         }
     }
 
-    fn is_zero(&self) -> bool {
+    pub(crate) fn is_zero(&self) -> bool {
         self.rational_turns == integer(0) && self.angle_terms.is_empty()
     }
 
-    /// Multiplies both the rational and symbolic-angle parts by an exact value.
+    /// Multiplies both the rational and symbolic-angle parts by an exact integer.
     /// For example, scaling `1/4 + θ/τ` by `-2` gives `1/2 - 2θ/τ`
     /// after reducing the rational part modulo one.
-    fn scaled(&self, scale: BigRational) -> Self {
+    /// Fractional scaling is not well-defined after reduction modulo one:
+    /// representatives 0 and 1 agree as phases, but their halves do not.
+    pub(crate) fn scaled(&self, scale: BigInt) -> Self {
+        let scale = BigRational::from_integer(scale);
         let rational_turns = modulo_one(self.rational_turns.clone() * scale.clone());
         let angle_terms = self
             .angle_terms
@@ -168,7 +178,7 @@ impl PhaseCoefficient {
 
     /// Adds another coefficient and merges occurrences of the same angle expression.
     /// For example, `θ/τ + θ/τ` is stored as the single term `2θ/τ`.
-    fn add_assign(&mut self, other: Self) {
+    pub(crate) fn add_assign(&mut self, other: Self) {
         self.rational_turns = modulo_one(self.rational_turns.clone() + other.rational_turns);
         for (angle, coefficient) in other.angle_terms {
             let coefficient = self
@@ -316,132 +326,130 @@ fn normalize_inverse(value: NumericForm) -> NumericForm {
     }
 }
 
-/// The phase `p` in the HPS amplitude `exp(2πi p)`.
-///
-/// Rational parts are stored modulo one because adding an integer does not
-/// change the complex phase. Monomials retain the Boolean relation `x² = x`.
-/// For example, T on a wire containing `x` adds `x/8`, while Z adds `x/2`.
+/// Exact phase as weighted XAG selectors. Boolean functions remain graph
+/// values; there is no persistent monomial table or eager ANF lifting.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct PhasePolynomial {
-    terms: BTreeMap<Monomial, PhaseCoefficient>,
+    selectors: BTreeMap<BooleanPolynomial, PhaseCoefficient>,
 }
-
 impl PhasePolynomial {
     pub fn zero() -> Self {
         Self::default()
     }
-
-    /// Iterates over the non-zero phase terms in canonical order.
-    pub fn terms(&self) -> impl Iterator<Item = (&Monomial, &PhaseCoefficient)> {
-        self.terms.iter()
+    #[cfg(test)]
+    pub fn terms(&self) -> impl Iterator<Item = (Monomial, PhaseCoefficient)> {
+        self.expanded_terms(65536)
+            .expect("test phase view exceeded budget")
+            .into_iter()
     }
-
-    /// Returns the coefficient of a monomial, or zero when it is absent.
-    pub fn coefficient(&self, monomial: &Monomial) -> PhaseCoefficient {
-        self.terms.get(monomial).cloned().unwrap_or_default()
+    #[cfg(test)]
+    pub fn coefficient(&self, m: &Monomial) -> PhaseCoefficient {
+        self.expanded_terms(65536)
+            .expect("test phase view exceeded budget")
+            .get(m)
+            .cloned()
+            .unwrap_or_default()
     }
-
-    pub(crate) fn add_boolean(
-        &mut self,
-        polynomial: &BooleanPolynomial,
-        coefficient: PhaseCoefficient,
-    ) {
-        // XOR is not ordinary integer addition. Lift the Boolean polynomial
-        // before scaling it as a phase expression.
-        for (monomial, lifted_coefficient) in lift_boolean(polynomial) {
-            self.add_term(monomial, coefficient.scaled(lifted_coefficient));
+    pub fn selectors(&self) -> impl Iterator<Item = (BooleanPolynomial, &PhaseCoefficient)> {
+        self.selectors.iter().map(|(p, c)| (p.clone(), c))
+    }
+    pub fn storage_size(&self) -> usize {
+        self.selectors
+            .keys()
+            .map(BooleanPolynomial::storage_size)
+            .sum()
+    }
+    pub(crate) fn variables(&self) -> std::collections::BTreeSet<Variable> {
+        self.selectors
+            .keys()
+            .flat_map(BooleanPolynomial::variables)
+            .collect()
+    }
+    /// Retain the Boolean selector as a shared graph; do not distribute XOR.
+    pub(crate) fn add_boolean(&mut self, p: &BooleanPolynomial, c: PhaseCoefficient) {
+        self.add_selector(p.clone(), c);
+    }
+    fn add_selector(&mut self, p: BooleanPolynomial, c: PhaseCoefficient) {
+        if p.is_zero() || c.is_zero() {
+            return;
         }
-    }
-
-    /// Substitutes a Boolean variable throughout the arithmetic phase.
-    ///
-    /// Boolean expressions are lifted before being reinserted. Thus replacing
-    /// `y` by `1 ⊕ x` in the phase `y/2` yields `(1-x)/2`, rather than
-    /// incorrectly treating XOR as ordinary addition.
-    pub(crate) fn substitute(&mut self, variable: &Variable, replacement: &BooleanPolynomial) {
-        let terms = std::mem::take(&mut self.terms);
-        for (monomial, coefficient) in terms {
-            let mut substituted = BooleanPolynomial::one();
-            for current in monomial.variables() {
-                let factor = if current == variable {
-                    replacement.clone()
-                } else {
-                    BooleanPolynomial::variable(current.clone())
-                };
-                substituted = substituted.and(&factor);
-            }
-            self.add_boolean(&substituted, coefficient);
-        }
-    }
-
-    /// Adds a coefficient to one phase monomial.
-    /// For example, adding `x/8` twice leaves one `x` entry with coefficient `1/4`.
-    fn add_term(&mut self, monomial: Monomial, coefficient: PhaseCoefficient) {
-        let mut combined = self.terms.remove(&monomial).unwrap_or_default();
-        combined.add_assign(coefficient);
+        let mut combined = self.selectors.remove(&p).unwrap_or_default();
+        combined.add_assign(c);
         if !combined.is_zero() {
-            self.terms.insert(monomial, combined);
+            self.selectors.insert(p, combined);
         }
     }
-}
-
-/// An ordinary rational polynomial over idempotent Boolean variables.
-type ArithmeticPolynomial = BTreeMap<Monomial, BigRational>;
-
-/// Embeds an ANF Boolean expression into an arithmetic polynomial with the same
-/// value on Boolean assignments.
-///
-/// For example, lifting `x ⊕ y` yields `x + y - 2xy`. Consequently, using
-/// `x ⊕ y` as a T-gate phase adds `x/8 + y/8 - xy/4`; treating XOR as
-/// ordinary addition would lose the final interaction term.
-fn lift_boolean(polynomial: &BooleanPolynomial) -> ArithmeticPolynomial {
-    let mut lifted = ArithmeticPolynomial::new();
-    for term in polynomial.terms() {
-        let term = BTreeMap::from([(term.clone(), integer(1))]);
-        lifted = arithmetic_xor(lifted, term);
+    pub(crate) fn substitute(&mut self, v: &Variable, replacement: &BooleanPolynomial) {
+        self.map_variables(|w| {
+            if w == v {
+                replacement.clone()
+            } else {
+                BooleanPolynomial::variable(w.clone())
+            }
+        });
     }
-    lifted
-}
-
-/// Combines two arithmetic encodings using the Boolean XOR identity.
-/// For example, XORing `x` and `y` produces `x + y - 2xy`.
-fn arithmetic_xor(left: ArithmeticPolynomial, right: ArithmeticPolynomial) -> ArithmeticPolynomial {
-    let product = arithmetic_product(&left, &right);
-    let mut result = left;
-    add_arithmetic(&mut result, right, integer(1));
-    add_arithmetic(&mut result, product, integer(-2));
-    result
-}
-
-/// Multiplies two arithmetic polynomials with `x² = x` for Boolean variables.
-/// For example, `x * (x + y)` produces `x + xy`.
-fn arithmetic_product(
-    left: &ArithmeticPolynomial,
-    right: &ArithmeticPolynomial,
-) -> ArithmeticPolynomial {
-    let mut result = ArithmeticPolynomial::new();
-    for (left_term, left_coefficient) in left {
-        for (right_term, right_coefficient) in right {
-            let term = left_term.multiply(right_term);
-            *result.entry(term).or_insert_with(|| integer(0)) +=
-                left_coefficient * right_coefficient;
+    /// Rebuild the entire phase with one shared simultaneous Boolean map.
+    /// Coefficients are retained and colliding selectors merge exactly.
+    pub(crate) fn map_variables(&mut self, f: impl FnMut(&Variable) -> BooleanPolynomial) {
+        let old = std::mem::take(self);
+        let (roots, coefficients): (Vec<_>, Vec<_>) = old.selectors.into_iter().unzip();
+        for (p, c) in BooleanPolynomial::map_roots(&roots, f)
+            .into_iter()
+            .zip(coefficients)
+        {
+            self.add_boolean(&p, c);
         }
     }
-    result.retain(|_, coefficient| coefficient != &integer(0));
-    result
-}
-
-/// Adds a scaled polynomial into an accumulator and removes zero terms.
-/// For example, adding `-2 * (xy)` to `x + y` produces `x + y - 2xy`.
-fn add_arithmetic(
-    target: &mut ArithmeticPolynomial,
-    source: ArithmeticPolynomial,
-    scale: BigRational,
-) {
-    for (term, coefficient) in source {
-        *target.entry(term).or_insert_with(|| integer(0)) += coefficient * &scale;
+    /// Temporary arithmetic-polynomial view for kernel algebra. Failure does
+    /// not alter the graph or truncate terms. XOR lifting is ordinary integer
+    /// arithmetic a XOR b = a+b-2ab, not Boolean addition for general phases.
+    pub fn expanded_terms(&self, limit: usize) -> Option<BTreeMap<Monomial, PhaseCoefficient>> {
+        fn add(out: &mut BTreeMap<Monomial, PhaseCoefficient>, m: Monomial, c: PhaseCoefficient) {
+            let mut combined = out.remove(&m).unwrap_or_default();
+            combined.add_assign(c);
+            if !combined.is_zero() {
+                out.insert(m, combined);
+            }
+        }
+        let mut result = BTreeMap::new();
+        let mut work = limit.saturating_mul(64);
+        for (p, c) in &self.selectors {
+            let terms = p.expanded_terms(limit)?;
+            work = work.checked_sub(terms.len())?;
+            let mut lifted = BTreeMap::<Monomial, PhaseCoefficient>::new();
+            if c.as_rational() == Some(ratio(1, 2)) {
+                lifted.extend(terms.into_iter().map(|m| (m, c.clone())));
+            } else {
+                for term in terms {
+                    let mut products = Vec::new();
+                    for (m, coefficient) in &lifted {
+                        work = work.checked_sub(1)?;
+                        let coefficient = coefficient.scaled(BigInt::from(-2));
+                        if !coefficient.is_zero() {
+                            products.push((m.multiply(&term), coefficient));
+                        }
+                    }
+                    add(&mut lifted, term, c.clone());
+                    for (m, c) in products {
+                        add(&mut lifted, m, c);
+                        if lifted.len() > limit {
+                            return None;
+                        }
+                    }
+                    if lifted.len() > limit {
+                        return None;
+                    }
+                }
+            }
+            for (m, c) in lifted {
+                add(&mut result, m, c);
+                if result.len() > limit {
+                    return None;
+                }
+            }
+        }
+        Some(result)
     }
-    target.retain(|_, coefficient| coefficient != &integer(0));
 }
 
 /// Chooses the canonical representative in `[0, 1)` for a phase coefficient.
@@ -507,10 +515,10 @@ fn display_joined(
 
 impl fmt::Display for PhasePolynomial {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.terms.is_empty() {
+        if self.selectors.is_empty() {
             return formatter.write_str("0");
         }
-        for (index, (term, coefficient)) in self.terms.iter().enumerate() {
+        for (index, (term, coefficient)) in self.selectors().enumerate() {
             if index > 0 {
                 formatter.write_str(" + ")?;
             }

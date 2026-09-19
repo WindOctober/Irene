@@ -8,6 +8,9 @@ use crate::symbolic::{
     BooleanPolynomial, Component, HistoryEntry, HybridPathSum, Monomial, Scalar, Variable,
 };
 
+#[cfg(test)]
+mod graph_tests;
+
 /// Simplifies every reachable HPS component without enumerating assignments.
 ///
 /// Affine guard equations are reduced over GF(2). Guards containing products,
@@ -81,9 +84,11 @@ fn solve_affine_guard(guard: &[BooleanPolynomial], path_support: &BTreeSet<usize
     let constant_column = variables.len();
     let mut matrix = BitMatrix::build(equations.len(), constant_column + 1, |row, column| {
         if column == constant_column {
-            equations[row].has_term(&Monomial::one())
+            equations[row].affine_coefficient(&Monomial::one()).unwrap()
         } else {
-            equations[row].has_term(&Monomial::variable(variables[column].clone()))
+            equations[row]
+                .affine_coefficient(&Monomial::variable(variables[column].clone()))
+                .unwrap()
         }
     });
     matrix.gauss(true);
@@ -243,7 +248,7 @@ impl BddGuard {
     }
 }
 
-/// Converts an ANF polynomial to a BDD by preserving XOR and multiplication.
+/// Converts a shared Boolean graph to a BDD without expanding products.
 ///
 /// For example, `x ⊕ x*y` becomes the BDD expression `x XOR (x AND y)`.
 fn bdd_polynomial(
@@ -252,15 +257,50 @@ fn bdd_polynomial(
     false_function: &BDDFunction,
     true_function: &BDDFunction,
 ) -> Option<BDDFunction> {
-    let mut result = false_function.clone();
-    for monomial in polynomial.terms() {
-        let mut term = true_function.clone();
-        for variable in monomial.variables() {
-            term = term.and(variables.get(variable)?).ok()?;
+    fn visit(
+        p: &BooleanPolynomial,
+        variables: &BTreeMap<Variable, BDDFunction>,
+        false_function: &BDDFunction,
+        true_function: &BDDFunction,
+        memo: &mut BTreeMap<BooleanPolynomial, BDDFunction>,
+    ) -> Option<BDDFunction> {
+        use crate::symbolic::boolean::Expression;
+        if let Some(value) = memo.get(p) {
+            return Some(value.clone());
         }
-        result = result.xor(&term).ok()?;
+        let result = match p.expression() {
+            Expression::Constant(false) => false_function.clone(),
+            Expression::Constant(true) => true_function.clone(),
+            Expression::Variable(v) => variables.get(v)?.clone(),
+            Expression::Xor(children) | Expression::And(children) => {
+                let xor = matches!(p.expression(), Expression::Xor(_));
+                let mut result = if xor {
+                    false_function.clone()
+                } else {
+                    true_function.clone()
+                };
+                for child in children {
+                    let value = visit(child, variables, false_function, true_function, memo)?;
+                    result = if xor {
+                        result.xor(&value)
+                    } else {
+                        result.and(&value)
+                    }
+                    .ok()?;
+                }
+                result
+            }
+        };
+        memo.insert(p.clone(), result.clone());
+        Some(result)
     }
-    Some(result)
+    visit(
+        polynomial,
+        variables,
+        false_function,
+        true_function,
+        &mut BTreeMap::new(),
+    )
 }
 
 fn guard_variables(guard: &[BooleanPolynomial]) -> BTreeSet<Variable> {

@@ -52,7 +52,8 @@ fn check_phase(hps: &HybridPathSum, feedback: bool) {
     assert!(component.guard.is_empty());
     assert_eq!(component.scalar, Scalar::one());
     assert_eq!(component.output.quantum, hps.input.quantum);
-    let terms: Vec<_> = component.phase.terms().collect();
+    let expanded = component.phase.expanded_terms(16).unwrap();
+    let terms: Vec<_> = expanded.iter().collect();
     assert_eq!(terms.len(), 1);
     let (monomial, coefficient) = terms[0];
     assert_eq!(
