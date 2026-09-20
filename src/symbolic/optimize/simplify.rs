@@ -6,29 +6,30 @@ mod scalar_tests;
 #[cfg(test)]
 mod normalization_tests;
 
-use num_rational::BigRational;
-use oxidd::bdd::BDDFunction;
-use oxidd::{BooleanFunction, Manager, ManagerRef};
-
-use crate::symbolic::{
-    BooleanPolynomial, Component, HistoryEntry, HybridPathSum, Scalar, Variable,
-};
-
-use super::guard_rows::eliminate_guard_path;
-use super::reduce_path_sums;
-
 #[cfg(test)]
 mod graph_tests;
 
-/// Simplifies every reachable HPS component without global path enumeration.
+use num_rational::BigRational;
+
+use crate::symbolic::{BooleanPolynomial, Component, HybridPathSum, Scalar, Variable};
+
+use super::{guard_rows::eliminate_guard_path, reduce_path_sums};
+
+/// Maximum support of a nonlinear guard handled by exact enumeration.
+/// Larger supports are left unchanged; this is an optimization limit, not an
+/// approximation of the guard.
+const MAX_NONLINEAR_GUARD_VARIABLES: usize = 16;
+
+/// Simplifies every reachable HPS component.
 ///
-/// Guard XOR terms are reduced over GF(2), retaining each shared Boolean
-/// factor as a formal column. Unique owned-path pivots are substituted through
-/// every semantic field. A BDD handles remaining nonlinear implications;
-/// exact local Fourier/Omega rules sum eligible bound paths in closed form.
+/// Guard XOR factors are reduced over GF(2). Unique owned-path relations
+/// propagate through every field, with or without hidden history.
+/// A bounded truth table remains a fallback for nonlinear Boolean implications
+/// outside the formal row span.
 pub fn simplify(mut hps: HybridPathSum) -> HybridPathSum {
-    // History elimination preserves a reduced density map. Restrict it to
-    // a singleton so deleting a record cannot create cross-component terms.
+    // Collapsing an affine hidden-history path produces a density
+    // representative. It is safe directly only when no sibling component can
+    // acquire a spurious coherent cross term with that representative.
     let allow_history_elimination = hps.components.len() == 1;
     let mut components = Vec::with_capacity(hps.components.len());
     for mut component in hps.components {
@@ -126,19 +127,17 @@ enum Inference {
     None,
 }
 
-/// Uses a BDD when at least one guard equation is nonlinear.
+/// Uses a bounded exact truth table when a guard equation is nonlinear.
 ///
-/// The BDD decides reachability exactly and detects compact implied relations
-/// `y = 0`, `y = 1`, `y = v`, and `y = 1 ⊕ v`. An arbitrary nonlinear
-/// function of many variables remains in the guard instead of being expanded
-/// into a potentially exponential ANF expression.
+/// Enumeration decides reachability exactly and detects compact implied
+/// relations `y = 0`, `y = 1`, `y = v`, and `y = 1 ⊕ v`. A support beyond the
+/// fixed bound remains in the guard. This prevents a best-effort optimizer
+/// from allocating and enumerating an unbounded truth table.
 fn solve_nonlinear_guard(guard: &[BooleanPolynomial], path_support: &BTreeSet<usize>) -> Inference {
-    let Some(bdd) = BddGuard::build(guard) else {
-        // Optimization is best-effort: allocation failure leaves the exact
-        // symbolic guard unchanged.
+    let Some(table) = TruthTableGuard::build(guard) else {
         return Inference::None;
     };
-    if !bdd.function.satisfiable() {
+    if table.satisfying.is_empty() {
         return Inference::Unsatisfiable;
     }
 
@@ -152,16 +151,14 @@ fn solve_nonlinear_guard(guard: &[BooleanPolynomial], path_support: &BTreeSet<us
     paths.sort_by(|left, right| right.cmp(left));
 
     for variable in paths {
-        for (replacement, function) in [
-            (BooleanPolynomial::zero(), &bdd.false_function),
-            (BooleanPolynomial::one(), &bdd.true_function),
-        ] {
-            if bdd.implies_equal(&variable, function) == Some(true) {
-                return Inference::Substitute(variable, replacement);
-            }
+        if table.implies_constant(&variable, false) {
+            return Inference::Substitute(variable, BooleanPolynomial::zero());
+        }
+        if table.implies_constant(&variable, true) {
+            return Inference::Substitute(variable, BooleanPolynomial::one());
         }
 
-        for candidate in bdd.variables.keys() {
+        for candidate in table.positions.keys() {
             let eligible = match candidate {
                 Variable::Input(_) => true,
                 Variable::Path(candidate_path) => match &variable {
@@ -172,17 +169,13 @@ fn solve_nonlinear_guard(guard: &[BooleanPolynomial], path_support: &BTreeSet<us
             if !eligible {
                 continue;
             }
-            let candidate_function = &bdd.variables[candidate];
-            if bdd.implies_equal(&variable, candidate_function) == Some(true) {
+            if table.implies_relation(&variable, candidate, false) {
                 return Inference::Substitute(
                     variable,
                     BooleanPolynomial::variable(candidate.clone()),
                 );
             }
-            let Some(complement) = candidate_function.not().ok() else {
-                continue;
-            };
-            if bdd.implies_equal(&variable, &complement) == Some(true) {
+            if table.implies_relation(&variable, candidate, true) {
                 return Inference::Substitute(
                     variable,
                     BooleanPolynomial::variable(candidate.clone()).complement(),
@@ -194,100 +187,62 @@ fn solve_nonlinear_guard(guard: &[BooleanPolynomial], path_support: &BTreeSet<us
     Inference::None
 }
 
-struct BddGuard {
-    function: BDDFunction,
-    variables: BTreeMap<Variable, BDDFunction>,
-    false_function: BDDFunction,
-    true_function: BDDFunction,
+struct TruthTableGuard {
+    positions: BTreeMap<Variable, usize>,
+    satisfying: Vec<usize>,
 }
 
-impl BddGuard {
+impl TruthTableGuard {
     fn build(guard: &[BooleanPolynomial]) -> Option<Self> {
         let ordered_variables: Vec<_> = guard_variables(guard).into_iter().collect();
-        let capacity = ordered_variables.len().saturating_mul(1024).max(1024);
-        let manager_ref = oxidd::bdd::new_manager(capacity, capacity, 1);
-        let (functions, false_function, true_function) =
-            manager_ref.with_manager_exclusive(|manager| {
-                manager.add_vars(ordered_variables.len() as u32);
-                let functions = (0..ordered_variables.len())
-                    .map(|level| BDDFunction::var(manager, level as u32).ok())
-                    .collect::<Option<Vec<_>>>()?;
-                Some((functions, BDDFunction::f(manager), BDDFunction::t(manager)))
-            })?;
-        let variables: BTreeMap<_, _> = ordered_variables.into_iter().zip(functions).collect();
-
-        let mut function = true_function.clone();
-        for equation in guard {
-            let equation = bdd_polynomial(equation, &variables, &false_function, &true_function)?;
-            function = function.and(&equation.not().ok()?).ok()?;
+        if ordered_variables.len() > MAX_NONLINEAR_GUARD_VARIABLES {
+            return None;
         }
+        let positions = ordered_variables
+            .into_iter()
+            .enumerate()
+            .map(|(position, variable)| (variable, position))
+            .collect::<BTreeMap<_, _>>();
+        let assignments = 1usize.checked_shl(positions.len() as u32)?;
+        let satisfying = (0..assignments)
+            .filter(|assignment| {
+                guard
+                    .iter()
+                    .all(|equation| !evaluate_boolean_polynomial(equation, &positions, *assignment))
+            })
+            .collect();
         Some(Self {
-            function,
-            variables,
-            false_function,
-            true_function,
+            positions,
+            satisfying,
         })
     }
 
-    fn implies_equal(&self, variable: &Variable, value: &BDDFunction) -> Option<bool> {
-        let difference = self.variables.get(variable)?.xor(value).ok()?;
-        Some(!self.function.and(&difference).ok()?.satisfiable())
+    fn value(&self, assignment: usize, variable: &Variable) -> bool {
+        let position = self.positions[variable];
+        assignment & (1usize << position) != 0
+    }
+
+    fn implies_constant(&self, variable: &Variable, value: bool) -> bool {
+        self.satisfying
+            .iter()
+            .all(|assignment| self.value(*assignment, variable) == value)
+    }
+
+    fn implies_relation(&self, left: &Variable, right: &Variable, complement: bool) -> bool {
+        self.satisfying.iter().all(|assignment| {
+            self.value(*assignment, left) == (self.value(*assignment, right) ^ complement)
+        })
     }
 }
 
-/// Converts a shared Boolean graph to a BDD without expanding products.
-///
-/// For example, `x ⊕ x*y` becomes the BDD expression `x XOR (x AND y)`.
-fn bdd_polynomial(
+fn evaluate_boolean_polynomial(
     polynomial: &BooleanPolynomial,
-    variables: &BTreeMap<Variable, BDDFunction>,
-    false_function: &BDDFunction,
-    true_function: &BDDFunction,
-) -> Option<BDDFunction> {
-    fn visit(
-        p: &BooleanPolynomial,
-        variables: &BTreeMap<Variable, BDDFunction>,
-        false_function: &BDDFunction,
-        true_function: &BDDFunction,
-        memo: &mut BTreeMap<BooleanPolynomial, BDDFunction>,
-    ) -> Option<BDDFunction> {
-        use crate::symbolic::boolean::Expression;
-        if let Some(value) = memo.get(p) {
-            return Some(value.clone());
-        }
-        let result = match p.expression() {
-            Expression::Constant(false) => false_function.clone(),
-            Expression::Constant(true) => true_function.clone(),
-            Expression::Variable(v) => variables.get(v)?.clone(),
-            Expression::Xor(children) | Expression::And(children) => {
-                let xor = matches!(p.expression(), Expression::Xor(_));
-                let mut result = if xor {
-                    false_function.clone()
-                } else {
-                    true_function.clone()
-                };
-                for child in children {
-                    let value = visit(child, variables, false_function, true_function, memo)?;
-                    result = if xor {
-                        result.xor(&value)
-                    } else {
-                        result.and(&value)
-                    }
-                    .ok()?;
-                }
-                result
-            }
-        };
-        memo.insert(p.clone(), result.clone());
-        Some(result)
-    }
-    visit(
-        polynomial,
-        variables,
-        false_function,
-        true_function,
-        &mut BTreeMap::new(),
-    )
+    positions: &BTreeMap<Variable, usize>,
+    assignment: usize,
+) -> bool {
+    polynomial
+        .evaluate::<std::convert::Infallible>(|v| Ok(assignment & (1usize << positions[v]) != 0))
+        .unwrap()
 }
 
 fn guard_variables(guard: &[BooleanPolynomial]) -> BTreeSet<Variable> {
@@ -319,9 +274,7 @@ pub(crate) fn substitute_component(
         *value = value.substitute(variable, replacement);
     }
     for entry in &mut component.output.history {
-        let value = match entry {
-            HistoryEntry::Write { value, .. } | HistoryEntry::Discard { value } => value,
-        };
+        let value = entry.value_mut();
         *value = value.substitute(variable, replacement);
     }
 
