@@ -2,6 +2,7 @@ use std::fmt;
 
 use crate::ir::{Program, Qubit};
 
+mod canonical;
 mod interface;
 
 pub use interface::{
