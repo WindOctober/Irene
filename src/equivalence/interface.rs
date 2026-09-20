@@ -577,6 +577,11 @@ fn prepare_side(
         })
         .collect();
 
+    // TODO: Remove the redundant output extraction/reinsertion design. Keep
+    // visible output expressions in the HPS and store only endpoint mappings
+    // and observation kinds in the interface layer. Update snapshot/kernel
+    // consumers together, preserving terminal Z-observation semantics; until
+    // then, `hps` and `terminals` must be treated as one complete result.
     let mut terminals = Vec::with_capacity(hps.components.len());
     for component in &mut hps.components {
         let mut prepared = Vec::with_capacity(outputs.len());
