@@ -1,6 +1,27 @@
 use std::fmt;
 
-use crate::ir::Program;
+use crate::ir::{Program, Qubit};
+
+mod interface;
+
+pub use interface::{
+    Endpoint, EquivalenceConfig, InputPair, InterfaceError, NumericInputPair, OutputPair,
+    PreparedComparison, PreparedOutput, PreparedOutputKind, PreparedSide, PreparedTerminal, Side,
+    UnsupportedInterface, prepare_comparison,
+};
+
+fn qubits(program: &Program) -> Vec<Qubit> {
+    program
+        .quantum_registers
+        .iter()
+        .flat_map(|register| {
+            (0..register.width).map(|index| Qubit {
+                register: register.id,
+                index,
+            })
+        })
+        .collect()
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Verdict {
