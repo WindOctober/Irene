@@ -11,6 +11,7 @@ mod phase;
 mod scalar;
 mod validate;
 
+pub(crate) use boolean::Expression as BooleanExpression;
 pub use boolean::{BooleanPolynomial, Monomial, Variable};
 pub use executor::{
     Component, ExecutionConfig, HistoryEntry, HybridMemory, HybridPathSum, InitialState,
