@@ -62,6 +62,10 @@ fn cancel_half_turn_history_phases(component: &mut Component) {
         .shorten_half_turns(history.iter().cloned().chain(pairs));
 }
 
+// TODO: Unify the duplicated vacuous/Fourier/Omega rule logic with
+// equivalence::aggregate (including its graph reducer). Share the algebraic
+// rules while retaining layer-specific applicability checks and adapters for
+// Component and WorkingTerm; history elimination remains HPS-specific.
 /// A closed-form rule available to the path-sum reducer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PathRule {
