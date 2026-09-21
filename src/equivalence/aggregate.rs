@@ -12,6 +12,7 @@ mod exact_trig;
 mod factorization;
 mod free_split;
 mod path_sum;
+mod phase_unit;
 mod scalar;
 mod shannon;
 mod witness;
