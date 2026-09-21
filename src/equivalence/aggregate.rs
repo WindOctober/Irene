@@ -10,6 +10,7 @@ mod constraint_rows;
 mod constraints;
 mod exact_trig;
 mod factorization;
+mod free_split;
 mod path_sum;
 mod scalar;
 mod shannon;
