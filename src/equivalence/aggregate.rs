@@ -9,6 +9,7 @@ mod collection;
 mod constraint_rows;
 mod constraints;
 mod exact_trig;
+mod factor_relation;
 mod factorization;
 mod free_split;
 mod path_sum;
