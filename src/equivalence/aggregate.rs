@@ -14,6 +14,7 @@ mod free_split;
 mod path_sum;
 mod scalar;
 mod shannon;
+mod witness;
 
 const MAX_BOOLEAN_TERMS: usize = 100_000;
 const MAX_CONSTRAINTS: usize = 100_000;
