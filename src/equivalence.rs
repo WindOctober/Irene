@@ -3,6 +3,7 @@ use std::fmt;
 use crate::ir::{ClassicalBit, Program, Qubit, SymbolId};
 use crate::symbolic::{HistoryEntry, HybridPathSum};
 
+mod aggregate;
 mod canonical;
 mod interface;
 mod kernel;
