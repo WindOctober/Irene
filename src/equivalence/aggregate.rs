@@ -11,6 +11,7 @@ mod constraints;
 mod exact_trig;
 mod path_sum;
 mod scalar;
+mod shannon;
 
 const MAX_BOOLEAN_TERMS: usize = 100_000;
 const MAX_CONSTRAINTS: usize = 100_000;
