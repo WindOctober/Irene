@@ -9,6 +9,7 @@ mod collection;
 mod constraint_rows;
 mod constraints;
 mod exact_trig;
+mod factorization;
 mod path_sum;
 mod scalar;
 mod shannon;
@@ -16,6 +17,7 @@ mod shannon;
 const MAX_BOOLEAN_TERMS: usize = 100_000;
 const MAX_CONSTRAINTS: usize = 100_000;
 const MAX_AFFINE_MATRIX_CELLS: usize = 10_000_000;
+const MAX_PHASE_TERMS: usize = 100_000;
 
 #[derive(Clone)]
 struct WorkingTerm {
