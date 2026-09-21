@@ -5,6 +5,9 @@ use crate::symbolic::{HistoryEntry, HybridPathSum};
 
 mod canonical;
 mod interface;
+mod kernel;
+
+pub use kernel::{DensityKernel, KernelBuildError};
 
 pub use interface::{
     Endpoint, EquivalenceConfig, InputPair, InterfaceError, NumericInputPair, OutputPair,
