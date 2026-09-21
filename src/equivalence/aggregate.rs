@@ -5,6 +5,7 @@ use super::kernel::{
 };
 use std::collections::BTreeSet;
 
+mod collection;
 mod constraint_rows;
 mod constraints;
 mod exact_trig;

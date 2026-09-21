@@ -5,8 +5,55 @@ use std::collections::BTreeMap;
 
 use num_rational::BigRational;
 
-use super::KernelScalar;
 use super::exact_trig;
+use super::{KernelBooleanPolynomial, KernelScalar, MAX_BOOLEAN_TERMS};
+
+const MAX_SCALAR_NODES: usize = 100_000;
+
+pub(super) fn scalar_within_budget(scalar: &KernelScalar) -> bool {
+    scalar_conditions_within_budget(scalar, |condition| {
+        condition.term_count() <= MAX_BOOLEAN_TERMS
+    })
+}
+
+pub(super) fn scalar_conditions_within_budget(
+    scalar: &KernelScalar,
+    mut condition_fits: impl FnMut(&KernelBooleanPolynomial) -> bool,
+) -> bool {
+    let mut pending = vec![scalar];
+    let mut nodes = 0usize;
+    while let Some(current) = pending.pop() {
+        let Some(next_nodes) = nodes.checked_add(1) else {
+            return false;
+        };
+        nodes = next_nodes;
+        if nodes > MAX_SCALAR_NODES {
+            return false;
+        }
+        match current {
+            KernelScalar::Rational(_) | KernelScalar::Sin(_) | KernelScalar::Cos(_) => {}
+            KernelScalar::Sqrt(value) | KernelScalar::Neg(value) | KernelScalar::Inverse(value) => {
+                pending.push(value)
+            }
+            KernelScalar::Add(left, right) | KernelScalar::Mul(left, right) => {
+                pending.push(left);
+                pending.push(right);
+            }
+            KernelScalar::Select {
+                condition,
+                when_true,
+                when_false,
+            } => {
+                if !condition_fits(condition) {
+                    return false;
+                }
+                pending.push(when_true);
+                pending.push(when_false);
+            }
+        }
+    }
+    true
+}
 
 /// Canonicalizes the exact scalar products produced by density doubling.
 pub(super) fn normalize_scalar(value: KernelScalar) -> KernelScalar {
