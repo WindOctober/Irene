@@ -51,6 +51,11 @@ pub(super) fn normalize(
         }
     }
     let (normalized, scalar, common) = best?;
+    // TODO: Once the forward transformation and its helper preconditions
+    // independently guarantee exact preservation of every scalar, phase and
+    // selector (including refusal without partial results), make replay an
+    // opt-in validation/debug check rather than a default runtime requirement.
+    // Retain this check until those guarantees no longer depend on replay.
     let mut replay = ExactAggregate::new();
     let mut atoms = 0;
     for (entry, coefficients) in &normalized {
