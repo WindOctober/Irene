@@ -17,6 +17,7 @@ mod phase_unit;
 mod scalar;
 mod shannon;
 mod witness;
+mod zero_product;
 
 const MAX_BOOLEAN_TERMS: usize = 100_000;
 const MAX_CONSTRAINTS: usize = 100_000;
