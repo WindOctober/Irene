@@ -15,6 +15,7 @@ mod factor_refine;
 mod factor_relation;
 mod factorization;
 mod free_split;
+mod pair_period;
 mod path_sum;
 mod phase_unit;
 mod scalar;
