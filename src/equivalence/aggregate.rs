@@ -11,6 +11,7 @@ mod collection;
 mod constraint_rows;
 mod constraints;
 mod exact_trig;
+mod factor_match;
 mod factor_normalize;
 mod factor_rectangle;
 mod factor_refine;
