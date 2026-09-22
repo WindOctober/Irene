@@ -19,6 +19,7 @@ mod path_sum;
 mod phase_unit;
 mod scalar;
 mod shannon;
+mod small_sum;
 mod witness;
 mod zero_product;
 
