@@ -21,6 +21,7 @@ mod phase_unit;
 mod scalar;
 mod shannon;
 mod small_sum;
+mod vacuous;
 mod witness;
 mod xor_basis;
 mod xor_blocks;
