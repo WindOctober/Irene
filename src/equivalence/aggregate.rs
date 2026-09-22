@@ -6,6 +6,7 @@ use super::kernel::{
 use std::collections::BTreeSet;
 
 mod checkpoint;
+mod checkpoint_factors;
 mod collection;
 mod constraint_rows;
 mod constraints;
