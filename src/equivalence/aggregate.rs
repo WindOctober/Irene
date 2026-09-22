@@ -22,6 +22,7 @@ mod shannon;
 mod small_sum;
 mod witness;
 mod xor_basis;
+mod xor_blocks;
 mod zero_product;
 
 const MAX_BOOLEAN_TERMS: usize = 100_000;
