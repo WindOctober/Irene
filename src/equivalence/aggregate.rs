@@ -21,6 +21,7 @@ mod pair_period;
 mod path_sum;
 mod phase_schedule;
 mod phase_unit;
+mod product_cases;
 mod product_form;
 mod scalar;
 mod shannon;
