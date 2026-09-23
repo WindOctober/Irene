@@ -19,6 +19,7 @@ mod factor_relation;
 mod factorization;
 mod free_split;
 mod pair_period;
+mod factor_pair;
 mod path_sum;
 mod phase_schedule;
 mod phase_unit;
