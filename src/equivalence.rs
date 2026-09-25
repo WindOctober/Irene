@@ -7,6 +7,8 @@ mod aggregate;
 mod canonical;
 mod interface;
 mod kernel;
+mod smt;
+mod tuning;
 
 pub use kernel::{DensityKernel, KernelBuildError};
 

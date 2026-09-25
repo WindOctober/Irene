@@ -178,6 +178,8 @@ pub enum UnsupportedInterface {
 pub enum InterfaceError {
     #[error("invalid equivalence configuration: {0}")]
     InvalidConfiguration(String),
+    #[error(transparent)]
+    SolverDisagreement(#[from] super::smt::SolverDisagreement),
     #[error(
         "input pair {position} must contain two quantum endpoints, found {left:?} and {right:?}"
     )]
