@@ -307,6 +307,7 @@ dependencies = [
  "bigdecimal",
  "bitgauss",
  "clap",
+ "libc",
  "num-bigint",
  "num-rational",
  "oq3_lexer",
