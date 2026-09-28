@@ -1,0 +1,28 @@
+---
+source: crates/pipeline-tests/tests/runner.rs
+expression: lex_snap
+---
+id: tests/snippets/reference/scope/anonymous_block.qasm
+expect-lex: Ok
+--- source ---
+
+{
+  int ii = 32;
+}
+--- lexer ---
+ok: true
+errors: 0
+[0] Whitespace "\n" @0..1
+[1] OpenBrace "{" @1..2
+[2] Whitespace "\n  " @2..5
+[3] Ident "int" @5..8
+[4] Whitespace " " @8..9
+[5] Ident "ii" @9..11
+[6] Whitespace " " @11..12
+[7] Eq "=" @12..13
+[8] Whitespace " " @13..14
+[9] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 2 } "32" @14..16
+[10] Semi ";" @16..17
+[11] Whitespace "\n" @17..18
+[12] CloseBrace "}" @18..19
+[13] Whitespace "\n" @19..20

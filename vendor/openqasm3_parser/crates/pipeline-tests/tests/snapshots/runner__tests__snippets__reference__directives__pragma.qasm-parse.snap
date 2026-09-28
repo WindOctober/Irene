@@ -1,0 +1,17 @@
+---
+source: crates/pipeline-tests/tests/runner.rs
+expression: parse_snap
+---
+id: tests/snippets/reference/directives/pragma.qasm
+expect-parse: Ok
+--- parser ---
+ok: true
+panicked: false
+errors: 0
+--- ast ---
+SOURCE_FILE@0..51: 
+pragma IO_BIND[2:3]
+#pragma  __directive_info__ 0
+
+PRAGMA_STATEMENT@1..20: pragma IO_BIND[2:3]
+PRAGMA_STATEMENT@21..50: #pragma  __directive_info__ 0

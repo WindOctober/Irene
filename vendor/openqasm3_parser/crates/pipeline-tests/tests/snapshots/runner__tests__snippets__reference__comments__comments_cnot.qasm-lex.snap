@@ -1,0 +1,75 @@
+---
+source: crates/pipeline-tests/tests/runner.rs
+expression: lex_snap
+---
+id: tests/snippets/reference/comments/comments_cnot.qasm
+expect-lex: Ok
+--- source ---
+
+OPENQASM 3.0;
+// Line comment before include
+include "stdgates.inc"; // Inline comment
+/* Block comment before declaration */
+qubit[2] q; /* Inline block comment */
+
+// Comment before gate
+h q[0]; // Gate with comment
+/* Multi-line block comment
+   spanning multiple lines */
+cnot q[0], q[1];
+--- lexer ---
+ok: true
+errors: 0
+[0] Whitespace "\n" @0..1
+[1] OpenQasmVersionStmt { major: true, minor: true } "OPENQASM 3.0" @1..13
+[2] Semi ";" @13..14
+[3] Whitespace "\n" @14..15
+[4] LineComment "// Line comment before include" @15..45
+[5] Whitespace "\n" @45..46
+[6] Ident "include" @46..53
+[7] Whitespace " " @53..54
+[8] Literal { kind: Str { terminated: true }, suffix_start: 14 } ""stdgates.inc"" @54..68
+[9] Semi ";" @68..69
+[10] Whitespace " " @69..70
+[11] LineComment "// Inline comment" @70..87
+[12] Whitespace "\n" @87..88
+[13] BlockComment { terminated: true } "/* Block comment before declaration */" @88..126
+[14] Whitespace "\n" @126..127
+[15] Ident "qubit" @127..132
+[16] OpenBracket "[" @132..133
+[17] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "2" @133..134
+[18] CloseBracket "]" @134..135
+[19] Whitespace " " @135..136
+[20] Ident "q" @136..137
+[21] Semi ";" @137..138
+[22] Whitespace " " @138..139
+[23] BlockComment { terminated: true } "/* Inline block comment */" @139..165
+[24] Whitespace "\n\n" @165..167
+[25] LineComment "// Comment before gate" @167..189
+[26] Whitespace "\n" @189..190
+[27] Ident "h" @190..191
+[28] Whitespace " " @191..192
+[29] Ident "q" @192..193
+[30] OpenBracket "[" @193..194
+[31] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "0" @194..195
+[32] CloseBracket "]" @195..196
+[33] Semi ";" @196..197
+[34] Whitespace " " @197..198
+[35] LineComment "// Gate with comment" @198..218
+[36] Whitespace "\n" @218..219
+[37] BlockComment { terminated: true } "/* Multi-line block comment\n   spanning multiple lines */" @219..276
+[38] Whitespace "\n" @276..277
+[39] Ident "cnot" @277..281
+[40] Whitespace " " @281..282
+[41] Ident "q" @282..283
+[42] OpenBracket "[" @283..284
+[43] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "0" @284..285
+[44] CloseBracket "]" @285..286
+[45] Comma "," @286..287
+[46] Whitespace " " @287..288
+[47] Ident "q" @288..289
+[48] OpenBracket "[" @289..290
+[49] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "1" @290..291
+[50] CloseBracket "]" @291..292
+[51] Semi ";" @292..293
+[52] Whitespace "\n" @293..294

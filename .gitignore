@@ -1,0 +1,22 @@
+# Local builds and Python environments
+/target/
+/tools/irene-experiment-worker/target/
+/envs/
+/.direnv/
+/.envrc
+/AGENTS.md
+__pycache__/
+*.py[cod]
+
+# Locally installed baseline tools; retain the worker source.
+/tools/*
+!/tools/irene-experiment-worker/
+
+# Generated results, traces, jobs, downloaded inputs, and local configuration.
+/experiments/
+/var/
+/Irene
+/quokka-config.json
+/irene-build.json
+/bootstrap-complete.json
+/campaign.log

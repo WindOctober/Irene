@@ -1,0 +1,6 @@
+Vendored copy of the OpenQASM 3 parser used by Irene.
+
+Upstream project: https://github.com/Qiskit/openqasm3_parser
+Vendored revision: 4bf2859b8e0e37a2a0f4ef5eef868b101df0f2af
+Reason: keep the build fully local and free of network git dependencies.
+The crates are consumed as path dependencies from crates/{oq3_lexer,oq3_source_file,oq3_syntax}.

@@ -1,0 +1,63 @@
+---
+source: crates/pipeline-tests/tests/runner.rs
+expression: parse_snap
+---
+id: tests/snippets/reference/gate/quantum_gate.qasm
+expect-parse: Ok
+--- parser ---
+ok: true
+panicked: false
+errors: 0
+--- ast ---
+SOURCE_FILE@0..122: 
+include "stdlib.qasm";
+
+gate test_gate(theta) a, b {
+  reset a;
+  barrier b;
+  gphase(-theta/2);
+  CX a, b;
+  barrier;
+}
+
+INCLUDE@1..23: include "stdlib.qasm";
+FILE_PATH@9..22: "stdlib.qasm"
+GATE@25..121: gate test_gate(theta) a, b {
+  reset a;
+  barrier b;
+  gphase(-theta/2);
+  CX a, b;
+  barrier;
+}
+NAME@30..39: test_gate
+PARAM_LIST@39..46: (theta)
+PARAM@40..45: theta
+PARAM_LIST@47..51: a, b
+PARAM@47..48: a
+PARAM@50..51: b
+BLOCK_EXPR@52..121: {
+  reset a;
+  barrier b;
+  gphase(-theta/2);
+  CX a, b;
+  barrier;
+}
+RESET@56..64: reset a;
+IDENTIFIER@62..63: a
+BARRIER@67..77: barrier b;
+QUBIT_LIST@75..76: b
+IDENTIFIER@75..76: b
+EXPR_STMT@80..97: gphase(-theta/2);
+G_PHASE_CALL_EXPR@80..96: gphase(-theta/2)
+PAREN_EXPR@86..96: (-theta/2)
+BIN_EXPR@87..95: -theta/2
+PREFIX_EXPR@87..93: -theta
+IDENTIFIER@88..93: theta
+LITERAL@94..95: 2
+EXPR_STMT@100..108: CX a, b;
+GATE_CALL_EXPR@100..107: CX a, b
+IDENTIFIER@100..102: CX
+QUBIT_LIST@103..107: a, b
+IDENTIFIER@103..104: a
+IDENTIFIER@106..107: b
+BARRIER@111..119: barrier;

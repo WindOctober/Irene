@@ -1,0 +1,272 @@
+---
+source: crates/pipeline-tests/tests/runner.rs
+expression: lex_snap
+---
+id: tests/snippets/invalid/statements/loop.qasm
+expect-lex: Ok
+--- source ---
+
+for myvar in { 1, 2, 3 };
+for myvar1, myvar2 in { 1, 2, 3 } { x $0; }
+for myvar in { x $0; } { x $0; }
+for myvar in for { x $0; }
+for myvar { x $0; }
+for (true) { x $0; }
+for { x $0; }
+for for in { 1, 2, 3 } { x $0; }
+for in { 1, 2, 3 } { x $0; }
+while true { x $0; }
+while (true) (true) { x $0; }
+while x in { 1, 2, 3 } { x $0; }
+while (true);
+--- lexer ---
+ok: true
+errors: 0
+[0] Whitespace "\n" @0..1
+[1] Ident "for" @1..4
+[2] Whitespace " " @4..5
+[3] Ident "myvar" @5..10
+[4] Whitespace " " @10..11
+[5] Ident "in" @11..13
+[6] Whitespace " " @13..14
+[7] OpenBrace "{" @14..15
+[8] Whitespace " " @15..16
+[9] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "1" @16..17
+[10] Comma "," @17..18
+[11] Whitespace " " @18..19
+[12] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "2" @19..20
+[13] Comma "," @20..21
+[14] Whitespace " " @21..22
+[15] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "3" @22..23
+[16] Whitespace " " @23..24
+[17] CloseBrace "}" @24..25
+[18] Semi ";" @25..26
+[19] Whitespace "\n" @26..27
+[20] Ident "for" @27..30
+[21] Whitespace " " @30..31
+[22] Ident "myvar1" @31..37
+[23] Comma "," @37..38
+[24] Whitespace " " @38..39
+[25] Ident "myvar2" @39..45
+[26] Whitespace " " @45..46
+[27] Ident "in" @46..48
+[28] Whitespace " " @48..49
+[29] OpenBrace "{" @49..50
+[30] Whitespace " " @50..51
+[31] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "1" @51..52
+[32] Comma "," @52..53
+[33] Whitespace " " @53..54
+[34] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "2" @54..55
+[35] Comma "," @55..56
+[36] Whitespace " " @56..57
+[37] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "3" @57..58
+[38] Whitespace " " @58..59
+[39] CloseBrace "}" @59..60
+[40] Whitespace " " @60..61
+[41] OpenBrace "{" @61..62
+[42] Whitespace " " @62..63
+[43] Ident "x" @63..64
+[44] Whitespace " " @64..65
+[45] HardwareIdent "$0" @65..67
+[46] Semi ";" @67..68
+[47] Whitespace " " @68..69
+[48] CloseBrace "}" @69..70
+[49] Whitespace "\n" @70..71
+[50] Ident "for" @71..74
+[51] Whitespace " " @74..75
+[52] Ident "myvar" @75..80
+[53] Whitespace " " @80..81
+[54] Ident "in" @81..83
+[55] Whitespace " " @83..84
+[56] OpenBrace "{" @84..85
+[57] Whitespace " " @85..86
+[58] Ident "x" @86..87
+[59] Whitespace " " @87..88
+[60] HardwareIdent "$0" @88..90
+[61] Semi ";" @90..91
+[62] Whitespace " " @91..92
+[63] CloseBrace "}" @92..93
+[64] Whitespace " " @93..94
+[65] OpenBrace "{" @94..95
+[66] Whitespace " " @95..96
+[67] Ident "x" @96..97
+[68] Whitespace " " @97..98
+[69] HardwareIdent "$0" @98..100
+[70] Semi ";" @100..101
+[71] Whitespace " " @101..102
+[72] CloseBrace "}" @102..103
+[73] Whitespace "\n" @103..104
+[74] Ident "for" @104..107
+[75] Whitespace " " @107..108
+[76] Ident "myvar" @108..113
+[77] Whitespace " " @113..114
+[78] Ident "in" @114..116
+[79] Whitespace " " @116..117
+[80] Ident "for" @117..120
+[81] Whitespace " " @120..121
+[82] OpenBrace "{" @121..122
+[83] Whitespace " " @122..123
+[84] Ident "x" @123..124
+[85] Whitespace " " @124..125
+[86] HardwareIdent "$0" @125..127
+[87] Semi ";" @127..128
+[88] Whitespace " " @128..129
+[89] CloseBrace "}" @129..130
+[90] Whitespace "\n" @130..131
+[91] Ident "for" @131..134
+[92] Whitespace " " @134..135
+[93] Ident "myvar" @135..140
+[94] Whitespace " " @140..141
+[95] OpenBrace "{" @141..142
+[96] Whitespace " " @142..143
+[97] Ident "x" @143..144
+[98] Whitespace " " @144..145
+[99] HardwareIdent "$0" @145..147
+[100] Semi ";" @147..148
+[101] Whitespace " " @148..149
+[102] CloseBrace "}" @149..150
+[103] Whitespace "\n" @150..151
+[104] Ident "for" @151..154
+[105] Whitespace " " @154..155
+[106] OpenParen "(" @155..156
+[107] Ident "true" @156..160
+[108] CloseParen ")" @160..161
+[109] Whitespace " " @161..162
+[110] OpenBrace "{" @162..163
+[111] Whitespace " " @163..164
+[112] Ident "x" @164..165
+[113] Whitespace " " @165..166
+[114] HardwareIdent "$0" @166..168
+[115] Semi ";" @168..169
+[116] Whitespace " " @169..170
+[117] CloseBrace "}" @170..171
+[118] Whitespace "\n" @171..172
+[119] Ident "for" @172..175
+[120] Whitespace " " @175..176
+[121] OpenBrace "{" @176..177
+[122] Whitespace " " @177..178
+[123] Ident "x" @178..179
+[124] Whitespace " " @179..180
+[125] HardwareIdent "$0" @180..182
+[126] Semi ";" @182..183
+[127] Whitespace " " @183..184
+[128] CloseBrace "}" @184..185
+[129] Whitespace "\n" @185..186
+[130] Ident "for" @186..189
+[131] Whitespace " " @189..190
+[132] Ident "for" @190..193
+[133] Whitespace " " @193..194
+[134] Ident "in" @194..196
+[135] Whitespace " " @196..197
+[136] OpenBrace "{" @197..198
+[137] Whitespace " " @198..199
+[138] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "1" @199..200
+[139] Comma "," @200..201
+[140] Whitespace " " @201..202
+[141] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "2" @202..203
+[142] Comma "," @203..204
+[143] Whitespace " " @204..205
+[144] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "3" @205..206
+[145] Whitespace " " @206..207
+[146] CloseBrace "}" @207..208
+[147] Whitespace " " @208..209
+[148] OpenBrace "{" @209..210
+[149] Whitespace " " @210..211
+[150] Ident "x" @211..212
+[151] Whitespace " " @212..213
+[152] HardwareIdent "$0" @213..215
+[153] Semi ";" @215..216
+[154] Whitespace " " @216..217
+[155] CloseBrace "}" @217..218
+[156] Whitespace "\n" @218..219
+[157] Ident "for" @219..222
+[158] Whitespace " " @222..223
+[159] Ident "in" @223..225
+[160] Whitespace " " @225..226
+[161] OpenBrace "{" @226..227
+[162] Whitespace " " @227..228
+[163] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "1" @228..229
+[164] Comma "," @229..230
+[165] Whitespace " " @230..231
+[166] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "2" @231..232
+[167] Comma "," @232..233
+[168] Whitespace " " @233..234
+[169] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "3" @234..235
+[170] Whitespace " " @235..236
+[171] CloseBrace "}" @236..237
+[172] Whitespace " " @237..238
+[173] OpenBrace "{" @238..239
+[174] Whitespace " " @239..240
+[175] Ident "x" @240..241
+[176] Whitespace " " @241..242
+[177] HardwareIdent "$0" @242..244
+[178] Semi ";" @244..245
+[179] Whitespace " " @245..246
+[180] CloseBrace "}" @246..247
+[181] Whitespace "\n" @247..248
+[182] Ident "while" @248..253
+[183] Whitespace " " @253..254
+[184] Ident "true" @254..258
+[185] Whitespace " " @258..259
+[186] OpenBrace "{" @259..260
+[187] Whitespace " " @260..261
+[188] Ident "x" @261..262
+[189] Whitespace " " @262..263
+[190] HardwareIdent "$0" @263..265
+[191] Semi ";" @265..266
+[192] Whitespace " " @266..267
+[193] CloseBrace "}" @267..268
+[194] Whitespace "\n" @268..269
+[195] Ident "while" @269..274
+[196] Whitespace " " @274..275
+[197] OpenParen "(" @275..276
+[198] Ident "true" @276..280
+[199] CloseParen ")" @280..281
+[200] Whitespace " " @281..282
+[201] OpenParen "(" @282..283
+[202] Ident "true" @283..287
+[203] CloseParen ")" @287..288
+[204] Whitespace " " @288..289
+[205] OpenBrace "{" @289..290
+[206] Whitespace " " @290..291
+[207] Ident "x" @291..292
+[208] Whitespace " " @292..293
+[209] HardwareIdent "$0" @293..295
+[210] Semi ";" @295..296
+[211] Whitespace " " @296..297
+[212] CloseBrace "}" @297..298
+[213] Whitespace "\n" @298..299
+[214] Ident "while" @299..304
+[215] Whitespace " " @304..305
+[216] Ident "x" @305..306
+[217] Whitespace " " @306..307
+[218] Ident "in" @307..309
+[219] Whitespace " " @309..310
+[220] OpenBrace "{" @310..311
+[221] Whitespace " " @311..312
+[222] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "1" @312..313
+[223] Comma "," @313..314
+[224] Whitespace " " @314..315
+[225] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "2" @315..316
+[226] Comma "," @316..317
+[227] Whitespace " " @317..318
+[228] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "3" @318..319
+[229] Whitespace " " @319..320
+[230] CloseBrace "}" @320..321
+[231] Whitespace " " @321..322
+[232] OpenBrace "{" @322..323
+[233] Whitespace " " @323..324
+[234] Ident "x" @324..325
+[235] Whitespace " " @325..326
+[236] HardwareIdent "$0" @326..328
+[237] Semi ";" @328..329
+[238] Whitespace " " @329..330
+[239] CloseBrace "}" @330..331
+[240] Whitespace "\n" @331..332
+[241] Ident "while" @332..337
+[242] Whitespace " " @337..338
+[243] OpenParen "(" @338..339
+[244] Ident "true" @339..343
+[245] CloseParen ")" @343..344
+[246] Semi ";" @344..345
+[247] Whitespace "\n" @345..346

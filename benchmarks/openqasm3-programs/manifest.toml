@@ -1,0 +1,504 @@
+schema_version = 1
+program_format = "openqasm3"
+
+[source]
+id = "openqasm3-programs"
+name = "OpenQASM 3 Program Transformations"
+repository = "https://github.com/openqasm/openqasm"
+commit = "7fbf9e9eb3692a1288c014d6efd43523701886c6"
+
+[normalization]
+encoding = "utf-8"
+line_endings = "lf"
+semantic_rewrite = true
+
+[[case]]
+id = "openqasm3-inverse-qft-control-factorization"
+suite = "inverse-qft"
+left = "programs/inverse-qft/left.qasm"
+right = "programs/inverse-qft/right.qasm"
+truth = "eq"
+equivalence = "partial"
+input_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+]
+output_pairs = [
+  "classical:c[0]=classical:c0[0]",
+  "classical:c[1]=classical:c1[0]",
+  "classical:c[2]=classical:c2[0]",
+  "classical:c[3]=classical:c3[0]",
+]
+qbircks_compatible = false
+source_left = "examples/inverseqft1.qasm"
+source_right = "examples/inverseqft2.qasm"
+
+[[case]]
+id = "openqasm3-teleportation-identity"
+suite = "teleportation"
+left = "programs/teleportation-identity/left.qasm"
+right = "programs/teleportation-identity/right.qasm"
+truth = "eq"
+equivalence = "partial"
+input_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+]
+output_pairs = [
+  "quantum:q[0]=quantum:q[2]",
+]
+qbircks_compatible = false
+source_left = "identity reference for examples/teleport.qasm"
+source_right = "examples/teleport.qasm"
+
+[[case]]
+id = "openqasm3-teleportation-qubit-reuse"
+suite = "qubit-reuse"
+left = "programs/teleportation-qubit-reuse/left.qasm"
+right = "programs/teleportation-qubit-reuse/right.qasm"
+truth = "eq"
+equivalence = "partial"
+input_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+]
+output_pairs = [
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[0]",
+  "quantum:q[4]=quantum:q[1]",
+]
+qbircks_compatible = false
+source_left = "fresh-ancilla extension of examples/teleport.qasm"
+source_right = "measured-qubit reuse of examples/teleport.qasm"
+
+[[case]]
+id = "openqasm3-repetition-qec-single-bit-flip"
+suite = "qec"
+left = "programs/repetition-qec/left.qasm"
+right = "programs/repetition-qec/right.qasm"
+truth = "eq"
+equivalence = "partial"
+input_pairs = [
+  "quantum:data[0]=quantum:data[0]",
+]
+output_pairs = [
+  "quantum:data[0]=quantum:data[0]",
+  "quantum:data[1]=quantum:data[1]",
+  "quantum:data[2]=quantum:data[2]",
+]
+qbircks_compatible = false
+source_left = "encoded-state reference for examples/qec.qasm"
+source_right = "examples/qec.qasm"
+
+[[case]]
+id = "openqasm3-ipe-feedback-gate-fusion"
+suite = "iterative-phase-estimation"
+left = "programs/ipe-gate-fusion/left.qasm"
+right = "programs/ipe-gate-fusion/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+input_pairs = []
+output_pairs = [
+  "classical:c[0]=classical:c[0]",
+  "classical:c[1]=classical:c[1]",
+  "classical:c[2]=classical:c[2]",
+  "classical:c[3]=classical:c[3]",
+  "classical:c[4]=classical:c[4]",
+  "classical:c[5]=classical:c[5]",
+  "classical:c[6]=classical:c[6]",
+  "classical:c[7]=classical:c[7]",
+  "classical:c[8]=classical:c[8]",
+  "classical:c[9]=classical:c[9]",
+  "quantum:r[0]=quantum:r[0]",
+]
+qbircks_compatible = false
+source_left = "examples/ipe.qasm"
+source_right = "feedback-gate fusion of examples/ipe.qasm"
+
+[[case]]
+id = "openqasm3-rus-identity-channel"
+suite = "repeat-until-success"
+left = "programs/rus-identity/left.qasm"
+right = "programs/rus-identity/right.qasm"
+truth = "eq"
+equivalence = "partial"
+input_pairs = [
+  "quantum:input_qubit[0]=quantum:input_qubit[0]",
+]
+output_pairs = [
+  "quantum:input_qubit[0]=quantum:input_qubit[0]",
+]
+qbircks_compatible = false
+source_left = "identity reference for examples/rus.qasm"
+source_right = "examples/rus.qasm"
+
+[[case]]
+id = "openqasm3-inverse-qft-wrong-deep-feedback-phase"
+suite = "inverse-qft-mutants"
+left = "programs/inverse-qft/right.qasm"
+right = "programs/inverse-qft/wrong-deep-feedback-phase.qasm"
+truth = "neq"
+equivalence = "partial"
+input_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[1]=quantum:q[1]",
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[3]",
+]
+output_pairs = [
+  "classical:c0[0]=classical:c0[0]",
+  "classical:c1[0]=classical:c1[0]",
+  "classical:c2[0]=classical:c2[0]",
+  "classical:c3[0]=classical:c3[0]",
+]
+qbircks_compatible = false
+source_left = "examples/inverseqft2.qasm"
+source_right = "deep feedback-phase mutant of examples/inverseqft2.qasm"
+
+[[case]]
+id = "openqasm3-teleportation-missing-phase-correction"
+suite = "teleportation-mutants"
+left = "programs/teleportation-identity/left.qasm"
+right = "programs/teleportation-identity/missing-phase-correction.qasm"
+truth = "neq"
+equivalence = "partial"
+input_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+]
+output_pairs = [
+  "quantum:q[0]=quantum:q[2]",
+]
+qbircks_compatible = false
+source_left = "identity reference for examples/teleport.qasm"
+source_right = "missing phase-correction mutant of examples/teleport.qasm"
+
+[[case]]
+id = "openqasm3-teleportation-reuse-overwritten-history"
+suite = "qubit-reuse-mutants"
+left = "programs/teleportation-qubit-reuse/left.qasm"
+right = "programs/teleportation-qubit-reuse/overwritten-history.qasm"
+truth = "neq"
+equivalence = "partial"
+input_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+]
+output_pairs = [
+  "quantum:q[2]=quantum:q[2]",
+  "quantum:q[3]=quantum:q[0]",
+  "quantum:q[4]=quantum:q[1]",
+]
+qbircks_compatible = false
+source_left = "fresh-ancilla extension of examples/teleport.qasm"
+source_right = "measurement-history overwrite mutant of examples/teleport.qasm"
+
+[[case]]
+id = "openqasm3-repetition-qec-logical-phase-bug"
+suite = "qec-mutants"
+left = "programs/repetition-qec/left.qasm"
+right = "programs/repetition-qec/logical-phase-bug.qasm"
+truth = "neq"
+equivalence = "partial"
+input_pairs = [
+  "quantum:data[0]=quantum:data[0]",
+]
+output_pairs = [
+  "quantum:data[0]=quantum:data[0]",
+  "quantum:data[1]=quantum:data[1]",
+  "quantum:data[2]=quantum:data[2]",
+]
+qbircks_compatible = false
+source_left = "encoded-state reference for examples/qec.qasm"
+source_right = "logical-phase mutant of examples/qec.qasm"
+
+[[case]]
+id = "openqasm3-rus-wrong-compensation-angle"
+suite = "repeat-until-success-mutants"
+left = "programs/rus-identity/left.qasm"
+right = "programs/rus-identity/wrong-compensation-angle.qasm"
+truth = "neq"
+equivalence = "partial"
+input_pairs = [
+  "quantum:input_qubit[0]=quantum:input_qubit[0]",
+]
+output_pairs = [
+  "quantum:input_qubit[0]=quantum:input_qubit[0]",
+]
+qbircks_compatible = false
+source_left = "identity reference for examples/rus.qasm"
+source_right = "wrong compensation-angle mutant of examples/rus.qasm"
+
+[[case]]
+id = "openqasm3-teleportation-z-pauli-frame"
+suite = "teleportation"
+left = "programs/teleportation-pauli-frame/left.qasm"
+right = "programs/teleportation-pauli-frame/right.qasm"
+truth = "eq"
+equivalence = "partial"
+input_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+]
+output_pairs = [
+  "classical:result[0]=classical:result[0]",
+]
+qbircks_compatible = false
+source_left = "Z-observed extension of examples/teleport.qasm"
+source_right = "classical Pauli-frame optimization of examples/teleport.qasm"
+
+[[case]]
+id = "openqasm3-logical-t-gate-teleportation"
+suite = "fault-tolerant-gate-teleportation"
+left = "programs/logical-t-teleportation/left.qasm"
+right = "programs/logical-t-teleportation/right.qasm"
+truth = "eq"
+equivalence = "partial"
+input_pairs = [
+  "quantum:data[0]=quantum:data[0]",
+]
+output_pairs = [
+  "quantum:data[0]=quantum:data[0]",
+  "quantum:data[1]=quantum:data[1]",
+  "quantum:data[2]=quantum:data[2]",
+]
+qbircks_compatible = false
+source_left = "direct logical T reference on the three-qubit repetition code"
+source_right = "https://github.com/openqasm/openqasm/blob/main/examples/gateteleport.qasm"
+
+[[case]]
+id = "openqasm3-logical-t-wrong-correction"
+suite = "fault-tolerant-gate-teleportation-mutants"
+left = "programs/logical-t-teleportation/left.qasm"
+right = "programs/logical-t-teleportation/wrong-logical-correction.qasm"
+truth = "neq"
+equivalence = "partial"
+input_pairs = [
+  "quantum:data[0]=quantum:data[0]",
+]
+output_pairs = [
+  "quantum:data[0]=quantum:data[0]",
+  "quantum:data[1]=quantum:data[1]",
+  "quantum:data[2]=quantum:data[2]",
+]
+qbircks_compatible = false
+source_left = "direct logical T reference on the three-qubit repetition code"
+source_right = "phase-sensitive correction mutant of OpenQASM gate teleportation"
+
+[[case]]
+id = "openqasm3-magic-ty-injection"
+suite = "magic-state-injection"
+left = "programs/magic-ty-injection/left.qasm"
+right = "programs/magic-ty-injection/right.qasm"
+truth = "eq"
+equivalence = "partial"
+input_pairs = [
+  "quantum:data[0]=quantum:data[0]",
+]
+output_pairs = [
+  "quantum:data[0]=quantum:data[0]",
+]
+qbircks_compatible = false
+source_left = "direct Ry(pi/4) reference"
+source_right = "https://github.com/openqasm/openqasm/blob/main/examples/msd.qasm"
+
+[[case]]
+id = "openqasm3-magic-ty-wrong-feedforward"
+suite = "magic-state-injection-mutants"
+left = "programs/magic-ty-injection/left.qasm"
+right = "programs/magic-ty-injection/wrong-feedforward-branch.qasm"
+truth = "neq"
+equivalence = "partial"
+input_pairs = [
+  "quantum:data[0]=quantum:data[0]",
+]
+output_pairs = [
+  "quantum:data[0]=quantum:data[0]",
+]
+qbircks_compatible = false
+source_left = "direct Ry(pi/4) reference"
+source_right = "wrong measurement-branch mutant of magic-state injection"
+
+[[case]]
+id = "openqasm3-teleportation-chain-pauli-frame"
+suite = "multi-stage-teleportation"
+left = "programs/teleportation-chain/left.qasm"
+right = "programs/teleportation-chain/right.qasm"
+truth = "eq"
+equivalence = "partial"
+input_pairs = [
+  "quantum:input_qubit[0]=quantum:input_qubit[0]",
+]
+output_pairs = [
+  "quantum:q[19]=quantum:q[19]",
+]
+qbircks_compatible = false
+source_left = "https://github.com/openqasm/openqasm/blob/main/examples/varteleport.qasm"
+source_right = "ten-hop classical Pauli-frame aggregation"
+
+[[case]]
+id = "openqasm3-teleportation-chain-missing-deep-phase"
+suite = "multi-stage-teleportation-mutants"
+left = "programs/teleportation-chain/left.qasm"
+right = "programs/teleportation-chain/missing-deep-phase-parity.qasm"
+truth = "neq"
+equivalence = "partial"
+input_pairs = [
+  "quantum:input_qubit[0]=quantum:input_qubit[0]",
+]
+output_pairs = [
+  "quantum:q[19]=quantum:q[19]",
+]
+qbircks_compatible = false
+source_left = "https://github.com/openqasm/openqasm/blob/main/examples/varteleport.qasm"
+source_right = "seventh-hop phase-frame omission mutant"
+
+[[case]]
+id = "openqasm3-remote-cnot-gate-teleportation"
+suite = "remote-cnot"
+left = "programs/remote-cnot/left.qasm"
+right = "programs/remote-cnot/right.qasm"
+truth = "eq"
+equivalence = "partial"
+input_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[3]=quantum:q[3]",
+]
+output_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[3]=quantum:q[3]",
+]
+qbircks_compatible = false
+source_left = "nearest-neighbor SWAP routing reference"
+source_right = "https://quantum.cloud.ibm.com/docs/en/tutorials/long-range-entanglement"
+
+[[case]]
+id = "openqasm3-remote-cnot-wrong-backward-parity"
+suite = "remote-cnot-mutants"
+left = "programs/remote-cnot/left.qasm"
+right = "programs/remote-cnot/wrong-backward-parity.qasm"
+truth = "neq"
+equivalence = "partial"
+input_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[3]=quantum:q[3]",
+]
+output_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+  "quantum:q[3]=quantum:q[3]",
+]
+qbircks_compatible = false
+source_left = "nearest-neighbor SWAP routing reference"
+source_right = "missing backward parity correction mutant of remote CNOT"
+
+[[case]]
+id = "openqasm3-mbqc-adaptive-rotation-chain"
+suite = "measurement-based-computation"
+left = "programs/mbqc-rotation-chain/left.qasm"
+right = "programs/mbqc-rotation-chain/right.qasm"
+truth = "eq"
+equivalence = "partial"
+input_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+]
+output_pairs = [
+  "quantum:q[0]=quantum:q[2]",
+]
+qbircks_compatible = false
+source_left = "direct J(pi/8) J(pi/4) rotation chain"
+source_right = "https://www.pennylane.ai/demos/tutorial_mbqc"
+
+[[case]]
+id = "openqasm3-mbqc-wrong-adaptive-angle"
+suite = "measurement-based-computation-mutants"
+left = "programs/mbqc-rotation-chain/left.qasm"
+right = "programs/mbqc-rotation-chain/wrong-adaptive-angle.qasm"
+truth = "neq"
+equivalence = "partial"
+input_pairs = [
+  "quantum:q[0]=quantum:q[0]",
+]
+output_pairs = [
+  "quantum:q[0]=quantum:q[2]",
+]
+qbircks_compatible = false
+source_left = "direct J(pi/8) J(pi/4) rotation chain"
+source_right = "non-adaptive second-measurement mutant of MBQC"
+
+[[case]]
+id = "openqasm3-dynamic-ghz8-prefix-correction"
+suite = "dynamic-state-preparation"
+left = "programs/dynamic-ghz/left.qasm"
+right = "programs/dynamic-ghz/right.qasm"
+truth = "eq"
+equivalence = "partial"
+initial_state = "zero"
+input_pairs = []
+output_pairs = [
+  "quantum:data[0]=quantum:data[0]",
+  "quantum:data[1]=quantum:data[1]",
+  "quantum:data[2]=quantum:data[2]",
+  "quantum:data[3]=quantum:data[3]",
+  "quantum:data[4]=quantum:data[4]",
+  "quantum:data[5]=quantum:data[5]",
+  "quantum:data[6]=quantum:data[6]",
+  "quantum:data[7]=quantum:data[7]",
+]
+qbircks_compatible = false
+source_left = "linear-depth GHZ-8 reference"
+source_right = "https://arxiv.org/abs/2308.13065"
+
+[[case]]
+id = "openqasm3-dynamic-ghz8-wrong-prefix"
+suite = "dynamic-state-preparation-mutants"
+left = "programs/dynamic-ghz/left.qasm"
+right = "programs/dynamic-ghz/wrong-prefix-parity.qasm"
+truth = "neq"
+equivalence = "partial"
+initial_state = "zero"
+input_pairs = []
+output_pairs = [
+  "quantum:data[0]=quantum:data[0]",
+  "quantum:data[1]=quantum:data[1]",
+  "quantum:data[2]=quantum:data[2]",
+  "quantum:data[3]=quantum:data[3]",
+  "quantum:data[4]=quantum:data[4]",
+  "quantum:data[5]=quantum:data[5]",
+  "quantum:data[6]=quantum:data[6]",
+  "quantum:data[7]=quantum:data[7]",
+]
+qbircks_compatible = false
+source_left = "linear-depth GHZ-8 reference"
+source_right = "deep prefix-parity omission mutant of dynamic GHZ preparation"
+
+[[case]]
+id = "openqasm3-amplitude-damping-environment-reuse"
+suite = "open-quantum-systems"
+left = "programs/amplitude-damping-reuse/left.qasm"
+right = "programs/amplitude-damping-reuse/right.qasm"
+truth = "eq"
+equivalence = "partial"
+input_pairs = [
+  "quantum:system[0]=quantum:system[0]",
+]
+output_pairs = [
+  "quantum:system[0]=quantum:system[0]",
+]
+qbircks_compatible = false
+source_left = "two-step Stinespring dilation with fresh environment qubits"
+source_right = "https://github.com/amazon-braket/amazon-braket-examples"
+
+[[case]]
+id = "openqasm3-amplitude-damping-missing-reset"
+suite = "open-quantum-systems-mutants"
+left = "programs/amplitude-damping-reuse/left.qasm"
+right = "programs/amplitude-damping-reuse/missing-reset.qasm"
+truth = "neq"
+equivalence = "partial"
+input_pairs = [
+  "quantum:system[0]=quantum:system[0]",
+]
+output_pairs = [
+  "quantum:system[0]=quantum:system[0]",
+]
+qbircks_compatible = false
+source_left = "two-step Stinespring dilation with fresh environment qubits"
+source_right = "missing environment reset mutant of dynamic amplitude damping"

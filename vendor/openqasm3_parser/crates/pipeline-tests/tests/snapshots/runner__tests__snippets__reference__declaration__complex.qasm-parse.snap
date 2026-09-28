@@ -1,0 +1,62 @@
+---
+source: crates/pipeline-tests/tests/runner.rs
+expression: parse_snap
+---
+id: tests/snippets/reference/declaration/complex.qasm
+expect-parse: Ok
+--- parser ---
+ok: true
+panicked: false
+errors: 0
+--- ast ---
+SOURCE_FILE@0..235: 
+// beware the tab character in f = 1 im below
+  complex[float] a;
+  complex[float] b = 4 - 5.5im;
+  complex[float[64]] d = a + 3 im;
+//  complex[float[32]] c = a ** b;
+  complex[float] e = 1im;
+  complex[float] f = 1	im;
+  complex z;
+
+CLASSICAL_DECLARATION_STATEMENT@49..66: complex[float] a;
+SCALAR_TYPE@49..63: complex[float]
+SCALAR_TYPE@57..62: float
+NAME@64..65: a
+CLASSICAL_DECLARATION_STATEMENT@69..98: complex[float] b = 4 - 5.5im;
+SCALAR_TYPE@69..83: complex[float]
+SCALAR_TYPE@77..82: float
+NAME@84..85: b
+BIN_EXPR@88..97: 4 - 5.5im
+LITERAL@88..89: 4
+TIMING_LITERAL@92..97: 5.5im
+LITERAL@92..95: 5.5
+IDENTIFIER@95..97: im
+CLASSICAL_DECLARATION_STATEMENT@101..133: complex[float[64]] d = a + 3 im;
+SCALAR_TYPE@101..119: complex[float[64]]
+SCALAR_TYPE@109..118: float[64]
+DESIGNATOR@114..118: [64]
+LITERAL@115..117: 64
+NAME@120..121: d
+BIN_EXPR@124..132: a + 3 im
+IDENTIFIER@124..125: a
+TIMING_LITERAL@128..132: 3 im
+LITERAL@128..129: 3
+IDENTIFIER@130..132: im
+CLASSICAL_DECLARATION_STATEMENT@171..194: complex[float] e = 1im;
+SCALAR_TYPE@171..185: complex[float]
+SCALAR_TYPE@179..184: float
+NAME@186..187: e
+TIMING_LITERAL@190..193: 1im
+LITERAL@190..191: 1
+IDENTIFIER@191..193: im
+CLASSICAL_DECLARATION_STATEMENT@197..221: complex[float] f = 1	im;
+SCALAR_TYPE@197..211: complex[float]
+SCALAR_TYPE@205..210: float
+NAME@212..213: f
+TIMING_LITERAL@216..220: 1	im
+LITERAL@216..217: 1
+IDENTIFIER@218..220: im
+CLASSICAL_DECLARATION_STATEMENT@224..234: complex z;
+SCALAR_TYPE@224..231: complex
+NAME@232..233: z

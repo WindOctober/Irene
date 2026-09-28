@@ -1,0 +1,55 @@
+---
+source: crates/pipeline-tests/tests/runner.rs
+expression: lex_snap
+---
+id: tests/snippets/reference/control_flow/branch_binop.qasm
+expect-lex: Ok
+--- source ---
+
+if(spec[i] == 0 && spec[n+i] == 1) {
+  x q[i];
+}
+--- lexer ---
+ok: true
+errors: 0
+[0] Whitespace "\n" @0..1
+[1] Ident "if" @1..3
+[2] OpenParen "(" @3..4
+[3] Ident "spec" @4..8
+[4] OpenBracket "[" @8..9
+[5] Ident "i" @9..10
+[6] CloseBracket "]" @10..11
+[7] Whitespace " " @11..12
+[8] Eq "=" @12..13
+[9] Eq "=" @13..14
+[10] Whitespace " " @14..15
+[11] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "0" @15..16
+[12] Whitespace " " @16..17
+[13] And "&" @17..18
+[14] And "&" @18..19
+[15] Whitespace " " @19..20
+[16] Ident "spec" @20..24
+[17] OpenBracket "[" @24..25
+[18] Ident "n" @25..26
+[19] Plus "+" @26..27
+[20] Ident "i" @27..28
+[21] CloseBracket "]" @28..29
+[22] Whitespace " " @29..30
+[23] Eq "=" @30..31
+[24] Eq "=" @31..32
+[25] Whitespace " " @32..33
+[26] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "1" @33..34
+[27] CloseParen ")" @34..35
+[28] Whitespace " " @35..36
+[29] OpenBrace "{" @36..37
+[30] Whitespace "\n  " @37..40
+[31] Ident "x" @40..41
+[32] Whitespace " " @41..42
+[33] Ident "q" @42..43
+[34] OpenBracket "[" @43..44
+[35] Ident "i" @44..45
+[36] CloseBracket "]" @45..46
+[37] Semi ";" @46..47
+[38] Whitespace "\n" @47..48
+[39] CloseBrace "}" @48..49
+[40] Whitespace "\n" @49..50

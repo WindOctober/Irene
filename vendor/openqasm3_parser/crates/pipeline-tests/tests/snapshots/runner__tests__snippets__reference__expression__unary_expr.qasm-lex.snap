@@ -1,0 +1,17 @@
+---
+source: crates/pipeline-tests/tests/runner.rs
+expression: lex_snap
+---
+id: tests/snippets/reference/expression/unary_expr.qasm
+expect-lex: Ok
+--- source ---
+
+!my_var;
+--- lexer ---
+ok: true
+errors: 0
+[0] Whitespace "\n" @0..1
+[1] Bang "!" @1..2
+[2] Ident "my_var" @2..8
+[3] Semi ";" @8..9
+[4] Whitespace "\n" @9..10

@@ -1,0 +1,66 @@
+---
+source: crates/pipeline-tests/tests/runner.rs
+expression: lex_snap
+---
+id: tests/snippets/reference/declaration/complex2.qasm
+expect-lex: Ok
+--- source ---
+
+complex[float[32]] a = 2.0;
+complex[float[32]] b = 1.0;
+
+complex[float[32]] c = a ** b;
+--- lexer ---
+ok: true
+errors: 0
+[0] Whitespace "\n" @0..1
+[1] Ident "complex" @1..8
+[2] OpenBracket "[" @8..9
+[3] Ident "float" @9..14
+[4] OpenBracket "[" @14..15
+[5] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 2 } "32" @15..17
+[6] CloseBracket "]" @17..18
+[7] CloseBracket "]" @18..19
+[8] Whitespace " " @19..20
+[9] Ident "a" @20..21
+[10] Whitespace " " @21..22
+[11] Eq "=" @22..23
+[12] Whitespace " " @23..24
+[13] Literal { kind: Float { base: Decimal, empty_exponent: false }, suffix_start: 3 } "2.0" @24..27
+[14] Semi ";" @27..28
+[15] Whitespace "\n" @28..29
+[16] Ident "complex" @29..36
+[17] OpenBracket "[" @36..37
+[18] Ident "float" @37..42
+[19] OpenBracket "[" @42..43
+[20] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 2 } "32" @43..45
+[21] CloseBracket "]" @45..46
+[22] CloseBracket "]" @46..47
+[23] Whitespace " " @47..48
+[24] Ident "b" @48..49
+[25] Whitespace " " @49..50
+[26] Eq "=" @50..51
+[27] Whitespace " " @51..52
+[28] Literal { kind: Float { base: Decimal, empty_exponent: false }, suffix_start: 3 } "1.0" @52..55
+[29] Semi ";" @55..56
+[30] Whitespace "\n\n" @56..58
+[31] Ident "complex" @58..65
+[32] OpenBracket "[" @65..66
+[33] Ident "float" @66..71
+[34] OpenBracket "[" @71..72
+[35] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 2 } "32" @72..74
+[36] CloseBracket "]" @74..75
+[37] CloseBracket "]" @75..76
+[38] Whitespace " " @76..77
+[39] Ident "c" @77..78
+[40] Whitespace " " @78..79
+[41] Eq "=" @79..80
+[42] Whitespace " " @80..81
+[43] Ident "a" @81..82
+[44] Whitespace " " @82..83
+[45] Star "*" @83..84
+[46] Star "*" @84..85
+[47] Whitespace " " @85..86
+[48] Ident "b" @86..87
+[49] Semi ";" @87..88
+[50] Whitespace "\n" @88..89

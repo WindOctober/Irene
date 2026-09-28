@@ -1,0 +1,80 @@
+---
+source: crates/pipeline-tests/tests/runner.rs
+expression: lex_snap
+---
+id: tests/snippets/reference/gate/gate_modifiers.qasm
+expect-lex: Ok
+--- source ---
+
+qubit q;
+gate g q {}
+ctrl(2) @ g q;
+negctrl(3) @ g q;
+pow(-1./2.) @ g q;
+inv @ g q;
+--- lexer ---
+ok: true
+errors: 0
+[0] Whitespace "\n" @0..1
+[1] Ident "qubit" @1..6
+[2] Whitespace " " @6..7
+[3] Ident "q" @7..8
+[4] Semi ";" @8..9
+[5] Whitespace "\n" @9..10
+[6] Ident "gate" @10..14
+[7] Whitespace " " @14..15
+[8] Ident "g" @15..16
+[9] Whitespace " " @16..17
+[10] Ident "q" @17..18
+[11] Whitespace " " @18..19
+[12] OpenBrace "{" @19..20
+[13] CloseBrace "}" @20..21
+[14] Whitespace "\n" @21..22
+[15] Ident "ctrl" @22..26
+[16] OpenParen "(" @26..27
+[17] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "2" @27..28
+[18] CloseParen ")" @28..29
+[19] Whitespace " " @29..30
+[20] At "@" @30..31
+[21] Whitespace " " @31..32
+[22] Ident "g" @32..33
+[23] Whitespace " " @33..34
+[24] Ident "q" @34..35
+[25] Semi ";" @35..36
+[26] Whitespace "\n" @36..37
+[27] Ident "negctrl" @37..44
+[28] OpenParen "(" @44..45
+[29] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "3" @45..46
+[30] CloseParen ")" @46..47
+[31] Whitespace " " @47..48
+[32] At "@" @48..49
+[33] Whitespace " " @49..50
+[34] Ident "g" @50..51
+[35] Whitespace " " @51..52
+[36] Ident "q" @52..53
+[37] Semi ";" @53..54
+[38] Whitespace "\n" @54..55
+[39] Ident "pow" @55..58
+[40] OpenParen "(" @58..59
+[41] Minus "-" @59..60
+[42] Literal { kind: Float { base: Decimal, empty_exponent: false }, suffix_start: 2 } "1." @60..62
+[43] Slash "/" @62..63
+[44] Literal { kind: Float { base: Decimal, empty_exponent: false }, suffix_start: 2 } "2." @63..65
+[45] CloseParen ")" @65..66
+[46] Whitespace " " @66..67
+[47] At "@" @67..68
+[48] Whitespace " " @68..69
+[49] Ident "g" @69..70
+[50] Whitespace " " @70..71
+[51] Ident "q" @71..72
+[52] Semi ";" @72..73
+[53] Whitespace "\n" @73..74
+[54] Ident "inv" @74..77
+[55] Whitespace " " @77..78
+[56] At "@" @78..79
+[57] Whitespace " " @79..80
+[58] Ident "g" @80..81
+[59] Whitespace " " @81..82
+[60] Ident "q" @82..83
+[61] Semi ";" @83..84
+[62] Whitespace "\n" @84..85

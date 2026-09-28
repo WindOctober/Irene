@@ -1,0 +1,183 @@
+---
+source: crates/pipeline-tests/tests/runner.rs
+expression: lex_snap
+---
+id: tests/snippets/reference/subroutine/subroutine.qasm
+expect-lex: Ok
+--- source ---
+
+def test_sub1(int[5] i, qubit[2] q1, qreg q2[5]) -> int[10] {
+  int[10] result;
+  if (result == 2) return 1 + result;
+  return result;
+}
+def test_sub2(int[5] i, bit[2] b, creg c[3]) {
+  for int[5] j in {2, 3}
+    i += j;
+  return i+1;
+}
+def returns_a_measure(qubit q) {
+  return measure q;
+}
+--- lexer ---
+ok: true
+errors: 0
+[0] Whitespace "\n" @0..1
+[1] Ident "def" @1..4
+[2] Whitespace " " @4..5
+[3] Ident "test_sub1" @5..14
+[4] OpenParen "(" @14..15
+[5] Ident "int" @15..18
+[6] OpenBracket "[" @18..19
+[7] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "5" @19..20
+[8] CloseBracket "]" @20..21
+[9] Whitespace " " @21..22
+[10] Ident "i" @22..23
+[11] Comma "," @23..24
+[12] Whitespace " " @24..25
+[13] Ident "qubit" @25..30
+[14] OpenBracket "[" @30..31
+[15] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "2" @31..32
+[16] CloseBracket "]" @32..33
+[17] Whitespace " " @33..34
+[18] Ident "q1" @34..36
+[19] Comma "," @36..37
+[20] Whitespace " " @37..38
+[21] Ident "qreg" @38..42
+[22] Whitespace " " @42..43
+[23] Ident "q2" @43..45
+[24] OpenBracket "[" @45..46
+[25] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "5" @46..47
+[26] CloseBracket "]" @47..48
+[27] CloseParen ")" @48..49
+[28] Whitespace " " @49..50
+[29] Minus "-" @50..51
+[30] Gt ">" @51..52
+[31] Whitespace " " @52..53
+[32] Ident "int" @53..56
+[33] OpenBracket "[" @56..57
+[34] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 2 } "10" @57..59
+[35] CloseBracket "]" @59..60
+[36] Whitespace " " @60..61
+[37] OpenBrace "{" @61..62
+[38] Whitespace "\n  " @62..65
+[39] Ident "int" @65..68
+[40] OpenBracket "[" @68..69
+[41] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 2 } "10" @69..71
+[42] CloseBracket "]" @71..72
+[43] Whitespace " " @72..73
+[44] Ident "result" @73..79
+[45] Semi ";" @79..80
+[46] Whitespace "\n  " @80..83
+[47] Ident "if" @83..85
+[48] Whitespace " " @85..86
+[49] OpenParen "(" @86..87
+[50] Ident "result" @87..93
+[51] Whitespace " " @93..94
+[52] Eq "=" @94..95
+[53] Eq "=" @95..96
+[54] Whitespace " " @96..97
+[55] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "2" @97..98
+[56] CloseParen ")" @98..99
+[57] Whitespace " " @99..100
+[58] Ident "return" @100..106
+[59] Whitespace " " @106..107
+[60] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "1" @107..108
+[61] Whitespace " " @108..109
+[62] Plus "+" @109..110
+[63] Whitespace " " @110..111
+[64] Ident "result" @111..117
+[65] Semi ";" @117..118
+[66] Whitespace "\n  " @118..121
+[67] Ident "return" @121..127
+[68] Whitespace " " @127..128
+[69] Ident "result" @128..134
+[70] Semi ";" @134..135
+[71] Whitespace "\n" @135..136
+[72] CloseBrace "}" @136..137
+[73] Whitespace "\n" @137..138
+[74] Ident "def" @138..141
+[75] Whitespace " " @141..142
+[76] Ident "test_sub2" @142..151
+[77] OpenParen "(" @151..152
+[78] Ident "int" @152..155
+[79] OpenBracket "[" @155..156
+[80] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "5" @156..157
+[81] CloseBracket "]" @157..158
+[82] Whitespace " " @158..159
+[83] Ident "i" @159..160
+[84] Comma "," @160..161
+[85] Whitespace " " @161..162
+[86] Ident "bit" @162..165
+[87] OpenBracket "[" @165..166
+[88] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "2" @166..167
+[89] CloseBracket "]" @167..168
+[90] Whitespace " " @168..169
+[91] Ident "b" @169..170
+[92] Comma "," @170..171
+[93] Whitespace " " @171..172
+[94] Ident "creg" @172..176
+[95] Whitespace " " @176..177
+[96] Ident "c" @177..178
+[97] OpenBracket "[" @178..179
+[98] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "3" @179..180
+[99] CloseBracket "]" @180..181
+[100] CloseParen ")" @181..182
+[101] Whitespace " " @182..183
+[102] OpenBrace "{" @183..184
+[103] Whitespace "\n  " @184..187
+[104] Ident "for" @187..190
+[105] Whitespace " " @190..191
+[106] Ident "int" @191..194
+[107] OpenBracket "[" @194..195
+[108] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "5" @195..196
+[109] CloseBracket "]" @196..197
+[110] Whitespace " " @197..198
+[111] Ident "j" @198..199
+[112] Whitespace " " @199..200
+[113] Ident "in" @200..202
+[114] Whitespace " " @202..203
+[115] OpenBrace "{" @203..204
+[116] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "2" @204..205
+[117] Comma "," @205..206
+[118] Whitespace " " @206..207
+[119] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "3" @207..208
+[120] CloseBrace "}" @208..209
+[121] Whitespace "\n    " @209..214
+[122] Ident "i" @214..215
+[123] Whitespace " " @215..216
+[124] Plus "+" @216..217
+[125] Eq "=" @217..218
+[126] Whitespace " " @218..219
+[127] Ident "j" @219..220
+[128] Semi ";" @220..221
+[129] Whitespace "\n  " @221..224
+[130] Ident "return" @224..230
+[131] Whitespace " " @230..231
+[132] Ident "i" @231..232
+[133] Plus "+" @232..233
+[134] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "1" @233..234
+[135] Semi ";" @234..235
+[136] Whitespace "\n" @235..236
+[137] CloseBrace "}" @236..237
+[138] Whitespace "\n" @237..238
+[139] Ident "def" @238..241
+[140] Whitespace " " @241..242
+[141] Ident "returns_a_measure" @242..259
+[142] OpenParen "(" @259..260
+[143] Ident "qubit" @260..265
+[144] Whitespace " " @265..266
+[145] Ident "q" @266..267
+[146] CloseParen ")" @267..268
+[147] Whitespace " " @268..269
+[148] OpenBrace "{" @269..270
+[149] Whitespace "\n  " @270..273
+[150] Ident "return" @273..279
+[151] Whitespace " " @279..280
+[152] Ident "measure" @280..287
+[153] Whitespace " " @287..288
+[154] Ident "q" @288..289
+[155] Semi ";" @289..290
+[156] Whitespace "\n" @290..291
+[157] CloseBrace "}" @291..292
+[158] Whitespace "\n" @292..293

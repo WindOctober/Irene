@@ -1,0 +1,72 @@
+---
+source: crates/pipeline-tests/tests/runner.rs
+expression: lex_snap
+---
+id: tests/snippets/reference/gate/quantum_gate.qasm
+expect-lex: Ok
+--- source ---
+
+include "stdlib.qasm";
+
+gate test_gate(theta) a, b {
+  reset a;
+  barrier b;
+  gphase(-theta/2);
+  CX a, b;
+  barrier;
+}
+--- lexer ---
+ok: true
+errors: 0
+[0] Whitespace "\n" @0..1
+[1] Ident "include" @1..8
+[2] Whitespace " " @8..9
+[3] Literal { kind: Str { terminated: true }, suffix_start: 13 } ""stdlib.qasm"" @9..22
+[4] Semi ";" @22..23
+[5] Whitespace "\n\n" @23..25
+[6] Ident "gate" @25..29
+[7] Whitespace " " @29..30
+[8] Ident "test_gate" @30..39
+[9] OpenParen "(" @39..40
+[10] Ident "theta" @40..45
+[11] CloseParen ")" @45..46
+[12] Whitespace " " @46..47
+[13] Ident "a" @47..48
+[14] Comma "," @48..49
+[15] Whitespace " " @49..50
+[16] Ident "b" @50..51
+[17] Whitespace " " @51..52
+[18] OpenBrace "{" @52..53
+[19] Whitespace "\n  " @53..56
+[20] Ident "reset" @56..61
+[21] Whitespace " " @61..62
+[22] Ident "a" @62..63
+[23] Semi ";" @63..64
+[24] Whitespace "\n  " @64..67
+[25] Ident "barrier" @67..74
+[26] Whitespace " " @74..75
+[27] Ident "b" @75..76
+[28] Semi ";" @76..77
+[29] Whitespace "\n  " @77..80
+[30] Ident "gphase" @80..86
+[31] OpenParen "(" @86..87
+[32] Minus "-" @87..88
+[33] Ident "theta" @88..93
+[34] Slash "/" @93..94
+[35] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "2" @94..95
+[36] CloseParen ")" @95..96
+[37] Semi ";" @96..97
+[38] Whitespace "\n  " @97..100
+[39] Ident "CX" @100..102
+[40] Whitespace " " @102..103
+[41] Ident "a" @103..104
+[42] Comma "," @104..105
+[43] Whitespace " " @105..106
+[44] Ident "b" @106..107
+[45] Semi ";" @107..108
+[46] Whitespace "\n  " @108..111
+[47] Ident "barrier" @111..118
+[48] Semi ";" @118..119
+[49] Whitespace "\n" @119..120
+[50] CloseBrace "}" @120..121
+[51] Whitespace "\n" @121..122

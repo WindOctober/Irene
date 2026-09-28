@@ -1,0 +1,215 @@
+schema_version = 1
+program_format = "openqasm3"
+
+[source]
+id = "qseqsim"
+name = "QSeqSim"
+repository = "https://github.com/veriq-toolkit/QSeqSim"
+commit = "11a20af4da974702d2916f99e5b4590b0b3e3e56"
+
+[normalization]
+encoding = "utf-8"
+line_endings = "lf"
+semantic_rewrite = false
+
+[materialization]
+qiskit_version = "1.4.5"
+format = "openqasm3"
+
+[[program]]
+id = "qseqsim-rus-1"
+suite = "rus"
+path = "programs/rus/rus-1.qasm"
+paired = false
+qubits = 2
+gates_per_iteration = 7
+source_path = "exp/simulation/rus/rus_1.py"
+
+[[program]]
+id = "qseqsim-rus-2"
+suite = "rus"
+path = "programs/rus/rus-2.qasm"
+paired = false
+qubits = 2
+gates_per_iteration = 13
+source_path = "exp/simulation/rus/rus_2.py"
+
+[[program]]
+id = "qseqsim-rus-3"
+suite = "rus"
+path = "programs/rus/rus-3.qasm"
+paired = false
+qubits = 2
+gates_per_iteration = 12
+source_path = "exp/simulation/rus/rus_3.py"
+
+[[program]]
+id = "qseqsim-rus-4"
+suite = "rus"
+path = "programs/rus/rus-4.qasm"
+paired = false
+qubits = 2
+gates_per_iteration = 20
+source_path = "exp/simulation/rus/rus_4.py"
+
+[[program]]
+id = "qseqsim-rus-5"
+suite = "rus"
+path = "programs/rus/rus-5.qasm"
+paired = false
+qubits = 2
+gates_per_iteration = 37
+source_path = "exp/simulation/rus/rus_5.py"
+
+[[program]]
+id = "qseqsim-rus-6"
+suite = "rus"
+path = "programs/rus/rus-6.qasm"
+paired = false
+qubits = 2
+gates_per_iteration = 33
+source_path = "exp/simulation/rus/rus_6.py"
+
+[[program]]
+id = "qseqsim-qrw-16"
+suite = "qrw"
+path = "programs/qrw/qrw-16.qasm"
+paired = false
+qubits = 16
+gates_per_iteration = 31
+source_path = "src/qseqsim/benchmark_circuits.py"
+
+[[program]]
+id = "qseqsim-qrw-128"
+suite = "qrw"
+path = "programs/qrw/qrw-128.qasm"
+paired = false
+qubits = 128
+gates_per_iteration = 255
+source_path = "src/qseqsim/benchmark_circuits.py"
+
+[[program]]
+id = "qseqsim-qrw-1024"
+suite = "qrw"
+path = "programs/qrw/qrw-1024.qasm"
+paired = false
+qubits = 1024
+gates_per_iteration = 2047
+source_path = "src/qseqsim/benchmark_circuits.py"
+
+[[program]]
+id = "qseqsim-grover-16"
+suite = "grover"
+path = "programs/grover/grover-16.qasm"
+paired = false
+qubits = 16
+gates_per_iteration = 81
+source_path = "src/qseqsim/benchmark_circuits.py"
+
+[[program]]
+id = "qseqsim-grover-128"
+suite = "grover"
+path = "programs/grover/grover-128.qasm"
+paired = false
+qubits = 128
+gates_per_iteration = 641
+source_path = "src/qseqsim/benchmark_circuits.py"
+
+[[program]]
+id = "qseqsim-grover-256"
+suite = "grover"
+path = "programs/grover/grover-256.qasm"
+paired = false
+qubits = 256
+gates_per_iteration = 1281
+source_path = "src/qseqsim/benchmark_circuits.py"
+
+[[program]]
+id = "qseqsim-random-q100-g50-m5"
+suite = "random-while"
+path = "programs/random/rqc-q100-g50-m5.qasm"
+paired = false
+qubits = 100
+gates = 50
+mid_measurements = 5
+source_path = "ae/benchmarks/table3/circuits_py/rqc_q100_g50_m5.py"
+
+[[program]]
+id = "qseqsim-random-q100-g50-m10"
+suite = "random-while"
+path = "programs/random/rqc-q100-g50-m10.qasm"
+paired = false
+qubits = 100
+gates = 50
+mid_measurements = 10
+source_path = "ae/benchmarks/table3/circuits_py/rqc_q100_g50_m10.py"
+
+[[program]]
+id = "qseqsim-random-q100-g50-m20"
+suite = "random-while"
+path = "programs/random/rqc-q100-g50-m20.qasm"
+paired = false
+qubits = 100
+gates = 50
+mid_measurements = 20
+source_path = "ae/benchmarks/table3/circuits_py/rqc_q100_g50_m20.py"
+
+[[program]]
+id = "qseqsim-random-q100-g100-m5"
+suite = "random-while"
+path = "programs/random/rqc-q100-g100-m5.qasm"
+paired = false
+qubits = 100
+gates = 100
+mid_measurements = 5
+source_path = "ae/benchmarks/table3/circuits_py/rqc_q100_g100_m5.py"
+
+[[program]]
+id = "qseqsim-random-q100-g100-m10"
+suite = "random-while"
+path = "programs/random/rqc-q100-g100-m10.qasm"
+paired = false
+qubits = 100
+gates = 100
+mid_measurements = 10
+source_path = "ae/benchmarks/table3/circuits_py/rqc_q100_g100_m10.py"
+
+[[program]]
+id = "qseqsim-random-q100-g100-m20"
+suite = "random-while"
+path = "programs/random/rqc-q100-g100-m20.qasm"
+paired = false
+qubits = 100
+gates = 100
+mid_measurements = 20
+source_path = "ae/benchmarks/table3/circuits_py/rqc_q100_g100_m20.py"
+
+[[program]]
+id = "qseqsim-random-q100-g200-m5"
+suite = "random-while"
+path = "programs/random/rqc-q100-g200-m5.qasm"
+paired = false
+qubits = 100
+gates = 200
+mid_measurements = 5
+source_path = "ae/benchmarks/table3/circuits_py/rqc_q100_g200_m5.py"
+
+[[program]]
+id = "qseqsim-random-q100-g200-m10"
+suite = "random-while"
+path = "programs/random/rqc-q100-g200-m10.qasm"
+paired = false
+qubits = 100
+gates = 200
+mid_measurements = 10
+source_path = "ae/benchmarks/table3/circuits_py/rqc_q100_g200_m10.py"
+
+[[program]]
+id = "qseqsim-random-q100-g200-m20"
+suite = "random-while"
+path = "programs/random/rqc-q100-g200-m20.qasm"
+paired = false
+qubits = 100
+gates = 200
+mid_measurements = 20
+source_path = "ae/benchmarks/table3/circuits_py/rqc_q100_g200_m20.py"

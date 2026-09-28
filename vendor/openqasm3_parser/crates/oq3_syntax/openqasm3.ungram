@@ -1,0 +1,458 @@
+// This grammar specifies the structure of the OpenQASM 3 concrete syntax tree.
+// It does not specify parsing rules (ambiguities, precedence, etc are out of scope).
+// Tokens are processed -- compound operators glued.
+//
+// Legend:
+//
+//   //          -- comment
+//   Name =      -- non-terminal definition
+//   'ident'     -- token (terminal)
+//   A B         -- sequence
+//   A | B       -- alternation
+//   A*          -- zero or more repetition
+//   A?          -- zero or one repetition
+//   (A)         -- same as A
+//   label:A     -- suggested name for field of AST node
+
+// Notes for OQ3
+//
+// Introducing a literal keyword that is also a legal OQ3 identifer here is not difficult, but easy; just do it.
+// 'measure' below requires that the literal "measure" is present.
+//
+// However '++' takes more work.
+// If you introduce a literal that cannot start an OQ3 identifier, say `++`:
+//  1. Map it to an identifer in `fn method_name` in sourcegen_ast.rs. For example:
+//   `"++" => "double_plus"`
+//  2. Add ++ to KINDS_SRC in ast_src.rs
+//  3. Add T![++] to `fn eat` in parser/parser.rs
+//  4. Add T![++] to `fn nth_at` in parser/parser.rs
+//  5. Add ++ to current_op in parser/src/grammar/expressions.rs.
+//     Specify binding power and associtivity.
+//  6. Add ++ to BinExpr below if it's a binary op.
+//
+// Instead of `"++" => "double_plus"`, something like `myop:(++)` also works as long as `myop` is entered into the
+// list of `manually_implemented` labels in sourcegen_ast.rs. But, I think it is preferable to
+// use `"++" => "double_plus"` as discussed above.
+// The operator must then of course be actually manually_implemented elsewhere.
+// For example "then_branch" is marked as manually_implemented and it is handled (I think)
+// in expr_ext.rs.
+
+// Compare with qasm3Parser.g4
+// qasm3Parser.g4 has expressions such as rangeExpression that are:
+// > Special-case expressions that are only valid in certain contexts.  These are
+// > not in the expression tree, but can contain elements that are within it.
+// Here, we *can* include these in the the expression tree (in the enum) because
+// part of the syntax rules is enforced by the hand-written parser.
+
+//********//
+// Names  //
+//********//
+
+// Some apparent tokens, such as 'ident' are intercepted in sourcegen_ast.rs and are
+// treated specially.
+Name =
+  'ident'
+
+//*************************//
+//          [Stmt]s          //
+//*************************//
+
+SourceFile =
+  statements:(Stmt*)
+
+// FIXME: Stmt vs Statement ?
+Stmt =
+ ';'
+| AliasDeclarationStatement
+| AnnotationStatement
+| AssignmentStmt
+| Barrier
+| BreakStmt
+| Cal
+| ClassicalDeclarationStatement
+| ContinueStmt
+| Def
+| DefCal
+| DefCalGrammar
+| DelayStmt
+| EndStmt
+| ExprStmt
+| ExternStmt
+| ForStmt
+| Gate
+| IfStmt
+| Include
+| IODeclarationStatement
+| LetStmt
+| Measure
+| OldStyleDeclarationStatement
+| PragmaStatement
+| QuantumDeclarationStatement
+| Reset
+| SwitchCaseStmt
+| VersionString
+| WhileStmt
+
+// "thelabel" is in the list of manually implemented elements.
+AnnotationStatement =
+    thelabel:'fakekw'
+
+// Like 'ident' the remainder is manually coded
+PragmaStatement =
+   'pragma'
+
+// Using '#dim' is a problem. The code gen at some places does not like it.
+// crate quote, file runtime.rs: "#dim_token" is not a valid Ident
+DimExpr =
+   'dim' '=' Expr
+
+SwitchCaseStmt =
+    'switch' '(' control:Expr ')' '{' (CaseExpr*) ('default' default_block:BlockExpr)? '}'
+
+// Not in `Expr` tree
+CaseExpr =
+    'case' ExpressionList BlockExpr
+
+BreakStmt =
+  'break' ';'
+
+ContinueStmt =
+  'continue' ';'
+
+DelayStmt =
+  'delay' Designator QubitList ';'
+
+EndStmt =
+  'end' ';'
+
+VersionString =
+  'OPENQASM' version:Version ';'
+
+// Maybe 'int_number' '. 'int_number' would be better.
+// But the lexer lexes this as a float number.
+// Also 'float_number' causes error in nodes.rs for some reason.
+Version =
+   'int_number'
+
+// TODO: make this more precise.
+// I was getting errors when trying
+Reset =
+  'reset' GateOperand
+
+Measure =
+  'measure' Expr ('->' Expr)? ';'
+
+// FIXME, args to barrier are more general that this.
+Barrier =
+  'barrier' QubitList? ';'
+
+Cal =
+  'cal' (body:BlockExpr | ';')
+
+DefCalGrammar =
+  'defcalgrammar' file:FilePath ';'
+
+Include =
+  'include' file:FilePath ';'
+
+// code for extracting string from FilePath is in expr_ext.rs
+FilePath =
+ 'string'
+
+// Subroutine definition
+Def =
+ 'def' Name TypedParamList ReturnSignature?
+ (body:BlockExpr | ';')
+
+// Defcal definition
+DefCal =
+ 'defcal' Name ParamList QubitList ReturnSignature?
+ (body:BlockExpr | ';')
+
+ExternStmt =
+  'extern' Name TypeList? ReturnSignature ';'
+
+// Gate definition
+// sourceget_ast.rs is not smart enough to handle two ParamList's here.
+// It would return the same thing for angle_params and qubit_args.
+// So in sourcegen_ast.rs we enter angle_params and qubit_args in `manually_implemented`.
+// We have to choose sort of unique names. If, say qubit_args appears elsewhere,
+// in a method intended to be automatically generated, then autogen will skip it as well.
+// Finally, we code the methods by hand in expr_ext.rs. We are not required to
+// give the methods in expr_ext.rs the same names as the labels here, but we do so,
+// to make this slightly less complex.
+Gate =
+ 'gate' Name angle_params:ParamList qubit_args:ParamList
+ (body:BlockExpr | ';')
+
+// Paren delimited list
+ParamList =
+  '(' (Param (',' Param)* ','?)? ')'
+
+ArrayRefType = ('readonly' | 'mutable') 'array' '[' ScalarType ',' (ExpressionList | DimExpr) ']'
+
+ParamType =
+   (ScalarType | ArrayRefType)
+
+TypedParam =
+  (ParamType Name) | OldTypedParam
+
+OldTypedParam =
+  ('creg' | 'qreg') Name Designator?
+
+TypedParamList =
+  '(' (TypedParam (',' TypedParam)* ','?)? ')'
+
+// For 'extern'
+TypeList =
+  '(' (ScalarType (',' ScalarType)* ','?)? ')'
+
+// List with no delimeters
+QubitList =
+    (GateOperand (',' GateOperand)* ','?)?
+
+Param =
+   Name
+
+//****************************//
+// Statements and Expressions //
+//****************************//
+
+ExprStmt =
+  Expr ';'?
+
+// We do not want to include all expressions here.
+Expr =
+  ArrayExpr
+| ArrayLiteral
+| BinExpr
+| BlockExpr
+| BoxExpr
+| CallExpr
+| CastExpression
+| GateCallExpr
+| GPhaseCallExpr
+| HardwareQubit
+| Identifier
+| IndexExpr
+| IndexedIdentifier
+| Literal
+| TimingLiteral
+| MeasureExpression
+| ModifiedGateCallExpr
+| ParenExpr
+| PrefixExpr
+| RangeExpr
+| ReturnExpr
+| DimExpr
+
+Identifier =
+    'ident'
+
+Literal =
+  value:(
+    'int_number' | 'float_number'
+    | 'string'
+    | 'bit_string'
+    | 'true' | 'false'
+    )
+
+TimingLiteral =
+   Literal Identifier
+
+LetStmt =
+  'let' Name '=' Expr ';'
+
+BlockExpr =
+  '{'
+    statements:Stmt*
+  '}'
+
+PrefixExpr =
+    op:('~' | '!' | '-') Expr
+
+// Adding a binary op here requires changes in several places. See notes at the top of this file.
+BinExpr =
+  lhs:Expr
+  op:(
+    '||' | '&&'
+  | '==' | '!=' | '<=' | '>=' | '<' | '>'
+  | '+' | '*' | '-' | '/' | '%' | '<<' | '>>' | '^' | '|' | '&'
+  | '=' | '+=' | '/=' | '*=' | '%=' | '>>=' | '<<=' | '-=' | '|=' | '&=' | '^='
+  | '++' | '**'
+  )
+  rhs:Expr
+
+// This is somehow used in parsing IfElse. Don't see how though.
+ParenExpr =
+  '(' Expr ')'
+
+// FIXME: replace part inside with ExpressionList
+ArrayExpr =
+  '[' (
+    (Expr (',' Expr)* ','?)?
+  | Expr ';' Expr
+  ) ']'
+
+IndexExpr =
+  Expr IndexOperator
+
+// Note: I don't know if the modifier '?' is used at all. Not in methods on `struct ArgList`.
+// FIXME: use ExpressionList
+ArgList =
+   '(' ExpressionList? ')'
+
+// Gate arg list has different reqs from subroutine call arg list
+// But too hard to backtrack, so we don't make the distinction
+// GateArgList =
+//   Expr (',' Expr)* ','?
+
+CastExpression =
+  (ScalarType | ArrayType) '(' Expr ')'
+
+GPhaseCallExpr =
+ 'gphase' arg:Expr
+
+// FIXME: Explain why head of call expression is Expr and not Name
+CallExpr =
+  Expr ArgList
+
+InvModifier =
+    'inv' '@'
+
+PowModifier =
+    'pow' ParenExpr '@'
+
+CtrlModifier =
+    'ctrl' ParenExpr? '@'
+
+NegCtrlModifier =
+    'negctrl' ParenExpr? '@'
+
+GateCallExpr =
+  Name ArgList? QubitList
+
+Modifier =
+    InvModifier | PowModifier | CtrlModifier | NegCtrlModifier
+
+ModifiedGateCallExpr =
+    (Modifier Modifier*) (GateCallExpr | GPhaseCallExpr)
+
+// label 'then_branch' is handled manually in expr_ext.rs
+IfStmt =
+  'if' '(' condition:Expr ')' then_branch:Expr
+  ('else' else_branch:Expr)?
+
+// label 'iterable' is handled manually in node_ext.rs
+// ForStmt =
+//   'for' loop_var:Name 'in' iterable:Expr
+//   loop_body:Expr
+
+ForStmt =
+  'for' ScalarType loop_var:Name 'in' ForIterable
+  body:BlockExpr | stmt:Stmt
+
+// Recall, the label prevents code generation from implementing this alternation
+// as an `enum`. Leaving out the label would cause an error during codegen.
+ForIterable =
+  SetExpression | RangeExpr | for_iterable_expr:Expr
+
+WhileStmt =
+  'while' '(' condition:Expr ')'
+  loop_body:Expr
+
+// For OQ3
+// FIXME: Decide on how to organize range with and without square brackets. We
+// need both. Now following OQ3 ANTLR grammar, includes brackets elsewhere.
+// FIXME: 'start' is intercepted and destroyed somewhere. So I used thestart.
+RangeExpr =
+  thestart:Expr ':' step:Expr? ':' stop:Expr
+//  '[' thestart:Expr ':' step:Expr? ':' stop:Expr ']'
+
+// For OQ3
+ReturnExpr =
+  'return' Expr?
+
+BoxExpr =
+  'box' Expr
+
+//*************************//
+//          Types          //
+//*************************//
+
+// FIXME: move optional `const` here. This is currently
+// in ClassicalDeclarationStatement.
+ScalarType =
+    'bit' Designator?
+    | 'int' Designator?
+    | 'uint' Designator?
+    | 'float' Designator?
+    | 'angle' Designator?
+    | 'bool'
+    | 'duration'
+    | 'stretch'
+    | 'complex' ('[' ScalarType ']')?
+
+Designator =
+  '[' Expr ']'
+
+QubitType =
+   'qubit' Designator?
+
+ArrayType =
+   'array' '[' ScalarType ',' ExpressionList ']'
+
+ExpressionList =
+   Expr (',' Expr)* ','?
+
+ReturnSignature =
+  '->' ScalarType
+
+// Primitive declaration statements.
+
+AliasDeclarationStatement =
+    'let' Name '=' Expr ';'
+
+MeasureExpression =
+    'measure' GateOperand
+
+// We keep Identifier and IndexedIdentifier separate
+GateOperand =
+  Identifier | IndexedIdentifier | HardwareQubit
+
+SetExpression =
+    '{' ExpressionList '}'
+
+// But, probably better to make ExprRange an expression and do this:
+IndexOperator =
+  '[' IndexKind ']'
+
+// We do this just to get an enum from codegen.
+// codgen is not smart enough (and lacks info) to handle '[' SetExpression | ExpressionList ']'
+IndexKind =
+  SetExpression | ExpressionList
+
+IndexedIdentifier =
+    Name IndexOperator*
+
+ArrayLiteral =
+  '{' ExpressionList '}'
+
+// // FIXME
+HardwareQubit =
+  Name
+
+ClassicalDeclarationStatement =
+ 'const'? (ScalarType | ArrayType) Name ('=' Expr)? ';'
+
+IODeclarationStatement =
+    ('input' | 'output') (ScalarType | ArrayType) Name ';'
+
+OldStyleDeclarationStatement =
+    OldTypedParam ';'
+
+QuantumDeclarationStatement =
+   QubitType (Name | HardwareQubit) ';'
+
+AssignmentStmt =
+    (Name | IndexedIdentifier) '=' rhs:Expr ';'

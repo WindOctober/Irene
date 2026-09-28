@@ -1,0 +1,92 @@
+---
+source: crates/pipeline-tests/tests/runner.rs
+expression: parse_snap
+---
+id: tests/snippets/reference/directives/annotations.qasm
+expect-parse: Ok
+--- parser ---
+ok: true
+panicked: false
+errors: 0
+--- ast ---
+SOURCE_FILE@0..236: 
+@bind [2:3]
+input uint[16] x;
+
+@rename other
+output float[64] var;
+
+@hello world
+int[8] x;
+
+@outer
+def fn() {
+  @inner word1
+  uint[16] x;
+  @inner word2
+  return;
+}
+
+@first
+@second @not_third
+uint[16] x;
+
+@binds tightly
+x = 1; x = 2;
+
+ANNOTATION_STATEMENT@1..12: @bind [2:3]
+I_O_DECLARATION_STATEMENT@13..30: input uint[16] x;
+SCALAR_TYPE@19..27: uint[16]
+DESIGNATOR@23..27: [16]
+LITERAL@24..26: 16
+NAME@28..29: x
+ANNOTATION_STATEMENT@32..45: @rename other
+I_O_DECLARATION_STATEMENT@46..67: output float[64] var;
+SCALAR_TYPE@53..62: float[64]
+DESIGNATOR@58..62: [64]
+LITERAL@59..61: 64
+NAME@63..66: var
+ANNOTATION_STATEMENT@69..81: @hello world
+CLASSICAL_DECLARATION_STATEMENT@82..91: int[8] x;
+SCALAR_TYPE@82..88: int[8]
+DESIGNATOR@85..88: [8]
+LITERAL@86..87: 8
+NAME@89..90: x
+ANNOTATION_STATEMENT@93..99: @outer
+DEF@100..166: def fn() {
+  @inner word1
+  uint[16] x;
+  @inner word2
+  return;
+}
+NAME@104..106: fn
+TYPED_PARAM_LIST@106..108: ()
+BLOCK_EXPR@109..166: {
+  @inner word1
+  uint[16] x;
+  @inner word2
+  return;
+}
+ANNOTATION_STATEMENT@113..125: @inner word1
+CLASSICAL_DECLARATION_STATEMENT@128..139: uint[16] x;
+SCALAR_TYPE@128..136: uint[16]
+DESIGNATOR@132..136: [16]
+LITERAL@133..135: 16
+NAME@137..138: x
+ANNOTATION_STATEMENT@142..154: @inner word2
+EXPR_STMT@157..164: return;
+RETURN_EXPR@157..163: return
+ANNOTATION_STATEMENT@168..174: @first
+ANNOTATION_STATEMENT@175..193: @second @not_third
+CLASSICAL_DECLARATION_STATEMENT@194..205: uint[16] x;
+SCALAR_TYPE@194..202: uint[16]
+DESIGNATOR@198..202: [16]
+LITERAL@199..201: 16
+NAME@203..204: x
+ANNOTATION_STATEMENT@207..221: @binds tightly
+ASSIGNMENT_STMT@222..228: x = 1;
+IDENTIFIER@222..223: x
+LITERAL@226..227: 1
+ASSIGNMENT_STMT@229..235: x = 2;
+IDENTIFIER@229..230: x
+LITERAL@233..234: 2

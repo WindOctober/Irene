@@ -1,0 +1,69 @@
+---
+source: crates/pipeline-tests/tests/runner.rs
+expression: parse_snap
+---
+id: tests/snippets/invalid/statements/io.qasm
+expect-parse: Diag
+--- parser ---
+ok: false
+panicked: false
+errors: 18
+--- ast ---
+SOURCE_FILE@0..151: 
+input int[8];
+output int[8];
+input qreg myvar[4];
+output qreg myvar[4];
+input int[8] myvar = 32;
+output int[8] myvar = 32;
+input myvar;
+output myvar;
+
+I_O_DECLARATION_STATEMENT@1..14: input int[8];
+SCALAR_TYPE@7..13: int[8]
+DESIGNATOR@10..13: [8]
+LITERAL@11..12: 8
+NAME@13..13: 
+I_O_DECLARATION_STATEMENT@15..29: output int[8];
+SCALAR_TYPE@22..28: int[8]
+DESIGNATOR@25..28: [8]
+LITERAL@26..27: 8
+NAME@28..28: 
+I_O_DECLARATION_STATEMENT@30..36: input 
+SCALAR_TYPE@36..36: 
+NAME@36..36: 
+OLD_STYLE_DECLARATION_STATEMENT@36..50: qreg myvar[4];
+OLD_TYPED_PARAM@36..49: qreg myvar[4]
+INDEX_OPERATOR@46..49: [4]
+EXPRESSION_LIST@47..48: 4
+LITERAL@47..48: 4
+I_O_DECLARATION_STATEMENT@51..58: output 
+SCALAR_TYPE@58..58: 
+NAME@58..58: 
+OLD_STYLE_DECLARATION_STATEMENT@58..72: qreg myvar[4];
+OLD_TYPED_PARAM@58..71: qreg myvar[4]
+INDEX_OPERATOR@68..71: [4]
+EXPRESSION_LIST@69..70: 4
+LITERAL@69..70: 4
+I_O_DECLARATION_STATEMENT@73..91: input int[8] myvar
+SCALAR_TYPE@79..85: int[8]
+DESIGNATOR@82..85: [8]
+LITERAL@83..84: 8
+NAME@86..91: myvar
+ERROR@92..93: =
+EXPR_STMT@94..97: 32;
+LITERAL@94..96: 32
+I_O_DECLARATION_STATEMENT@98..117: output int[8] myvar
+SCALAR_TYPE@105..111: int[8]
+DESIGNATOR@108..111: [8]
+LITERAL@109..110: 8
+NAME@112..117: myvar
+ERROR@118..119: =
+EXPR_STMT@120..123: 32;
+LITERAL@120..122: 32
+I_O_DECLARATION_STATEMENT@124..136: input myvar;
+SCALAR_TYPE@130..130: 
+NAME@130..135: myvar
+I_O_DECLARATION_STATEMENT@137..150: output myvar;
+SCALAR_TYPE@144..144: 
+NAME@144..149: myvar

@@ -1,0 +1,12 @@
+---
+source: crates/pipeline-tests/tests/runner.rs
+expression: sema_snap
+---
+id: tests/snippets/reference/subroutine/extern.qasm
+expect-sema: Todo
+--- sema ---
+ok: false
+panicked: false
+errors: 1
+--- asg ---
+NullStmt

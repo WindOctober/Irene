@@ -1,0 +1,50 @@
+---
+source: crates/pipeline-tests/tests/runner.rs
+expression: parse_snap
+---
+id: tests/snippets/reference/expression/sub_and_extern_call.qasm
+expect-parse: Ok
+--- parser ---
+ok: true
+panicked: false
+errors: 0
+--- ast ---
+SOURCE_FILE@0..95: 
+bit x = sub_call(10, "01", q1[0], q2);
+int[2] y = extern_call(0.5, 10dt);
+ambiguous_call(pi);
+
+CLASSICAL_DECLARATION_STATEMENT@1..39: bit x = sub_call(10, "01", q1[0], q2);
+SCALAR_TYPE@1..4: bit
+NAME@5..6: x
+CALL_EXPR@9..38: sub_call(10, "01", q1[0], q2)
+IDENTIFIER@9..17: sub_call
+ARG_LIST@17..38: (10, "01", q1[0], q2)
+EXPRESSION_LIST@17..38: (10, "01", q1[0], q2)
+LITERAL@18..20: 10
+LITERAL@22..26: "01"
+INDEXED_IDENTIFIER@28..33: q1[0]
+IDENTIFIER@28..30: q1
+INDEX_OPERATOR@30..33: [0]
+EXPRESSION_LIST@31..32: 0
+LITERAL@31..32: 0
+IDENTIFIER@35..37: q2
+CLASSICAL_DECLARATION_STATEMENT@40..74: int[2] y = extern_call(0.5, 10dt);
+SCALAR_TYPE@40..46: int[2]
+DESIGNATOR@43..46: [2]
+LITERAL@44..45: 2
+NAME@47..48: y
+CALL_EXPR@51..73: extern_call(0.5, 10dt)
+IDENTIFIER@51..62: extern_call
+ARG_LIST@62..73: (0.5, 10dt)
+EXPRESSION_LIST@62..73: (0.5, 10dt)
+LITERAL@63..66: 0.5
+TIMING_LITERAL@68..72: 10dt
+LITERAL@68..70: 10
+IDENTIFIER@70..72: dt
+EXPR_STMT@75..94: ambiguous_call(pi);
+CALL_EXPR@75..93: ambiguous_call(pi)
+IDENTIFIER@75..89: ambiguous_call
+ARG_LIST@89..93: (pi)
+EXPRESSION_LIST@89..93: (pi)
+IDENTIFIER@90..92: pi

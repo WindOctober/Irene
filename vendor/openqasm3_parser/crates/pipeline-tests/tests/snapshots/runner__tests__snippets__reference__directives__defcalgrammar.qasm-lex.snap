@@ -1,0 +1,30 @@
+---
+source: crates/pipeline-tests/tests/runner.rs
+expression: lex_snap
+---
+id: tests/snippets/reference/directives/defcalgrammar.qasm
+expect-lex: Ok
+--- source ---
+
+defcalgrammar 'openpulse';
+defcalgrammar "openpulse";
+defcalgrammar "001";
+--- lexer ---
+ok: true
+errors: 0
+[0] Whitespace "\n" @0..1
+[1] Ident "defcalgrammar" @1..14
+[2] Whitespace " " @14..15
+[3] Literal { kind: Str { terminated: true }, suffix_start: 11 } "'openpulse'" @15..26
+[4] Semi ";" @26..27
+[5] Whitespace "\n" @27..28
+[6] Ident "defcalgrammar" @28..41
+[7] Whitespace " " @41..42
+[8] Literal { kind: Str { terminated: true }, suffix_start: 11 } ""openpulse"" @42..53
+[9] Semi ";" @53..54
+[10] Whitespace "\n" @54..55
+[11] Ident "defcalgrammar" @55..68
+[12] Whitespace " " @68..69
+[13] Literal { kind: BitStr { terminated: true, consecutive_underscores: false }, suffix_start: 5 } ""001"" @69..74
+[14] Semi ";" @74..75
+[15] Whitespace "\n" @75..76

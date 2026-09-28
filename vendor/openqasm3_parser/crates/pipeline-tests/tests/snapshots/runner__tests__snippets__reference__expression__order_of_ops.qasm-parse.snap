@@ -1,0 +1,54 @@
+---
+source: crates/pipeline-tests/tests/runner.rs
+expression: parse_snap
+---
+id: tests/snippets/reference/expression/order_of_ops.qasm
+expect-parse: Ok
+--- parser ---
+ok: true
+panicked: false
+errors: 0
+--- ast ---
+SOURCE_FILE@0..50: 
+a[1]+2|c*(sin(y)^!3.5*d[3]);
+b = bit[8](a)[2:4];
+
+EXPR_STMT@1..29: a[1]+2|c*(sin(y)^!3.5*d[3]);
+BIN_EXPR@1..28: a[1]+2|c*(sin(y)^!3.5*d[3])
+BIN_EXPR@1..7: a[1]+2
+INDEXED_IDENTIFIER@1..5: a[1]
+IDENTIFIER@1..2: a
+INDEX_OPERATOR@2..5: [1]
+EXPRESSION_LIST@3..4: 1
+LITERAL@3..4: 1
+LITERAL@6..7: 2
+BIN_EXPR@8..28: c*(sin(y)^!3.5*d[3])
+IDENTIFIER@8..9: c
+PAREN_EXPR@10..28: (sin(y)^!3.5*d[3])
+BIN_EXPR@11..27: sin(y)^!3.5*d[3]
+CALL_EXPR@11..17: sin(y)
+IDENTIFIER@11..14: sin
+ARG_LIST@14..17: (y)
+EXPRESSION_LIST@14..17: (y)
+IDENTIFIER@15..16: y
+BIN_EXPR@18..27: !3.5*d[3]
+PREFIX_EXPR@18..22: !3.5
+LITERAL@19..22: 3.5
+INDEXED_IDENTIFIER@23..27: d[3]
+IDENTIFIER@23..24: d
+INDEX_OPERATOR@24..27: [3]
+EXPRESSION_LIST@25..26: 3
+LITERAL@25..26: 3
+ASSIGNMENT_STMT@30..49: b = bit[8](a)[2:4];
+IDENTIFIER@30..31: b
+INDEX_EXPR@34..48: bit[8](a)[2:4]
+CAST_EXPRESSION@34..43: bit[8](a)
+SCALAR_TYPE@34..40: bit[8]
+DESIGNATOR@37..40: [8]
+LITERAL@38..39: 8
+IDENTIFIER@41..42: a
+INDEX_OPERATOR@43..48: [2:4]
+EXPRESSION_LIST@44..47: 2:4
+RANGE_EXPR@44..47: 2:4
+LITERAL@44..45: 2
+LITERAL@46..47: 4

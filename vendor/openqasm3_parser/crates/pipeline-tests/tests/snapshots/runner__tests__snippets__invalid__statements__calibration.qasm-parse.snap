@@ -1,0 +1,39 @@
+---
+source: crates/pipeline-tests/tests/runner.rs
+expression: parse_snap
+---
+id: tests/snippets/invalid/statements/calibration.qasm
+expect-parse: Diag
+--- parser ---
+ok: false
+panicked: false
+errors: 7
+--- ast ---
+SOURCE_FILE@0..106: 
+defcalgrammar "openpulse" defcalgrammar "openpulse";
+defcalgrammar 3;
+defcal x $0 -> int[8] -> int[8] {}
+
+DEF_CAL_GRAMMAR@1..26: defcalgrammar "openpulse"
+FILE_PATH@15..26: "openpulse"
+DEF_CAL_GRAMMAR@27..53: defcalgrammar "openpulse";
+FILE_PATH@41..52: "openpulse"
+DEF_CAL_GRAMMAR@54..70: defcalgrammar 3;
+ERROR@68..69: 3
+DEF_CAL@71..92: defcal x $0 -> int[8]
+NAME@78..79: x
+QUBIT_LIST@80..82: $0
+HARDWARE_QUBIT@80..82: $0
+RETURN_SIGNATURE@83..92: -> int[8]
+SCALAR_TYPE@86..92: int[8]
+DESIGNATOR@89..92: [8]
+LITERAL@90..91: 8
+EXPR_STMT@93..95: ->
+PREFIX_EXPR@93..95: ->
+ERROR@94..95: >
+SCALAR_TYPE@96..102: int[8]
+DESIGNATOR@99..102: [8]
+LITERAL@100..101: 8
+NAME@103..103: 
+EXPR_STMT@103..105: {}
+BLOCK_EXPR@103..105: {}

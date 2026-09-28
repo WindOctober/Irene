@@ -1,0 +1,17 @@
+---
+source: crates/pipeline-tests/tests/runner.rs
+expression: parse_snap
+---
+id: tests/snippets/reference/expression/unary_expr.qasm
+expect-parse: Ok
+--- parser ---
+ok: true
+panicked: false
+errors: 0
+--- ast ---
+SOURCE_FILE@0..10: 
+!my_var;
+
+EXPR_STMT@1..9: !my_var;
+PREFIX_EXPR@1..8: !my_var
+IDENTIFIER@2..8: my_var

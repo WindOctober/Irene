@@ -1,0 +1,286 @@
+---
+source: crates/pipeline-tests/tests/runner.rs
+expression: lex_snap
+---
+id: tests/snippets/reference/declaration/declaration.qasm
+expect-lex: Ok
+--- source ---
+
+// beware the tab character in dur4 = 8 ns below
+  int[10] x;
+  int[10] y;
+  uint[32] z = 0xFa_1F;
+  uint[32] z = 0XFa_1F;
+  uint[16] z = 0o12_34;
+  uint[16] z = 0b1001_1001;
+  uint[16] z = 0B1001_1001;
+  uint x;
+  qubit[6] q1;
+  qubit q2;
+  bit[4] b1="0100";
+  bit[8] b2="1001_0100";
+  bit b2 = "1";
+  bool m=true;
+  bool n=bool(b2);
+  bool o=false;
+  const float[64] c = 5.5e3;
+  const float[64] d=5;
+  float[32] f = .1e+3;
+  duration dur = 1000dt;
+  duration dur2 = dur + 200ns;
+  duration dur3 = 10 ms;
+  duration dur4 = 8	us;
+  duration dur5 = 1s;
+  stretch s;
+--- lexer ---
+ok: true
+errors: 0
+[0] Whitespace "\n" @0..1
+[1] LineComment "// beware the tab character in dur4 = 8 ns below" @1..49
+[2] Whitespace "\n  " @49..52
+[3] Ident "int" @52..55
+[4] OpenBracket "[" @55..56
+[5] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 2 } "10" @56..58
+[6] CloseBracket "]" @58..59
+[7] Whitespace " " @59..60
+[8] Ident "x" @60..61
+[9] Semi ";" @61..62
+[10] Whitespace "\n  " @62..65
+[11] Ident "int" @65..68
+[12] OpenBracket "[" @68..69
+[13] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 2 } "10" @69..71
+[14] CloseBracket "]" @71..72
+[15] Whitespace " " @72..73
+[16] Ident "y" @73..74
+[17] Semi ";" @74..75
+[18] Whitespace "\n  " @75..78
+[19] Ident "uint" @78..82
+[20] OpenBracket "[" @82..83
+[21] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 2 } "32" @83..85
+[22] CloseBracket "]" @85..86
+[23] Whitespace " " @86..87
+[24] Ident "z" @87..88
+[25] Whitespace " " @88..89
+[26] Eq "=" @89..90
+[27] Whitespace " " @90..91
+[28] Literal { kind: Int { base: Hexadecimal, empty_int: false }, suffix_start: 7 } "0xFa_1F" @91..98
+[29] Semi ";" @98..99
+[30] Whitespace "\n  " @99..102
+[31] Ident "uint" @102..106
+[32] OpenBracket "[" @106..107
+[33] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 2 } "32" @107..109
+[34] CloseBracket "]" @109..110
+[35] Whitespace " " @110..111
+[36] Ident "z" @111..112
+[37] Whitespace " " @112..113
+[38] Eq "=" @113..114
+[39] Whitespace " " @114..115
+[40] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "0XFa_1F" @115..122
+[41] Semi ";" @122..123
+[42] Whitespace "\n  " @123..126
+[43] Ident "uint" @126..130
+[44] OpenBracket "[" @130..131
+[45] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 2 } "16" @131..133
+[46] CloseBracket "]" @133..134
+[47] Whitespace " " @134..135
+[48] Ident "z" @135..136
+[49] Whitespace " " @136..137
+[50] Eq "=" @137..138
+[51] Whitespace " " @138..139
+[52] Literal { kind: Int { base: Octal, empty_int: false }, suffix_start: 7 } "0o12_34" @139..146
+[53] Semi ";" @146..147
+[54] Whitespace "\n  " @147..150
+[55] Ident "uint" @150..154
+[56] OpenBracket "[" @154..155
+[57] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 2 } "16" @155..157
+[58] CloseBracket "]" @157..158
+[59] Whitespace " " @158..159
+[60] Ident "z" @159..160
+[61] Whitespace " " @160..161
+[62] Eq "=" @161..162
+[63] Whitespace " " @162..163
+[64] Literal { kind: Int { base: Binary, empty_int: false }, suffix_start: 11 } "0b1001_1001" @163..174
+[65] Semi ";" @174..175
+[66] Whitespace "\n  " @175..178
+[67] Ident "uint" @178..182
+[68] OpenBracket "[" @182..183
+[69] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 2 } "16" @183..185
+[70] CloseBracket "]" @185..186
+[71] Whitespace " " @186..187
+[72] Ident "z" @187..188
+[73] Whitespace " " @188..189
+[74] Eq "=" @189..190
+[75] Whitespace " " @190..191
+[76] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "0B1001_1001" @191..202
+[77] Semi ";" @202..203
+[78] Whitespace "\n  " @203..206
+[79] Ident "uint" @206..210
+[80] Whitespace " " @210..211
+[81] Ident "x" @211..212
+[82] Semi ";" @212..213
+[83] Whitespace "\n  " @213..216
+[84] Ident "qubit" @216..221
+[85] OpenBracket "[" @221..222
+[86] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "6" @222..223
+[87] CloseBracket "]" @223..224
+[88] Whitespace " " @224..225
+[89] Ident "q1" @225..227
+[90] Semi ";" @227..228
+[91] Whitespace "\n  " @228..231
+[92] Ident "qubit" @231..236
+[93] Whitespace " " @236..237
+[94] Ident "q2" @237..239
+[95] Semi ";" @239..240
+[96] Whitespace "\n  " @240..243
+[97] Ident "bit" @243..246
+[98] OpenBracket "[" @246..247
+[99] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "4" @247..248
+[100] CloseBracket "]" @248..249
+[101] Whitespace " " @249..250
+[102] Ident "b1" @250..252
+[103] Eq "=" @252..253
+[104] Literal { kind: BitStr { terminated: true, consecutive_underscores: false }, suffix_start: 6 } ""0100"" @253..259
+[105] Semi ";" @259..260
+[106] Whitespace "\n  " @260..263
+[107] Ident "bit" @263..266
+[108] OpenBracket "[" @266..267
+[109] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "8" @267..268
+[110] CloseBracket "]" @268..269
+[111] Whitespace " " @269..270
+[112] Ident "b2" @270..272
+[113] Eq "=" @272..273
+[114] Literal { kind: BitStr { terminated: true, consecutive_underscores: false }, suffix_start: 11 } ""1001_0100"" @273..284
+[115] Semi ";" @284..285
+[116] Whitespace "\n  " @285..288
+[117] Ident "bit" @288..291
+[118] Whitespace " " @291..292
+[119] Ident "b2" @292..294
+[120] Whitespace " " @294..295
+[121] Eq "=" @295..296
+[122] Whitespace " " @296..297
+[123] Literal { kind: BitStr { terminated: true, consecutive_underscores: false }, suffix_start: 3 } ""1"" @297..300
+[124] Semi ";" @300..301
+[125] Whitespace "\n  " @301..304
+[126] Ident "bool" @304..308
+[127] Whitespace " " @308..309
+[128] Ident "m" @309..310
+[129] Eq "=" @310..311
+[130] Ident "true" @311..315
+[131] Semi ";" @315..316
+[132] Whitespace "\n  " @316..319
+[133] Ident "bool" @319..323
+[134] Whitespace " " @323..324
+[135] Ident "n" @324..325
+[136] Eq "=" @325..326
+[137] Ident "bool" @326..330
+[138] OpenParen "(" @330..331
+[139] Ident "b2" @331..333
+[140] CloseParen ")" @333..334
+[141] Semi ";" @334..335
+[142] Whitespace "\n  " @335..338
+[143] Ident "bool" @338..342
+[144] Whitespace " " @342..343
+[145] Ident "o" @343..344
+[146] Eq "=" @344..345
+[147] Ident "false" @345..350
+[148] Semi ";" @350..351
+[149] Whitespace "\n  " @351..354
+[150] Ident "const" @354..359
+[151] Whitespace " " @359..360
+[152] Ident "float" @360..365
+[153] OpenBracket "[" @365..366
+[154] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 2 } "64" @366..368
+[155] CloseBracket "]" @368..369
+[156] Whitespace " " @369..370
+[157] Ident "c" @370..371
+[158] Whitespace " " @371..372
+[159] Eq "=" @372..373
+[160] Whitespace " " @373..374
+[161] Literal { kind: Float { base: Decimal, empty_exponent: false }, suffix_start: 5 } "5.5e3" @374..379
+[162] Semi ";" @379..380
+[163] Whitespace "\n  " @380..383
+[164] Ident "const" @383..388
+[165] Whitespace " " @388..389
+[166] Ident "float" @389..394
+[167] OpenBracket "[" @394..395
+[168] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 2 } "64" @395..397
+[169] CloseBracket "]" @397..398
+[170] Whitespace " " @398..399
+[171] Ident "d" @399..400
+[172] Eq "=" @400..401
+[173] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "5" @401..402
+[174] Semi ";" @402..403
+[175] Whitespace "\n  " @403..406
+[176] Ident "float" @406..411
+[177] OpenBracket "[" @411..412
+[178] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 2 } "32" @412..414
+[179] CloseBracket "]" @414..415
+[180] Whitespace " " @415..416
+[181] Ident "f" @416..417
+[182] Whitespace " " @417..418
+[183] Eq "=" @418..419
+[184] Whitespace " " @419..420
+[185] Literal { kind: Float { base: Decimal, empty_exponent: false }, suffix_start: 5 } ".1e+3" @420..425
+[186] Semi ";" @425..426
+[187] Whitespace "\n  " @426..429
+[188] Ident "duration" @429..437
+[189] Whitespace " " @437..438
+[190] Ident "dur" @438..441
+[191] Whitespace " " @441..442
+[192] Eq "=" @442..443
+[193] Whitespace " " @443..444
+[194] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 4 } "1000" @444..448
+[195] Ident "dt" @448..450
+[196] Semi ";" @450..451
+[197] Whitespace "\n  " @451..454
+[198] Ident "duration" @454..462
+[199] Whitespace " " @462..463
+[200] Ident "dur2" @463..467
+[201] Whitespace " " @467..468
+[202] Eq "=" @468..469
+[203] Whitespace " " @469..470
+[204] Ident "dur" @470..473
+[205] Whitespace " " @473..474
+[206] Plus "+" @474..475
+[207] Whitespace " " @475..476
+[208] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 3 } "200" @476..479
+[209] Ident "ns" @479..481
+[210] Semi ";" @481..482
+[211] Whitespace "\n  " @482..485
+[212] Ident "duration" @485..493
+[213] Whitespace " " @493..494
+[214] Ident "dur3" @494..498
+[215] Whitespace " " @498..499
+[216] Eq "=" @499..500
+[217] Whitespace " " @500..501
+[218] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 2 } "10" @501..503
+[219] Whitespace " " @503..504
+[220] Ident "ms" @504..506
+[221] Semi ";" @506..507
+[222] Whitespace "\n  " @507..510
+[223] Ident "duration" @510..518
+[224] Whitespace " " @518..519
+[225] Ident "dur4" @519..523
+[226] Whitespace " " @523..524
+[227] Eq "=" @524..525
+[228] Whitespace " " @525..526
+[229] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "8" @526..527
+[230] Whitespace "\t" @527..528
+[231] Ident "us" @528..530
+[232] Semi ";" @530..531
+[233] Whitespace "\n  " @531..534
+[234] Ident "duration" @534..542
+[235] Whitespace " " @542..543
+[236] Ident "dur5" @543..547
+[237] Whitespace " " @547..548
+[238] Eq "=" @548..549
+[239] Whitespace " " @549..550
+[240] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "1" @550..551
+[241] Ident "s" @551..552
+[242] Semi ";" @552..553
+[243] Whitespace "\n  " @553..556
+[244] Ident "stretch" @556..563
+[245] Whitespace " " @563..564
+[246] Ident "s" @564..565
+[247] Semi ";" @565..566
+[248] Whitespace "\n" @566..567

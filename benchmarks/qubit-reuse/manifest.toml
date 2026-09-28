@@ -1,0 +1,159 @@
+schema_version = 1
+program_format = "openqasm2"
+
+[source]
+id = "qubit-reuse"
+name = "Qiskit Qubit Reuse"
+repository = "https://github.com/qiskit-community/qiskit-qubit-reuse"
+commit = "b0b0d32204e6776b9bd31c8dc9f033484ef79c89"
+
+[normalization]
+encoding = "utf-8"
+line_endings = "lf"
+semantic_rewrite = false
+
+[generation]
+qiskit_version = "1.4.5"
+init_method = "qubit_reuse"
+optimization_level = 0
+gate_set = ["h", "t", "s", "x", "cx"]
+
+[[case]]
+id = "qubit-reuse-random-clifford-t-0001"
+suite = "random-clifford-t"
+left = "programs/0001/left.qasm"
+right = "programs/0001/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+qubits = 4
+depth = 1
+seed = 100
+input_pairs = []
+output_pairs = ["classical:out[0]=classical:out[0]", "classical:out[1]=classical:out[1]", "classical:out[2]=classical:out[2]", "classical:out[3]=classical:out[3]"]
+
+[[case]]
+id = "qubit-reuse-random-clifford-t-0002"
+suite = "random-clifford-t"
+left = "programs/0002/left.qasm"
+right = "programs/0002/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+qubits = 6
+depth = 1
+seed = 101
+input_pairs = []
+output_pairs = ["classical:out[0]=classical:out[0]", "classical:out[1]=classical:out[1]", "classical:out[2]=classical:out[2]", "classical:out[3]=classical:out[3]", "classical:out[4]=classical:out[4]", "classical:out[5]=classical:out[5]"]
+
+[[case]]
+id = "qubit-reuse-random-clifford-t-0003"
+suite = "random-clifford-t"
+left = "programs/0003/left.qasm"
+right = "programs/0003/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+qubits = 6
+depth = 2
+seed = 102
+input_pairs = []
+output_pairs = ["classical:out[0]=classical:out[0]", "classical:out[1]=classical:out[1]", "classical:out[2]=classical:out[2]", "classical:out[3]=classical:out[3]", "classical:out[4]=classical:out[4]", "classical:out[5]=classical:out[5]"]
+
+[[case]]
+id = "qubit-reuse-random-clifford-t-0004"
+suite = "random-clifford-t"
+left = "programs/0004/left.qasm"
+right = "programs/0004/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+qubits = 8
+depth = 2
+seed = 103
+input_pairs = []
+output_pairs = ["classical:out[0]=classical:out[0]", "classical:out[1]=classical:out[1]", "classical:out[2]=classical:out[2]", "classical:out[3]=classical:out[3]", "classical:out[4]=classical:out[4]", "classical:out[5]=classical:out[5]", "classical:out[6]=classical:out[6]", "classical:out[7]=classical:out[7]"]
+
+[[case]]
+id = "qubit-reuse-random-clifford-t-0005"
+suite = "random-clifford-t"
+left = "programs/0005/left.qasm"
+right = "programs/0005/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+qubits = 8
+depth = 3
+seed = 104
+input_pairs = []
+output_pairs = ["classical:out[0]=classical:out[0]", "classical:out[1]=classical:out[1]", "classical:out[2]=classical:out[2]", "classical:out[3]=classical:out[3]", "classical:out[4]=classical:out[4]", "classical:out[5]=classical:out[5]", "classical:out[6]=classical:out[6]", "classical:out[7]=classical:out[7]"]
+
+[[case]]
+id = "qubit-reuse-random-clifford-t-0006"
+suite = "random-clifford-t"
+left = "programs/0006/left.qasm"
+right = "programs/0006/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+qubits = 10
+depth = 2
+seed = 105
+input_pairs = []
+output_pairs = ["classical:out[0]=classical:out[0]", "classical:out[1]=classical:out[1]", "classical:out[2]=classical:out[2]", "classical:out[3]=classical:out[3]", "classical:out[4]=classical:out[4]", "classical:out[5]=classical:out[5]", "classical:out[6]=classical:out[6]", "classical:out[7]=classical:out[7]", "classical:out[8]=classical:out[8]", "classical:out[9]=classical:out[9]"]
+
+[[case]]
+id = "qubit-reuse-random-clifford-t-0007"
+suite = "random-clifford-t"
+left = "programs/0007/left.qasm"
+right = "programs/0007/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+qubits = 10
+depth = 3
+seed = 106
+input_pairs = []
+output_pairs = ["classical:out[0]=classical:out[0]", "classical:out[1]=classical:out[1]", "classical:out[2]=classical:out[2]", "classical:out[3]=classical:out[3]", "classical:out[4]=classical:out[4]", "classical:out[5]=classical:out[5]", "classical:out[6]=classical:out[6]", "classical:out[7]=classical:out[7]", "classical:out[8]=classical:out[8]", "classical:out[9]=classical:out[9]"]
+
+[[case]]
+id = "qubit-reuse-random-clifford-t-0008"
+suite = "random-clifford-t"
+left = "programs/0008/left.qasm"
+right = "programs/0008/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+qubits = 12
+depth = 2
+seed = 107
+input_pairs = []
+output_pairs = ["classical:out[0]=classical:out[0]", "classical:out[1]=classical:out[1]", "classical:out[2]=classical:out[2]", "classical:out[3]=classical:out[3]", "classical:out[4]=classical:out[4]", "classical:out[5]=classical:out[5]", "classical:out[6]=classical:out[6]", "classical:out[7]=classical:out[7]", "classical:out[8]=classical:out[8]", "classical:out[9]=classical:out[9]", "classical:out[10]=classical:out[10]", "classical:out[11]=classical:out[11]"]
+
+[[case]]
+id = "qubit-reuse-random-clifford-t-0009"
+suite = "random-clifford-t"
+left = "programs/0009/left.qasm"
+right = "programs/0009/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+qubits = 12
+depth = 3
+seed = 108
+input_pairs = []
+output_pairs = ["classical:out[0]=classical:out[0]", "classical:out[1]=classical:out[1]", "classical:out[2]=classical:out[2]", "classical:out[3]=classical:out[3]", "classical:out[4]=classical:out[4]", "classical:out[5]=classical:out[5]", "classical:out[6]=classical:out[6]", "classical:out[7]=classical:out[7]", "classical:out[8]=classical:out[8]", "classical:out[9]=classical:out[9]", "classical:out[10]=classical:out[10]", "classical:out[11]=classical:out[11]"]
+
+[[case]]
+id = "qubit-reuse-random-clifford-t-0010"
+suite = "random-clifford-t"
+left = "programs/0010/left.qasm"
+right = "programs/0010/right.qasm"
+truth = "eq"
+equivalence = "hybrid"
+initial_state = "zero"
+qubits = 16
+depth = 3
+seed = 109
+input_pairs = []
+output_pairs = ["classical:out[0]=classical:out[0]", "classical:out[1]=classical:out[1]", "classical:out[2]=classical:out[2]", "classical:out[3]=classical:out[3]", "classical:out[4]=classical:out[4]", "classical:out[5]=classical:out[5]", "classical:out[6]=classical:out[6]", "classical:out[7]=classical:out[7]", "classical:out[8]=classical:out[8]", "classical:out[9]=classical:out[9]", "classical:out[10]=classical:out[10]", "classical:out[11]=classical:out[11]", "classical:out[12]=classical:out[12]", "classical:out[13]=classical:out[13]", "classical:out[14]=classical:out[14]", "classical:out[15]=classical:out[15]"]

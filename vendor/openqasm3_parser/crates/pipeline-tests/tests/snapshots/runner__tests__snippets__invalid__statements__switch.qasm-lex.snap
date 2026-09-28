@@ -1,0 +1,109 @@
+---
+source: crates/pipeline-tests/tests/runner.rs
+expression: lex_snap
+---
+id: tests/snippets/invalid/statements/switch.qasm
+expect-lex: Ok
+--- source ---
+
+switch () {}
+switch (i) { x $0 }
+switch (i) { case {} }
+switch (i) { case 1,, {} }
+switch (i) { default 0 {} }
+switch (i) { default, default {} }
+--- lexer ---
+ok: true
+errors: 0
+[0] Whitespace "\n" @0..1
+[1] Ident "switch" @1..7
+[2] Whitespace " " @7..8
+[3] OpenParen "(" @8..9
+[4] CloseParen ")" @9..10
+[5] Whitespace " " @10..11
+[6] OpenBrace "{" @11..12
+[7] CloseBrace "}" @12..13
+[8] Whitespace "\n" @13..14
+[9] Ident "switch" @14..20
+[10] Whitespace " " @20..21
+[11] OpenParen "(" @21..22
+[12] Ident "i" @22..23
+[13] CloseParen ")" @23..24
+[14] Whitespace " " @24..25
+[15] OpenBrace "{" @25..26
+[16] Whitespace " " @26..27
+[17] Ident "x" @27..28
+[18] Whitespace " " @28..29
+[19] HardwareIdent "$0" @29..31
+[20] Whitespace " " @31..32
+[21] CloseBrace "}" @32..33
+[22] Whitespace "\n" @33..34
+[23] Ident "switch" @34..40
+[24] Whitespace " " @40..41
+[25] OpenParen "(" @41..42
+[26] Ident "i" @42..43
+[27] CloseParen ")" @43..44
+[28] Whitespace " " @44..45
+[29] OpenBrace "{" @45..46
+[30] Whitespace " " @46..47
+[31] Ident "case" @47..51
+[32] Whitespace " " @51..52
+[33] OpenBrace "{" @52..53
+[34] CloseBrace "}" @53..54
+[35] Whitespace " " @54..55
+[36] CloseBrace "}" @55..56
+[37] Whitespace "\n" @56..57
+[38] Ident "switch" @57..63
+[39] Whitespace " " @63..64
+[40] OpenParen "(" @64..65
+[41] Ident "i" @65..66
+[42] CloseParen ")" @66..67
+[43] Whitespace " " @67..68
+[44] OpenBrace "{" @68..69
+[45] Whitespace " " @69..70
+[46] Ident "case" @70..74
+[47] Whitespace " " @74..75
+[48] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "1" @75..76
+[49] Comma "," @76..77
+[50] Comma "," @77..78
+[51] Whitespace " " @78..79
+[52] OpenBrace "{" @79..80
+[53] CloseBrace "}" @80..81
+[54] Whitespace " " @81..82
+[55] CloseBrace "}" @82..83
+[56] Whitespace "\n" @83..84
+[57] Ident "switch" @84..90
+[58] Whitespace " " @90..91
+[59] OpenParen "(" @91..92
+[60] Ident "i" @92..93
+[61] CloseParen ")" @93..94
+[62] Whitespace " " @94..95
+[63] OpenBrace "{" @95..96
+[64] Whitespace " " @96..97
+[65] Ident "default" @97..104
+[66] Whitespace " " @104..105
+[67] Literal { kind: Int { base: Decimal, empty_int: false }, suffix_start: 1 } "0" @105..106
+[68] Whitespace " " @106..107
+[69] OpenBrace "{" @107..108
+[70] CloseBrace "}" @108..109
+[71] Whitespace " " @109..110
+[72] CloseBrace "}" @110..111
+[73] Whitespace "\n" @111..112
+[74] Ident "switch" @112..118
+[75] Whitespace " " @118..119
+[76] OpenParen "(" @119..120
+[77] Ident "i" @120..121
+[78] CloseParen ")" @121..122
+[79] Whitespace " " @122..123
+[80] OpenBrace "{" @123..124
+[81] Whitespace " " @124..125
+[82] Ident "default" @125..132
+[83] Comma "," @132..133
+[84] Whitespace " " @133..134
+[85] Ident "default" @134..141
+[86] Whitespace " " @141..142
+[87] OpenBrace "{" @142..143
+[88] CloseBrace "}" @143..144
+[89] Whitespace " " @144..145
+[90] CloseBrace "}" @145..146
+[91] Whitespace "\n" @146..147

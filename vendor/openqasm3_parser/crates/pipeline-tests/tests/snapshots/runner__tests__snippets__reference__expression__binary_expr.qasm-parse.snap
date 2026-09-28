@@ -1,0 +1,39 @@
+---
+source: crates/pipeline-tests/tests/runner.rs
+expression: parse_snap
+---
+id: tests/snippets/reference/expression/binary_expr.qasm
+expect-parse: Ok
+--- parser ---
+ok: true
+panicked: false
+errors: 0
+--- ast ---
+SOURCE_FILE@0..43: 
+int x = 0;
+int y = 1;
+
+2+2;
+2**2;
+x << y;
+
+CLASSICAL_DECLARATION_STATEMENT@1..11: int x = 0;
+SCALAR_TYPE@1..4: int
+NAME@5..6: x
+LITERAL@9..10: 0
+CLASSICAL_DECLARATION_STATEMENT@12..22: int y = 1;
+SCALAR_TYPE@12..15: int
+NAME@16..17: y
+LITERAL@20..21: 1
+EXPR_STMT@24..28: 2+2;
+BIN_EXPR@24..27: 2+2
+LITERAL@24..25: 2
+LITERAL@26..27: 2
+EXPR_STMT@29..34: 2**2;
+BIN_EXPR@29..33: 2**2
+LITERAL@29..30: 2
+LITERAL@32..33: 2
+EXPR_STMT@35..42: x << y;
+BIN_EXPR@35..41: x << y
+IDENTIFIER@35..36: x
+IDENTIFIER@40..41: y

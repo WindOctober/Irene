@@ -1,0 +1,19 @@
+[package]
+name = "oq3_source_file"
+description = "Manage parsing source files, included files, and reporting diagnotics OpenQASM 3 parser/analyzer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+repository.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+ariadne = { version = "0.5.0", features = ["auto-color"] }
+oq3_syntax.workspace = true

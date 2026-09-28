@@ -1,0 +1,74 @@
+---
+source: crates/pipeline-tests/tests/runner.rs
+expression: parse_snap
+---
+id: tests/snippets/reference/scope/nop.qasm
+expect-parse: Todo
+--- parser ---
+ok: false
+panicked: false
+errors: 1
+--- ast ---
+SOURCE_FILE@0..80: 
+nop;
+nop $0;
+nop $1, $2;
+nop q, q[0],;
+box {
+  nop $0;
+}
+gate x q {
+  nop q;
+}
+
+EXPR_STMT@1..5: nop;
+IDENTIFIER@1..4: nop
+EXPR_STMT@6..13: nop $0;
+GATE_CALL_EXPR@6..12: nop $0
+IDENTIFIER@6..9: nop
+QUBIT_LIST@10..12: $0
+HARDWARE_QUBIT@10..12: $0
+EXPR_STMT@14..25: nop $1, $2;
+GATE_CALL_EXPR@14..24: nop $1, $2
+IDENTIFIER@14..17: nop
+QUBIT_LIST@18..24: $1, $2
+HARDWARE_QUBIT@18..20: $1
+HARDWARE_QUBIT@22..24: $2
+EXPR_STMT@26..39: nop q, q[0],;
+GATE_CALL_EXPR@26..38: nop q, q[0],
+IDENTIFIER@26..29: nop
+QUBIT_LIST@30..38: q, q[0],
+IDENTIFIER@30..31: q
+INDEXED_IDENTIFIER@33..37: q[0]
+IDENTIFIER@33..34: q
+INDEX_OPERATOR@34..37: [0]
+EXPRESSION_LIST@35..36: 0
+LITERAL@35..36: 0
+EXPR_STMT@40..57: box {
+  nop $0;
+}
+BOX_EXPR@40..57: box {
+  nop $0;
+}
+BLOCK_EXPR@44..57: {
+  nop $0;
+}
+EXPR_STMT@48..55: nop $0;
+GATE_CALL_EXPR@48..54: nop $0
+IDENTIFIER@48..51: nop
+QUBIT_LIST@52..54: $0
+HARDWARE_QUBIT@52..54: $0
+GATE@58..79: gate x q {
+  nop q;
+}
+NAME@63..64: x
+PARAM_LIST@65..66: q
+PARAM@65..66: q
+BLOCK_EXPR@67..79: {
+  nop q;
+}
+EXPR_STMT@71..77: nop q;
+GATE_CALL_EXPR@71..76: nop q
+IDENTIFIER@71..74: nop
+QUBIT_LIST@75..76: q
+IDENTIFIER@75..76: q

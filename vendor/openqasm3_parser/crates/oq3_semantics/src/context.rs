@@ -1,0 +1,185 @@
+// Copyright contributors to the openqasm-parser project
+// SPDX-License-Identifier: Apache-2.0
+
+use crate::asg;
+use crate::semantic_error::SemanticErrorKind::*;
+use crate::semantic_error::{SemanticErrorKind, SemanticErrorList};
+use crate::symbols::{SymbolId, SymbolIdResult, SymbolRecordResult, SymbolTable};
+use crate::types::Type;
+use hashbrown::HashMap;
+use oq3_syntax::ast::AstNode;
+use std::path::PathBuf;
+
+/// `Context` stores the state associated with parsing (and semantic analysis) of a program.
+#[derive(Clone, Debug)]
+pub struct Context {
+    /// The abstract semantic graph. The representation of the semantic analysis.
+    pub program: asg::Program,
+
+    /// A list of errors found while analyzing the program.
+    pub semantic_errors: SemanticErrorList,
+
+    /// The symbol table built during analysis.
+    pub symbol_table: SymbolTable,
+
+    pub const_values: HashMap<SymbolId, asg::TExpr>,
+
+    /// Temporary storage for annoations. Annotations are pushed here as they are
+    /// parsed. When the annotated subroutine definition is parsed, the annotations are attached
+    /// to the representation of the subroutine definition.
+    pub annotations: Vec<asg::Annotation>,
+}
+
+impl Context {
+    pub(crate) fn new(file_path: PathBuf) -> Context {
+        Context {
+            program: asg::Program::new(),
+            semantic_errors: SemanticErrorList::new(file_path),
+            symbol_table: SymbolTable::new(),
+            const_values: HashMap::<SymbolId, asg::TExpr>::new(),
+            annotations: Vec::<asg::Annotation>::new(),
+        }
+    }
+
+    /// Push a list of errors onto the list of lists of errors
+    /// found in included files. This is called after parsing an
+    /// included file and collecting errors.
+    pub fn push_errors_from_included_file(&mut self, errors: SemanticErrorList) {
+        self.semantic_errors.push_included(errors);
+    }
+
+    /// Return the list of semantic errors found during semantic analysis.
+    pub fn errors(&self) -> &SemanticErrorList {
+        &self.semantic_errors
+    }
+
+    /// Return the ASG.
+    pub fn program(&self) -> &asg::Program {
+        &self.program
+    }
+
+    /// Return the symbol table
+    pub fn symbol_table(&self) -> &SymbolTable {
+        &self.symbol_table
+    }
+
+    pub fn insert_const_value(&mut self, id: SymbolId, value: asg::TExpr) {
+        self.const_values.insert(id, value);
+    }
+
+    pub fn get_const_value(&self, id: SymbolId) -> Option<&asg::TExpr> {
+        self.const_values.get(&id)
+    }
+
+    // Unused
+    // pub fn const_value_len(&self) -> usize {
+    //     self.const_values.len()
+    // }
+
+    // `SymbolTable::standard_library_gates()` returns a vector of
+    // all names that were already bound. We record a redeclaration error
+    // for each of these. The caller of the present method should pass
+    // the node corresponding to `include "stdgates.inc"`. This is the
+    // best we can do since no real file has been included.
+    /// Define gates in the standard library.
+    pub fn standard_library_gates<T>(&mut self, node: &T)
+    where
+        T: AstNode,
+    {
+        self.symbol_table
+            .standard_library_gates()
+            .into_iter()
+            .map(|name| {
+                self.semantic_errors
+                    .insert(RedeclarationError(name.to_string()), node);
+            })
+            .for_each(drop);
+    }
+
+    pub fn as_tuple(self) -> (asg::Program, SemanticErrorList, SymbolTable) {
+        (self.program, self.semantic_errors, self.symbol_table)
+    }
+
+    pub fn push_annotation(&mut self, annotation: asg::Annotation) {
+        self.annotations.push(annotation);
+    }
+
+    pub fn clear_annotations(&mut self) {
+        self.annotations.clear();
+    }
+
+    pub fn annotations_is_empty(&self) -> bool {
+        self.annotations.is_empty()
+    }
+
+    pub fn take_annotations(&mut self) -> Vec<asg::Annotation> {
+        let outvec = self.annotations.clone();
+        self.annotations.clear();
+        outvec
+    }
+
+    // fn as_tuple_mut(&mut self) -> (&mut asg::Program, &mut SemanticErrorList, &mut SymbolTable) {
+    //     (&mut self.program, &mut self.semantic_errors, &mut self.symbol_table)
+    // }
+
+    pub fn insert_error<T>(&mut self, error_kind: SemanticErrorKind, node: &T)
+    where
+        T: AstNode,
+    {
+        self.semantic_errors.insert(error_kind, node);
+    }
+
+    /// Lookup the symbol, returing a SymbolRecordResult. Possibly log a `UndefVarError`.
+    pub(crate) fn lookup_symbol<T>(&mut self, name: &str, node: &T) -> SymbolRecordResult<'_>
+    where
+        T: AstNode,
+    {
+        let symbol_record = self.symbol_table.lookup(name);
+        if symbol_record.is_err() {
+            self.semantic_errors.insert(UndefVarError, node);
+        }
+        symbol_record
+    }
+
+    /// Lookup the gate symbol, returing a SymbolRecordResult. Possibly log a `UndefGateError`.
+    pub(crate) fn lookup_gate_symbol<T>(&mut self, name: &str, node: &T) -> SymbolRecordResult<'_>
+    where
+        T: AstNode,
+    {
+        let symbol_record = self.symbol_table.lookup(name);
+        if symbol_record.is_err() {
+            self.semantic_errors.insert(UndefGateError, node);
+        }
+        symbol_record
+    }
+
+    /// Bind `name` to new Symbol, returning SymbolIdResult. Possibly log a `RedeclarationError`.
+    pub(crate) fn new_binding<T>(&mut self, name: &str, typ: &Type, node: &T) -> SymbolIdResult
+    where
+        T: AstNode,
+    {
+        //        let symbol_id_result = self.symbol_table.new_binding(name, typ, node.syntax());
+        let symbol_id_result = self.symbol_table.new_binding(name, typ);
+        if symbol_id_result.is_err() {
+            self.semantic_errors
+                .insert(RedeclarationError(name.to_string()), node);
+        }
+        symbol_id_result
+    }
+}
+
+#[macro_export]
+macro_rules! with_scope {
+    ($val:expr) => { 2 };
+    ($ctxt:ident, $scope:path, $($code:stmt);+ $(;)?) => {
+        $ctxt.symbol_table.enter_scope($scope);
+        $($code)+
+        $ctxt.symbol_table.exit_scope();
+    };
+
+    ($ctxt:ident, $scope:path, $code:block) => {
+        $ctxt.symbol_table.enter_scope($scope);
+        $code;
+        $ctxt.symbol_table.exit_scope();
+    };
+}

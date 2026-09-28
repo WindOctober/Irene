@@ -1,0 +1,26 @@
+---
+source: crates/pipeline-tests/tests/runner.rs
+expression: parse_snap
+---
+id: tests/snippets/reference/scope/anonymous_block.qasm
+expect-parse: Ok
+--- parser ---
+ok: true
+panicked: false
+errors: 0
+--- ast ---
+SOURCE_FILE@0..20: 
+{
+  int ii = 32;
+}
+
+EXPR_STMT@1..19: {
+  int ii = 32;
+}
+BLOCK_EXPR@1..19: {
+  int ii = 32;
+}
+CLASSICAL_DECLARATION_STATEMENT@5..17: int ii = 32;
+SCALAR_TYPE@5..8: int
+NAME@9..11: ii
+LITERAL@14..16: 32

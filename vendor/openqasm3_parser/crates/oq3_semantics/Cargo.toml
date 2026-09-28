@@ -1,0 +1,27 @@
+[package]
+name = "oq3_semantics"
+description = "AST with semantic information for OpenQASM 3 parser/analyzer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+repository.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+oq3_source_file.workspace = true
+oq3_syntax.workspace = true
+hashbrown = { version = "0.15.2" }
+rowan = {version = "<=0.16.1"}
+boolenum = "0.1"
+
+[dev-dependencies]
+clap = { version = "~4.4", features = ["derive"] }
+oq3_lexer.workspace = true
+oq3_parser.workspace = true
