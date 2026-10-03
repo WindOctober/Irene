@@ -20,6 +20,7 @@ pub use executor::{
 pub use optimize::OutputSelection;
 pub use phase::{PhaseCoefficient, PhasePolynomial};
 pub use scalar::{Scalar, ScalarBindings, ScalarEvaluationError};
+pub(crate) use validate::numeric_domains;
 
 #[cfg(test)]
 mod tests;
