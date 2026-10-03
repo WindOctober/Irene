@@ -1,4 +1,86 @@
+use super::super::unitary_rewrite::tests::matrix;
 use super::*;
+
+#[test]
+fn rotation_lowering_preserves_full_matrices_and_unique_ids() {
+    for gate in ["rx", "ry", "crx", "cry"] {
+        for angle in ["0", "pi/4", "-pi/2", "2*pi"] {
+            let operands = if gate.starts_with('c') {
+                "q[0],q[1]"
+            } else {
+                "q[1]"
+            };
+            let original = parse(2, &format!("{gate}({angle}) {operands};"));
+            let lowered = phase_only_rotations(original.clone()).unwrap();
+            assert_eq!(matrix(&original), matrix(&lowered));
+            let mut ids = std::collections::BTreeSet::new();
+            lowered.visit_ast_ids(|id| assert!(ids.insert(id)));
+            assert!(lowered.body.statements.iter().all(|s| !matches!(
+                s.kind,
+                StatementKind::Apply {
+                    gate: Gate::Rx | Gate::Ry | Gate::Crx | Gate::Cry,
+                    ..
+                }
+            )));
+        }
+    }
+}
+
+#[test]
+fn rotation_decompositions_get_exact_trace_certificates() {
+    for (gate, sequence, operands) in [
+        ("rx", "h q[1]; rz(ANGLE) q[1]; h q[1];", "q[1]"),
+        (
+            "ry",
+            "sdg q[1]; h q[1]; rz(ANGLE) q[1]; h q[1]; s q[1];",
+            "q[1]",
+        ),
+        ("crx", "h q[1]; crz(ANGLE) q[0],q[1]; h q[1];", "q[0],q[1]"),
+        (
+            "cry",
+            "sdg q[1]; h q[1]; crz(ANGLE) q[0],q[1]; h q[1]; s q[1];",
+            "q[0],q[1]",
+        ),
+    ] {
+        for angle in ["pi/4", "-pi/2", "2*pi"] {
+            let a = parse(2, &format!("{gate}({angle}) {operands};"));
+            let b = parse(2, &sequence.replace("ANGLE", angle));
+            for (l, r) in [(&a, &b), (&b, &a)] {
+                assert!(
+                    certificate(l, r, &config(l, r)).unwrap().is_one(),
+                    "{gate} {angle}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn controlled_two_pi_rotations_are_not_identity_channels() {
+    let identity = parse(2, "");
+    for gate in ["crx", "cry"] {
+        let rotation = parse(2, &format!("{gate}(2*pi) q[0],q[1];"));
+        assert_eq!(
+            certificate(&rotation, &identity, &config(&rotation, &identity)),
+            Some(TraceNorm::Rational(BigRational::from_integer(0.into())))
+        );
+    }
+}
+
+#[test]
+fn lowering_checks_the_whole_dyadic_domain_only_when_needed() {
+    for body in [
+        "rx(pi/3) q[0];",
+        "ry(0.1) q[0];",
+        "rx(pi/4096) q[0];",
+        "rx(pi/2) q[0]; rz(0.1) q[1];",
+    ] {
+        assert!(phase_only_rotations(parse(2, body)).is_none(), "{body}");
+    }
+    let untouched = parse(2, "h q[0]; rz(pi/3) q[1];");
+    assert!(phase_only_rotations(parse(2, "rx(pi/2048) q[0];")).is_some());
+    assert_eq!(phase_only_rotations(untouched.clone()), Some(untouched));
+}
 use crate::frontend::openqasm3;
 use crate::ir::{AstIdGenerator, ClassicalBit, NumericExprKind, SymbolId};
 
