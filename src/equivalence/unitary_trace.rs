@@ -1,4 +1,5 @@
 //! Full-unitary trace certificate, before independent density construction.
+use super::aggregate::{closed_sum, cyclotomic::Budget};
 use super::{Endpoint, EquivalenceConfig, InputPair, OutputPair};
 use crate::{
     ir::{AstIdGenerator, Gate, Program, StatementKind, unitary},
@@ -9,9 +10,13 @@ use crate::{
 };
 use num_rational::BigRational;
 
+const RESIDUAL_TRACE_WORK: usize = 2_000_000;
+
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum TraceNorm {
     Rational(BigRational),
+    /// Canonical nonrational power-basis value, only from a complete norm.
+    Cyclotomic(Vec<(u64, BigRational)>),
 }
 
 impl TraceNorm {
@@ -124,13 +129,31 @@ pub(super) fn certificate(
     {
         norm
     } else {
-        // Residual sums require a separate exact backend, not a guessed norm.
-        return None;
+        return residual_norm(&c, &mut Budget::new(RESIDUAL_TRACE_WORK));
     };
     // This is a consistency check, not a numerical tolerance or a bound used
     // as a proof. Only the exactly computed rational is returned.
     (norm >= BigRational::from_integer(0.into()) && norm <= BigRational::from_integer(1.into()))
         .then_some(TraceNorm::Rational(norm))
+}
+
+/// The complete amplitude and its modulus square share one budget. No prefix
+/// sum, frontier approximation, or SMT result can become a trace certificate.
+/// The caller must establish the full-unitary assumptions of certificate().
+fn residual_norm(c: &crate::symbolic::Component, budget: &mut Budget) -> Option<TraceNorm> {
+    let (paths, constraints, coefficient, phase) = super::kernel::closed_scalar_parts(c)?;
+    let amplitude = closed_sum::evaluate(&paths, &constraints, &coefficient, &phase, budget)?;
+    let norm = amplitude.norm_squared(budget)?;
+    let rational = match norm.terms() {
+        [] => BigRational::from_integer(0.into()),
+        [(0, r)] => r.clone(),
+        _ => return Some(TraceNorm::Cyclotomic(norm.terms().to_vec())),
+    };
+    // A rational result outside the unitary bound indicates inconsistent
+    // premises; refusal is safer than treating it as inequivalence.
+    (rational >= BigRational::from_integer(0.into())
+        && rational <= BigRational::from_integer(1.into()))
+    .then_some(TraceNorm::Rational(rational))
 }
 
 #[cfg(test)]

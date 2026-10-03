@@ -147,7 +147,7 @@ impl Weight {
 
 /// Sum amplitudes, not probabilities. Inputs must be closed over at most 16
 /// declared bound paths. Unused paths remain present and supply factors of 2.
-pub(super) fn evaluate(
+pub(in crate::equivalence) fn evaluate(
     paths: &BTreeSet<KernelVariable>,
     constraints: &[KernelBooleanPolynomial],
     coefficient: &KernelScalar,
