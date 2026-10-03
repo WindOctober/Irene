@@ -10,6 +10,7 @@ mod checkpoint_factors;
 mod collection;
 mod constraint_rows;
 mod constraints;
+pub(super) mod cyclotomic;
 mod exact_trig;
 mod factor_match;
 mod factor_normalize;
