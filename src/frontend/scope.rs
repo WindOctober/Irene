@@ -63,6 +63,15 @@ pub(super) enum BindingKind {
         index: usize,
     },
     Constant(NumericConstant),
+    /// IEEE value retained as bits, not replaced by a symbolic multiple of pi.
+    StaticFloat {
+        bits: u64,
+        width: u32,
+    },
+    StaticBits {
+        value: u64,
+        ty: BitType,
+    },
     /// Exact, range-checked static integer; a specialized loop value is not const.
     StaticInteger {
         value: i128,
@@ -92,6 +101,7 @@ impl BindingKind {
             Self::Gate => "gate",
             Self::Subroutine { .. } => "subroutine",
             Self::Constant(_) => "constant",
+            Self::StaticFloat { .. } | Self::StaticBits { .. } => "constant",
             Self::StaticInteger { .. } => "static integer",
         }
     }
@@ -140,8 +150,15 @@ impl ScopeStack {
         self.scopes[0]
             .bindings
             .values()
-            .filter(|b| matches!(b.kind, BindingKind::StaticInteger { .. }))
-            .map(|b| b.id)
+            .filter_map(|binding| {
+                matches!(
+                    binding.kind,
+                    BindingKind::StaticInteger { .. }
+                        | BindingKind::StaticFloat { .. }
+                        | BindingKind::StaticBits { .. }
+                )
+                .then_some(binding.id)
+            })
             .collect()
     }
 
@@ -297,6 +314,8 @@ impl ScopeStack {
                         | BindingKind::Gate
                         | BindingKind::Subroutine { .. }
                         | BindingKind::StaticInteger { is_const: true, .. }
+                        | BindingKind::StaticFloat { .. }
+                        | BindingKind::StaticBits { .. }
                 )
             {
                 continue;

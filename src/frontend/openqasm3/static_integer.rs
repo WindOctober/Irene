@@ -255,7 +255,7 @@ impl Lowerer {
             .scalar_type()
             .ok_or_else(|| expected!("a static integer type", &declaration))?;
         if ty.int_token().is_none() && ty.uint_token().is_none() {
-            return Err(unsupported!("const type other than int/uint", &declaration));
+            return self.lower_other_constant(declaration, ty);
         }
         let width = self.static_integer_width(&ty)?;
         let signed = ty.int_token().is_some();
@@ -479,25 +479,6 @@ impl Lowerer {
         })();
         self.static_loop_depth -= 1;
         result
-    }
-
-    pub(super) fn is_integer_expression(&self, expr: &Expr) -> Result<bool, FrontendError> {
-        match expr {
-            Expr::Literal(l) => Ok(matches!(l.kind(), ast::LiteralKind::IntNumber(_))),
-            Expr::Identifier(id) => Ok(matches!(
-                self.scopes.lookup(&id.string()).map_err(scope_error)?.kind,
-                BindingKind::StaticInteger { .. }
-            )),
-            Expr::ParenExpr(_) | Expr::PrefixExpr(_) | Expr::BinExpr(_) => {
-                for child in expr.syntax().children().filter_map(Expr::cast) {
-                    if !self.is_integer_expression(&child)? {
-                        return Ok(false);
-                    }
-                }
-                Ok(true)
-            }
-            _ => Ok(false),
-        }
     }
 }
 

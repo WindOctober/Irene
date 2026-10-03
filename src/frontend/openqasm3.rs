@@ -985,6 +985,14 @@ impl Lowerer {
     /// Preserves the structure of an OpenQASM numeric expression while
     /// normalizing finite literals to exact rationals.
     fn lower_numeric_expr(&mut self, expression: Expr) -> Result<NumericExpr, FrontendError> {
+        // Typed float constants keep IEEE arithmetic in their use sites too;
+        // never reinterpret (rounded_const + 1) as exact real arithmetic.
+        if self.has_float_binding(&expression)? {
+            let (value, _) = self.static_float(expression, 0)?;
+            return Ok(self.ids.node(NumericExprKind::Rational(
+                BigRational::from_float(value).expect("finite constant"),
+            )));
+        }
         if expression
             .syntax()
             .descendants()
@@ -1025,6 +1033,12 @@ impl Lowerer {
                 let name = identifier.string();
                 let binding = self.scopes.lookup(&name).map_err(scope_error)?;
                 match binding.kind {
+                    BindingKind::StaticFloat { bits, .. } => {
+                        self.check_constant_visibility(binding, &identifier)?;
+                        Ok(self.ids.node(NumericExprKind::Rational(
+                            BigRational::from_float(f64::from_bits(bits)).expect("finite constant"),
+                        )))
+                    }
                     BindingKind::StaticInteger { .. } => {
                         let value = self.static_integer(Expr::Identifier(identifier), false)?;
                         Ok(self
@@ -1733,6 +1747,11 @@ impl Lowerer {
             // `bool ready` and `bit flag` are scalar; `bit[n] bits` is a register.
             Expr::Identifier(identifier) => {
                 let name = identifier.string();
+                let binding = self.scopes.lookup(&name).map_err(scope_error)?;
+                if let BindingKind::StaticBits { value, ty } = binding.kind {
+                    self.check_constant_visibility(binding, &identifier)?;
+                    return Ok(self.constant_bits(value, ty));
+                }
                 if matches!(
                     self.scopes.lookup(&name).map_err(scope_error)?.kind,
                     BindingKind::StaticInteger { .. }
@@ -1758,6 +1777,17 @@ impl Lowerer {
             }
             // `bits[2]` selects one checked cell and is therefore scalar `bit`.
             Expr::IndexedIdentifier(indexed) => {
+                let (name, index_expr) = static_integer::single_index(indexed.clone())?;
+                let binding = self.scopes.lookup(&name).map_err(scope_error)?;
+                if let BindingKind::StaticBits { value, ty } = binding.kind {
+                    self.check_constant_visibility(binding, &indexed)?;
+                    if !matches!(ty, BitType::Register { .. } | BitType::Angle { .. }) {
+                        return Err(expected!("an indexable constant", &indexed));
+                    }
+                    let index = self.static_index(index_expr, true)?;
+                    check_index(&name, index, ty.width())?;
+                    return Ok(self.constant_bits((value >> index) & 1, BitType::Bit));
+                }
                 let bit = self.lower_classical_indexed(indexed)?;
                 Ok(TypedClassicalExpr::Bit(
                     self.ids.node(ClassicalExprKind::Bit(bit)),
