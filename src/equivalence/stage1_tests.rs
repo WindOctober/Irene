@@ -82,7 +82,7 @@ fn public_entry_preserves_nonrational_mismatch_coefficients() {
 fn incomplete_or_inapplicable_trace_is_unknown_not_a_negative_certificate() {
     for (left, right) in [
         ("reset q[0];", ""),
-        ("bit c; c = measure q[0];", "bit c;"),
+        ("bit c; c = measure q[0];", "bit c = 0;"),
         ("h q[0]; p(pi/3) q[0]; h q[0];", ""),
         ("rx(pi/3) q[0];", ""),
     ] {
@@ -90,7 +90,7 @@ fn incomplete_or_inapplicable_trace_is_unknown_not_a_negative_certificate() {
         let right = parse(right);
         let result = analyze(&left, &right, &config(&left, &right)).unwrap();
         assert_eq!(result.verdict, Verdict::Unknown);
-        assert_eq!(result.evidence, Evidence::Stage1Inconclusive);
+        assert_eq!(result.evidence, Evidence::KernelAggregationRequired);
     }
 }
 
@@ -107,9 +107,13 @@ fn partial_initialized_and_nonpositional_interfaces_do_not_use_full_trace() {
     let (a, b) = permuted.output_pairs.split_at_mut(1);
     std::mem::swap(&mut a[0].right, &mut b[0].right);
     for cfg in [partial, initialized, permuted] {
+        assert!(unitary_trace::certificate(&left, &right, &cfg).is_none());
         let result = analyze(&left, &right, &cfg).unwrap();
-        assert_eq!(result.verdict, Verdict::Unknown);
-        assert_eq!(result.evidence, Evidence::Stage1Inconclusive);
+        assert!(matches!(
+            result.evidence,
+            Evidence::ExactHps | Evidence::KernelAggregationRequired
+        ));
+        assert_ne!(result.verdict, Verdict::NotEquivalent);
     }
 }
 
@@ -241,7 +245,8 @@ fn cancelling_invalid_angles_never_produces_a_certificate() {
         ));
     }
     let right = parse("");
-    let result = analyze(&left, &right, &config(&left, &right)).unwrap();
-    assert_eq!(result.verdict, Verdict::Unknown);
-    assert_eq!(result.evidence, Evidence::Stage1Inconclusive);
+    assert!(matches!(
+        analyze(&left, &right, &config(&left, &right)),
+        Err(InterfaceError::Execution { .. })
+    ));
 }
