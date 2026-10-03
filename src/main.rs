@@ -61,5 +61,10 @@ fn check_equivalence(left_path: &Path, right_path: &Path) -> Result<Verdict, Str
         }
     };
 
-    Ok(equivalence::analyze(&left, &right))
+    let Some(config) = equivalence::EquivalenceConfig::positional(&left, &right) else {
+        return Ok(Verdict::Unknown);
+    };
+    equivalence::analyze(&left, &right, &config)
+        .map(|analysis| analysis.verdict)
+        .map_err(|error| error.to_string())
 }
