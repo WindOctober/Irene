@@ -210,13 +210,88 @@ fn invalid_numeric_domains_are_checked_before_gate_cancellation() {
 }
 
 #[test]
-fn unresolved_sums_and_unsupported_rotations_are_not_certificates() {
+fn unsupported_phases_and_rotations_are_not_certificates() {
     let right = parse(2, "");
-    for body in ["h q[0]; p(pi/8) q[0]; h q[0];", "rx(pi/3) q[0];"] {
+    for body in ["h q[0]; p(pi/3) q[0]; h q[0];", "rx(pi/3) q[0];"] {
         let left = parse(2, body);
         assert!(
             certificate(&left, &right, &config(&left, &right)).is_none(),
             "{body}"
         );
+    }
+}
+
+#[test]
+fn irrational_trace_norm_is_exact_and_symmetric() {
+    let a = parse(2, "h q[0];");
+    let b = parse(2, "h q[0]; t q[0];");
+    let n = (1_u64 << 62);
+    let expected = vec![
+        (0, BigRational::new(1.into(), 2.into())),
+        (n / 8, BigRational::new(1.into(), 4.into())),
+        (3 * n / 8, BigRational::new((-1).into(), 4.into())),
+    ];
+    for (l, r) in [(&a, &b), (&b, &a)] {
+        let norm = certificate(l, r, &config(l, r)).unwrap();
+        assert!(!norm.is_one());
+        assert_eq!(norm, TraceNorm::Cyclotomic(expected.clone()));
+    }
+    let identity = parse(2, "");
+    let eighth = parse(2, "h q[0]; p(pi/8) q[0]; h q[0];");
+    assert!(matches!(
+        certificate(&eighth, &identity, &config(&eighth, &identity)),
+        Some(TraceNorm::Cyclotomic(_))
+    ));
+}
+
+#[test]
+fn generated_trace_norms_match_an_independent_exact_matrix_oracle() {
+    const ORDER: u64 = 1 << 62;
+    let q = |n: i64, d: i64| BigRational::new(n.into(), d.into());
+    for middle in [
+        "",
+        "t q[0];",
+        "s q[1];",
+        "cz q[0],q[1];",
+        "cx q[1],q[0]; t q[0];",
+        "t q[0]; t q[1];",
+        "rx(pi/4) q[0];",
+    ] {
+        let a = parse(3, &format!("h q[0]; {middle} h q[0];"));
+        let b = parse(3, "");
+        let full = matrix(&a);
+        let mut trace: [BigRational; 8] = std::array::from_fn(|_| q(0, 1));
+        for i in 0..8 {
+            for j in 0..8 {
+                trace[j] += &full[9 * i][j] / q(8, 1);
+            }
+        }
+        let mut conjugate: [BigRational; 8] = std::array::from_fn(|_| q(0, 1));
+        conjugate[0] = trace[0].clone();
+        for i in 1..8 {
+            conjugate[8 - i] = -trace[i].clone();
+        }
+        // Independent polynomial convolution modulo x^8+1; no production
+        // cyclotomic multiplication or trace summation establishes this oracle.
+        let mut squared: [BigRational; 8] = std::array::from_fn(|_| q(0, 1));
+        for i in 0..8 {
+            for j in 0..8 {
+                let product = &trace[i] * &conjugate[j];
+                squared[(i + j) % 8] += if i + j >= 8 { -product } else { product };
+            }
+        }
+        let expected: Vec<_> = squared
+            .into_iter()
+            .enumerate()
+            .filter(|(_, r)| *r != q(0, 1))
+            .map(|(i, r)| (i as u64 * (ORDER / 16), r))
+            .collect();
+        let actual = certificate(&a, &b, &config(&a, &b)).expect(middle);
+        let actual = match actual {
+            TraceNorm::Rational(r) if r == q(0, 1) => vec![],
+            TraceNorm::Rational(r) => vec![(0, r)],
+            TraceNorm::Cyclotomic(terms) => terms,
+        };
+        assert_eq!(actual, expected, "{middle}");
     }
 }
