@@ -34,6 +34,28 @@ mod xor_basis;
 mod xor_blocks;
 mod zero_product;
 
+mod exact_smt;
+
+/// Exact squared modulus in the power basis of Q(zeta_(2^62)).
+/// The empty vector is zero; all exponents are below 2^61.
+pub(super) fn closed_trace_norm(c: &crate::symbolic::Component) -> Option<Vec<(u64, BigRational)>> {
+    let (paths, constraints, coefficient, phase) = super::kernel::closed_scalar_parts(c)?;
+    exact_smt::closed_norm(WorkingTerm {
+        paths,
+        constraints,
+        coefficient,
+        phase,
+    })
+}
+
+pub(super) fn frontier_trace_norm(circuit: &crate::ir::Program) -> Option<Vec<(u64, BigRational)>> {
+    exact_smt::frontier_norm(circuit)
+}
+
+pub(super) fn prefer_frontier_trace(circuit: &crate::ir::Program, paths: usize) -> bool {
+    exact_smt::prefer_frontier(circuit, paths)
+}
+
 const MAX_BOOLEAN_TERMS: usize = 100_000;
 const MAX_CONSTRAINTS: usize = 100_000;
 const MAX_AFFINE_MATRIX_CELLS: usize = 10_000_000;

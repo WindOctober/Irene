@@ -12,6 +12,7 @@ use num_rational::BigRational;
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum TraceNorm {
     Rational(BigRational),
+    Cyclotomic(Vec<(u64, BigRational)>),
 }
 
 impl TraceNorm {
@@ -83,7 +84,7 @@ pub(super) fn certificate(
         return Some(TraceNorm::Rational(BigRational::from_integer(1.into())));
     }
     // H plus monomial gates avoids path-dependent trigonometric scalars.
-    // Purely monomial programs are outside this optional fast path.
+    // Purely monomial programs already have the cheap deterministic route.
     let mut has_h = false;
     for s in &circuit.body.statements {
         match &s.kind {
@@ -124,17 +125,24 @@ pub(super) fn certificate(
     {
         norm
     } else {
-        // Residual sums require a separate exact backend, not a guessed norm.
-        return None;
+        let terms = if super::aggregate::prefer_frontier_trace(&circuit, c.path_support.len()) {
+            super::aggregate::frontier_trace_norm(&circuit)
+                .or_else(|| super::aggregate::closed_trace_norm(&c))
+        } else {
+            super::aggregate::closed_trace_norm(&c)
+                .or_else(|| super::aggregate::frontier_trace_norm(&circuit))
+        }?;
+        match terms.as_slice() {
+            [] => BigRational::from_integer(0.into()),
+            [(0, r)] => r.clone(),
+            _ => return Some(TraceNorm::Cyclotomic(terms)),
+        }
     };
     // This is a consistency check, not a numerical tolerance or a bound used
     // as a proof. Only the exactly computed rational is returned.
     (norm >= BigRational::from_integer(0.into()) && norm <= BigRational::from_integer(1.into()))
         .then_some(TraceNorm::Rational(norm))
 }
-
-#[cfg(test)]
-mod tests;
 
 /// Exact basis conjugations after full-unitary validation. Parameters are
 /// transferred unchanged, including the controlled rotation's relative phase.
@@ -223,3 +231,6 @@ fn phase_only_rotations(mut circuit: Program) -> Option<Program> {
     circuit.body.statements = out;
     Some(circuit)
 }
+
+#[cfg(test)]
+mod tests;
