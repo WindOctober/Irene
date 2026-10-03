@@ -1,7 +1,7 @@
-//! Stage 1 equivalence analysis: validated full-unitary trace certificates.
+//! Equivalence analysis by full-unitary trace and exact HPS certificates.
 //!
-//! Cases outside this certificate return Unknown. HPS structural comparison,
-//! density-kernel aggregation, and SMT are not yet connected to this entry point.
+//! Cases outside these certificates return Unknown. Density-kernel aggregation
+//! and SMT are not yet connected to this entry point.
 
 use std::fmt;
 
@@ -61,6 +61,8 @@ impl fmt::Display for Verdict {
 /// Exact evidence supporting a verdict, or the boundary that made it unknown.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Evidence {
+    /// Complete single-component snapshots agree under checked path renaming.
+    ExactHps,
     /// A validated full-unitary miter has exact normalized trace modulus one.
     UnitaryTraceExact,
     /// The complete squared trace modulus is rational and different from one.
@@ -74,8 +76,9 @@ pub enum Evidence {
     },
     /// The requested symbolic interface is not supported soundly.
     UnsupportedInterface(UnsupportedInterface),
-    /// No complete Stage 1 certificate; later proof stages are not connected.
-    Stage1Inconclusive,
+    /// The trace and structural certificates did not apply; kernel reasoning
+    /// would be required, but is not yet connected to this entry point.
+    KernelAggregationRequired,
 }
 
 /// Result of one analysis. A trace mismatch is an exact operator-level
@@ -89,9 +92,10 @@ pub struct Analysis {
 /// Checks two programs under an explicit paired interface.
 ///
 /// Malformed endpoint configurations are errors. Valid but unsupported
-/// interfaces, inapplicable trace checks, and incomplete exact evaluations
-/// yield Unknown, never NotEquivalent. This entry point currently implements
-/// only Stage 1; a trace refusal does not run HPS/kernel/SMT fallback stages.
+/// interfaces and incomplete proofs yield Unknown, never NotEquivalent.
+/// A trace refusal falls through to execution and exact HPS comparison;
+/// execution errors propagate as errors. Structural mismatch is inconclusive,
+/// not a negative certificate. Kernel/SMT fallback stages are not connected.
 pub fn analyze(
     left: &Program,
     right: &Program,
@@ -103,30 +107,68 @@ pub fn analyze(
     let rewritten_right = unitary_rewrite::preprocess(right);
     let left = rewritten_left.as_ref().unwrap_or(left);
     let right = rewritten_right.as_ref().unwrap_or(right);
-    let Some(norm) = unitary_trace::certificate(left, right, config) else {
+    if let Some(norm) = unitary_trace::certificate(left, right, config) {
+        if norm.is_one() {
+            return Ok(Analysis {
+                verdict: Verdict::Equivalent,
+                evidence: Evidence::UnitaryTraceExact,
+            });
+        }
+        let evidence = match norm {
+            unitary_trace::TraceNorm::Rational(norm) => Evidence::UnitaryTraceMismatch {
+                normalized_trace_norm_squared: norm,
+            },
+            unitary_trace::TraceNorm::Cyclotomic(norm) => {
+                Evidence::UnitaryTraceCyclotomicMismatch {
+                    normalized_trace_norm_squared: norm,
+                }
+            }
+        };
         return Ok(Analysis {
-            verdict: Verdict::Unknown,
-            evidence: Evidence::Stage1Inconclusive,
-        });
-    };
-    if norm.is_one() {
-        return Ok(Analysis {
-            verdict: Verdict::Equivalent,
-            evidence: Evidence::UnitaryTraceExact,
+            verdict: Verdict::NotEquivalent,
+            evidence,
         });
     }
-    let evidence = match norm {
-        unitary_trace::TraceNorm::Rational(norm) => Evidence::UnitaryTraceMismatch {
-            normalized_trace_norm_squared: norm,
-        },
-        unitary_trace::TraceNorm::Cyclotomic(norm) => Evidence::UnitaryTraceCyclotomicMismatch {
-            normalized_trace_norm_squared: norm,
-        },
+
+    let prepared = match prepare_comparison(left, right, config) {
+        Ok(prepared) => prepared,
+        Err(InterfaceError::Unsupported(reason)) => {
+            return Ok(Analysis {
+                verdict: Verdict::Unknown,
+                evidence: Evidence::UnsupportedInterface(reason),
+            });
+        }
+        Err(error) => return Err(error),
     };
+    if exact_hps_certificate(&prepared) {
+        return Ok(Analysis {
+            verdict: Verdict::Equivalent,
+            evidence: Evidence::ExactHps,
+        });
+    }
     Ok(Analysis {
-        verdict: Verdict::NotEquivalent,
-        evidence,
+        verdict: Verdict::Unknown,
+        evidence: Evidence::KernelAggregationRequired,
     })
+}
+
+/// Snapshot normalization drops only a SINGLE summand's global phase and
+/// canonicalizes its self-paired history constraints. Doing so independently
+/// on multiple summands could erase observable relative phases/coherence.
+fn exact_hps_certificate(prepared: &PreparedComparison) -> bool {
+    if prepared.left.hps.components.len() != 1
+        || prepared.right.hps.components.len() != 1
+    {
+        return false;
+    }
+    // Terminal observations live outside hps: comparing hps alone would omit
+    // outputs. The same path bijection must align every field of both snapshots.
+    let left = complete_snapshot(&prepared.left);
+    let right = complete_snapshot(&prepared.right);
+    matches!(
+        canonical::exact_match(&left, &right),
+        canonical::ExactMatch::Match { .. }
+    )
 }
 
 /// Completes the exact fast-path snapshot with canonical visible outputs.
@@ -202,3 +244,6 @@ mod snapshot_tests;
 
 #[cfg(test)]
 mod stage1_tests;
+
+#[cfg(test)]
+mod stage2_tests;

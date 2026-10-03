@@ -85,6 +85,20 @@ fn qasm2_cli_uses_the_same_validated_trace_entry() {
 }
 
 #[test]
+fn cli_uses_structural_fallback_for_identical_reset_channels() {
+    let sources = Sources::new(&qasm3("reset q;"), &qasm3("reset q;"));
+    for strategy in ["off", "scan", "wire"] {
+        let output = sources.run(strategy);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(String::from_utf8(output.stdout).unwrap(), "equivalent\n");
+    }
+}
+
+#[test]
 fn cli_cannot_infer_incompatible_interfaces_and_rejects_invalid_strategy() {
     let sources = Sources::new(&qasm3(""), "OPENQASM 3.0; qubit[2] q;");
     let output = sources.run("off");
