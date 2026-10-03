@@ -128,6 +128,7 @@ struct Lowerer {
     static_iterations_left: usize,
     static_statements_left: usize,
     static_loop_depth: usize,
+    known_bits: Option<power::KnownBits>,
 }
 
 /// Parsed information retained for lowering a later subroutine call.
@@ -310,6 +311,7 @@ impl Default for Lowerer {
             static_iterations_left: 4096,
             static_statements_left: 65536,
             static_loop_depth: 0,
+            known_bits: None,
         }
     }
 }
@@ -317,6 +319,15 @@ impl Default for Lowerer {
 impl Lowerer {
     /// Lowers the complete source and assembles declarations plus executable body.
     fn lower(mut self, source: ast::SourceFile) -> Result<Program, FrontendError> {
+        // Only programs with pow need this flow-sensitive frontend analysis.
+        // Keep the common no-pow lowering path free of environment snapshots.
+        if source
+            .syntax()
+            .descendants()
+            .any(|node| ast::PowModifier::cast(node).is_some())
+        {
+            self.known_bits = Some(power::KnownBits::default());
+        }
         let mut body = self.ids.node(BlockData::default());
         for statement in source.statements() {
             self.lower_top_level(statement, &mut body)?;
@@ -602,12 +613,24 @@ impl Lowerer {
                 )
             })
             .transpose()?;
+        if let (Some(known), Some(initializer)) = (&mut self.known_bits, &initializer) {
+            known.statement(initializer);
+        }
         Ok((register, initializer))
     }
 
     /// Lowers the executable statement forms currently represented by Irene's IR.
-
     fn lower_statement(&mut self, statement: Stmt) -> Result<Statement, FrontendError> {
+        let before = self.known_bits.clone();
+        let result = self.lower_statement_inner(statement);
+        self.known_bits = before;
+        if let (Some(known), Ok(statement)) = (&mut self.known_bits, &result) {
+            known.statement(statement);
+        }
+        result
+    }
+
+    fn lower_statement_inner(&mut self, statement: Stmt) -> Result<Statement, FrontendError> {
         self.charge_static_expansion(&statement)?;
         match statement {
             Stmt::ForStmt(statement) => self.lower_static_for(statement),
@@ -1640,11 +1663,14 @@ impl Lowerer {
                 .condition()
                 .ok_or_else(|| expected!("an if condition", &statement))?,
         )?;
+        let before = self.known_bits.clone();
         let then_branch = self.lower_branch(statement.true_body_block_or_stmt())?;
+        self.known_bits = before.clone();
         let else_branch = match statement.false_body_block_or_stmt() {
             Some(branch) => self.lower_branch(branch)?,
             None => self.ids.node(BlockData::default()),
         };
+        self.known_bits = before;
         Ok(self.ids.node(StatementKind::If {
             condition,
             then_branch,
