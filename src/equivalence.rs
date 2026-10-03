@@ -10,6 +10,7 @@ mod kernel;
 mod smt;
 mod tuning;
 mod unitary_rewrite;
+mod unitary_trace;
 
 pub use kernel::{DensityKernel, KernelBuildError};
 
