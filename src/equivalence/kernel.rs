@@ -1242,6 +1242,35 @@ fn validate_input(input: &KernelInput<'_>) -> Result<(), KernelBuildError> {
     Ok(())
 }
 
+/// Lower a closed coherent scalar without forming its ket/bra outer product.
+/// All remaining variables must belong to the explicitly declared sum.
+pub(super) fn closed_scalar_parts(
+    c: &crate::symbolic::Component,
+) -> Option<(
+    BTreeSet<KernelVariable>,
+    Vec<KernelBooleanPolynomial>,
+    KernelScalar,
+    KernelPhasePolynomial,
+)> {
+    if !c.output.quantum.is_empty()
+        || !c.output.classical.is_empty()
+        || !c.output.history.is_empty()
+    {
+        return None;
+    }
+    let inputs = BTreeMap::new();
+    let renamer = Renamer::new(KernelBranch::Ket, 0, &inputs, &c.path_support);
+    Some((
+        c.path_support
+            .iter()
+            .map(|&path| KernelVariable::PathKet { term: 0, path })
+            .collect(),
+        lower_values(&c.guard, &renamer).ok()?,
+        renamer.scalar(&c.scalar).ok()?,
+        renamer.phase(&c.phase).ok()?,
+    ))
+}
+
 fn lower_values(
     values: &[BooleanPolynomial],
     renamer: &Renamer<'_>,
@@ -1390,3 +1419,6 @@ mod tests;
 
 #[cfg(test)]
 mod lowering_tests;
+
+#[cfg(test)]
+mod closed_scalar_tests;
