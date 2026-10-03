@@ -429,4 +429,4 @@ pub(super) fn preprocess_with(source: &Program, strategy: Strategy) -> Option<Pr
 }
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;

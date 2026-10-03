@@ -65,7 +65,7 @@ fn number(e: &crate::ir::NumericExpr) -> BigRational {
         _ => panic!("test only supports pi-multiple angles"),
     }
 }
-fn matrix(p: &Program) -> Vec<[BigRational; 8]> {
+pub(crate) fn matrix(p: &Program) -> Vec<[BigRational; 8]> {
     let mut data = vec![[0; 8]; 64];
     for i in 0..8 {
         data[i * 8 + i][0] = 1;
