@@ -27,7 +27,7 @@ impl Budget {
         }
     }
 
-    fn charge(&mut self, n: usize) -> Option<()> {
+    pub(super) fn charge(&mut self, n: usize) -> Option<()> {
         self.work = self.work.checked_sub(n)?;
         Some(())
     }
