@@ -31,6 +31,10 @@ impl Lowerer {
             Expr::Identifier(id) => Ok(matches!(
                 self.scopes.lookup(&id.string()).map_err(scope_error)?.kind,
                 BindingKind::ClassicalBit(BitType::Angle { .. })
+                    | BindingKind::StaticBits {
+                        ty: BitType::Angle { .. },
+                        ..
+                    }
             )),
             Expr::CastExpression(c) => {
                 Ok(c.scalar_type().is_some_and(|t| t.angle_token().is_some()))
@@ -74,7 +78,7 @@ impl Lowerer {
             Expr::Literal(l) => matches!(l.kind(), ast::LiteralKind::BitString(_)),
             Expr::Identifier(id) => matches!(
                 self.scopes.lookup(&id.string()).map_err(scope_error)?.kind,
-                BindingKind::ClassicalBit(_)
+                BindingKind::ClassicalBit(_) | BindingKind::StaticBits { .. }
             ),
             Expr::CastExpression(c) => c.scalar_type().is_some_and(|t| t.bit_token().is_some()),
             Expr::ParenExpr(p) => {
@@ -140,6 +144,13 @@ impl Lowerer {
             Expr::Identifier(id) => {
                 let binding = self.scopes.lookup(&id.string()).map_err(scope_error)?;
                 match binding.kind {
+                    BindingKind::StaticBits {
+                        value,
+                        ty: ty @ BitType::Angle { .. },
+                    } => {
+                        self.check_constant_visibility(binding, &id)?;
+                        Ok(self.constant_bits(value, ty))
+                    }
                     BindingKind::ClassicalBit(ty @ BitType::Angle { .. }) => {
                         Ok(self.bit_operand_expr(bit_operand(binding.id, ty)))
                     }
