@@ -265,12 +265,23 @@ pub struct PreparedComparison {
 
 type ValidatedOutputs = (Vec<Endpoint>, Vec<Endpoint>, Vec<PreparedOutputKind>);
 
-/// Validates, executes, and lowers two interfaces to canonical pair positions.
-pub fn prepare_comparison(
+pub(super) struct ValidatedInterface {
+    left_inputs: Vec<Qubit>,
+    right_inputs: Vec<Qubit>,
+    left_outputs: Vec<Endpoint>,
+    right_outputs: Vec<Endpoint>,
+    output_kinds: Vec<PreparedOutputKind>,
+    canonical_quantum_register: SymbolId,
+}
+
+/// Validate before a certificate can return, without executing either program.
+/// This is shared with HPS preparation so fast and slow paths accept the same
+/// endpoint and numeric-input contracts.
+pub(super) fn validate_comparison(
     left: &Program,
     right: &Program,
     config: &EquivalenceConfig,
-) -> Result<PreparedComparison, InterfaceError> {
+) -> Result<ValidatedInterface, InterfaceError> {
     let left_qubits = declared_qubits(left);
     let right_qubits = declared_qubits(right);
     let (left_inputs, right_inputs) = validate_quantum_inputs(config, &left_qubits, &right_qubits)?;
@@ -285,6 +296,31 @@ pub fn prepare_comparison(
         .map_or(Some(0), |value| value.checked_add(1))
         .ok_or(UnsupportedInterface::CanonicalSymbolSpaceExhausted)?;
     let canonical_quantum_register = SymbolId(first_canonical);
+
+    Ok(ValidatedInterface {
+        left_inputs,
+        right_inputs,
+        left_outputs,
+        right_outputs,
+        output_kinds,
+        canonical_quantum_register,
+    })
+}
+
+/// Validates, executes, and lowers two interfaces to canonical pair positions.
+pub fn prepare_comparison(
+    left: &Program,
+    right: &Program,
+    config: &EquivalenceConfig,
+) -> Result<PreparedComparison, InterfaceError> {
+    let ValidatedInterface {
+        left_inputs,
+        right_inputs,
+        left_outputs,
+        right_outputs,
+        output_kinds,
+        canonical_quantum_register,
+    } = validate_comparison(left, right, config)?;
 
     let left_side = prepare_side(
         Side::Left,
