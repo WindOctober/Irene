@@ -18,6 +18,7 @@ pub use executor::{
     SymbolicError, execute,
 };
 pub use optimize::OutputSelection;
+pub(crate) use optimize::normalized_trace_component;
 pub use phase::{PhaseCoefficient, PhasePolynomial};
 pub use scalar::{Scalar, ScalarBindings, ScalarEvaluationError};
 pub(crate) use validate::numeric_domains;
