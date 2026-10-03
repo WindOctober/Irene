@@ -1,8 +1,11 @@
 //! Full-unitary trace certificate, before independent density construction.
 use super::{Endpoint, EquivalenceConfig, InputPair, OutputPair};
 use crate::{
-    ir::{Gate, Program, StatementKind, unitary},
-    symbolic::{ExecutionConfig, OutputSelection, Scalar, execute, normalized_trace_component},
+    ir::{AstIdGenerator, Gate, Program, StatementKind, unitary},
+    symbolic::{
+        ExecutionConfig, OutputSelection, PhaseCoefficient, Scalar, execute,
+        normalized_trace_component,
+    },
 };
 use num_rational::BigRational;
 
@@ -72,6 +75,8 @@ pub(super) fn certificate(
     // domain (e.g. a pair of rotations with a zero denominator).
     crate::symbolic::numeric_domains(&circuit).ok()?;
     let circuit = super::unitary_rewrite::preprocess(&circuit).unwrap_or(circuit);
+    let circuit = phase_only_rotations(circuit)?;
+    let circuit = super::unitary_rewrite::preprocess(&circuit).unwrap_or(circuit);
     if circuit.body.statements.is_empty()
         && super::unitary_rewrite::strategy().ok()? != super::unitary_rewrite::Strategy::Off
     {
@@ -130,3 +135,91 @@ pub(super) fn certificate(
 
 #[cfg(test)]
 mod tests;
+
+/// Exact basis conjugations after full-unitary validation. Parameters are
+/// transferred unchanged, including the controlled rotation's relative phase.
+/// Admission is restricted to the existing reducer's bounded dyadic domain;
+/// unsupported numeric atoms remain on the original general-channel route.
+fn phase_only_rotations(mut circuit: Program) -> Option<Program> {
+    let needs_lowering = circuit.body.statements.iter().any(|s| {
+        matches!(
+            s.kind,
+            StatementKind::Apply {
+                gate: Gate::Rx | Gate::Ry | Gate::Crx | Gate::Cry,
+                ..
+            }
+        )
+    });
+    if !needs_lowering {
+        return Some(circuit);
+    }
+    // This extension is for dyadic phase circuits as a whole, not just one
+    // dyadic rotation embedded in unsupported transcendental phase atoms.
+    // The pre-existing H/monomial admission above is unchanged.
+    for statement in &circuit.body.statements {
+        let StatementKind::Apply { parameters, .. } = &statement.kind else {
+            return None;
+        };
+        for parameter in parameters {
+            let turns =
+                PhaseCoefficient::angle(parameter.clone(), BigRational::from_integer(1.into()))
+                    .as_rational()?;
+            let denominator = u64::try_from(turns.denom()).ok()?;
+            // Same 12-bit optional local phase domain as joint_phase.
+            if !denominator.is_power_of_two() || denominator > 4096 {
+                return None;
+            }
+        }
+    }
+    let mut next_id = 0;
+    circuit.visit_ast_ids(|id| next_id = next_id.max(id.index() + 1));
+    let mut ids = AstIdGenerator::starting_at(next_id);
+    let mut out = Vec::new();
+    for statement in std::mem::take(&mut circuit.body.statements) {
+        let StatementKind::Apply { gate, qubits, .. } = &statement.kind else {
+            return None;
+        };
+        if !matches!(gate, Gate::Rx | Gate::Ry | Gate::Crx | Gate::Cry) {
+            out.push(statement);
+            continue;
+        }
+        let is_y = matches!(gate, Gate::Ry | Gate::Cry);
+        let diagonal = if matches!(gate, Gate::Crx | Gate::Cry) {
+            Gate::Crz
+        } else {
+            Gate::Rz
+        };
+        let target = qubits.last()?.clone();
+        let one = |gate, ids: &mut AstIdGenerator| {
+            ids.node(StatementKind::Apply {
+                gate,
+                parameters: Vec::new(),
+                qubits: vec![target.clone()],
+            })
+        };
+        // Rx = H Rz H; Ry = S H Rz H S† as operators (textual
+        // execution order below is reversed). On control=0 the basis changes
+        // cancel, so the same construction implements Crx/Cry exactly.
+        if is_y {
+            out.push(one(Gate::Sdg, &mut ids));
+        }
+        out.push(one(Gate::H, &mut ids));
+        let StatementKind::Apply {
+            parameters, qubits, ..
+        } = statement.kind
+        else {
+            unreachable!()
+        };
+        out.push(ids.node(StatementKind::Apply {
+            gate: diagonal,
+            parameters,
+            qubits,
+        }));
+        out.push(one(Gate::H, &mut ids));
+        if is_y {
+            out.push(one(Gate::S, &mut ids));
+        }
+    }
+    circuit.body.statements = out;
+    Some(circuit)
+}
