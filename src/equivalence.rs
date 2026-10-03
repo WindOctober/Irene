@@ -9,6 +9,7 @@ mod interface;
 mod kernel;
 mod smt;
 mod tuning;
+mod unitary_rewrite;
 
 pub use kernel::{DensityKernel, KernelBuildError};
 
