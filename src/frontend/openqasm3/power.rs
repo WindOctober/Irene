@@ -1,6 +1,85 @@
-//! Exact controlled decompositions, inverses and literal integer powers.
-//! Composite CU must not distribute a nontrivial power through its decomposition.
+//! Integer gate powers and a conservative, flow-sensitive known-bit analysis.
+//! Gate-generated scopes are not necessarily safe to power gate by gate:
+//! (AB)^k is not generally A^k B^k. The caller excludes composite CU for
+//! k outside {0, 1} and reduces controlled involutions to parity first.
 use super::*;
+
+#[derive(Clone, Default)]
+pub(super) struct KnownBits(HashMap<ClassicalBit, bool>);
+
+impl KnownBits {
+    fn value(&self, e: &ClassicalExpr) -> Option<bool> {
+        fn eval(k: &KnownBits, e: &ClassicalExpr, work: &mut usize, depth: usize) -> Option<bool> {
+            *work = work.checked_sub(1)?;
+            if depth >= 128 {
+                return None;
+            }
+            Some(match &e.kind {
+                ClassicalExprKind::Bool(v) => *v,
+                ClassicalExprKind::Bit(b) => *k.0.get(b)?,
+                ClassicalExprKind::Not(a) => !eval(k, a, work, depth + 1)?,
+                ClassicalExprKind::And(a, b) => {
+                    eval(k, a, work, depth + 1)? & eval(k, b, work, depth + 1)?
+                }
+                ClassicalExprKind::Or(a, b) => {
+                    eval(k, a, work, depth + 1)? | eval(k, b, work, depth + 1)?
+                }
+                ClassicalExprKind::Xor(a, b) => {
+                    eval(k, a, work, depth + 1)? ^ eval(k, b, work, depth + 1)?
+                }
+                ClassicalExprKind::Eq(a, b) => {
+                    eval(k, a, work, depth + 1)? == eval(k, b, work, depth + 1)?
+                }
+            })
+        }
+        eval(self, e, &mut 65536, 0)
+    }
+
+    fn block(&mut self, b: &Block) {
+        for s in &b.statements {
+            self.statement(s);
+        }
+        for r in &b.classical_registers {
+            for index in 0..r.width {
+                self.0.remove(&ClassicalBit {
+                    register: r.id,
+                    index,
+                });
+            }
+        }
+    }
+
+    pub(super) fn statement(&mut self, s: &Statement) {
+        match &s.kind {
+            StatementKind::Assign { target, value } => {
+                if let Some(v) = self.value(value) {
+                    self.0.insert(target.clone(), v);
+                } else {
+                    self.0.remove(target);
+                }
+            }
+            StatementKind::Measure { target, .. } => {
+                self.0.remove(target);
+            }
+            StatementKind::Scope(b) => self.block(b),
+            StatementKind::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => match self.value(condition) {
+                Some(true) => self.block(then_branch),
+                Some(false) => self.block(else_branch),
+                None => {
+                    let mut other = self.clone();
+                    self.block(then_branch);
+                    other.block(else_branch);
+                    self.0.retain(|bit, value| other.0.get(bit) == Some(value));
+                }
+            },
+            StatementKind::Reset(_) | StatementKind::Apply { .. } => {}
+        }
+    }
+}
 
 impl Lowerer {
     pub(super) fn controlled_involution(&mut self, gate: Gate, q: Vec<Qubit>) -> Statement {
@@ -40,6 +119,39 @@ impl Lowerer {
         self.sequence(vec![a, b, c])
     }
 
+    pub(super) fn known_power(&mut self, expression: Expr) -> Result<i128, FrontendError> {
+        if let Ok(v) = self.static_integer(expression.clone(), false) {
+            return Ok(v.value);
+        }
+        let saved = self.ids.clone();
+        let value = self.lower_typed_classical_expr(expression.clone());
+        self.ids = saved;
+        let TypedClassicalExpr::Integer {
+            bits, signedness, ..
+        } = value?
+        else {
+            return Err(unsupported!("non-integer gate power", &expression));
+        };
+        if bits.is_empty() || bits.len() > 64 {
+            return Err(unsupported!("gate power width outside 1..64", &expression));
+        }
+        let known = self
+            .known_bits
+            .as_ref()
+            .expect("pow activates known-bit analysis");
+        let mut value = 0_i128;
+        for (i, b) in bits.iter().enumerate() {
+            let bit = known.value(b).ok_or_else(|| {
+                unsupported!("gate power is not statically determined", &expression)
+            })?;
+            value |= i128::from(bit) << i;
+        }
+        if signedness == Signedness::Signed && value & (1_i128 << (bits.len() - 1)) != 0 {
+            value -= 1_i128 << bits.len();
+        }
+        Ok(value)
+    }
+
     pub(super) fn pi_multiple(&mut self, numerator: i128, denominator: i128) -> NumericExpr {
         let pi = self
             .ids
@@ -50,11 +162,6 @@ impl Lowerer {
         )));
         self.ids
             .node(NumericExprKind::Mul(Box::new(pi), Box::new(ratio)))
-    }
-
-    /// The exponent must be known statically; runtime propagation is separate.
-    pub(super) fn known_power(&mut self, expression: Expr) -> Result<i128, FrontendError> {
-        Ok(self.static_integer(expression, false)?.value)
     }
 
     /// Lowered single-gate broadcasts, and commuting angle-bit rotations only.
