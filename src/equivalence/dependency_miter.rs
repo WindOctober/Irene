@@ -37,6 +37,11 @@ pub fn candidate(
     config: &EquivalenceConfig,
     options: &Options,
 ) -> Option<Candidate> {
+    // Without this group the caller compares the original pair through HPS/
+    // kernel, rather than executing an unrewritten inverse-composition miter.
+    if !crate::ablation::permit(crate::ablation::Group::GateRewrite) {
+        return None;
+    }
     if !options.exact_order.is_power_of_two() || options.exact_order < 8 {
         return None;
     }
@@ -76,16 +81,6 @@ pub fn candidate(
         (right, left)
     };
     let (circuit, identity) = unitary::miter(forward, inverse).ok()?;
-    // Ablation disables rewriting, not the unitary miter proof route.
-    // The untouched miter still reaches exactly the same HPS/kernel pipeline.
-    if !crate::ablation::permit(crate::ablation::Group::GateRewrite) {
-        let gates = circuit.operation_count();
-        return Some(Candidate {
-            circuit,
-            identity,
-            statistics: Statistics { before: gates, after: gates, ..Default::default() },
-        });
-    }
     let (circuit, statistics) = if options.mode == Mode::Wire {
         let before = circuit.operation_count();
         let next = super::unitary_rewrite::preprocess_with(
