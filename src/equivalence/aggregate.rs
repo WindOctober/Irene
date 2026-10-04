@@ -16,6 +16,7 @@ mod checkpoint_factors;
 mod collection;
 mod constraint_rows;
 mod constraints;
+mod graph;
 mod exact_trig;
 mod exact_affine_pivot;
 mod exact_guard_pivot;
@@ -262,33 +263,6 @@ enum Reduction {
     Residual,
 }
 
-fn scalar_algebraic(s: &KernelScalar) -> bool {
-    match s {
-        KernelScalar::Select {
-            condition,
-            when_true,
-            when_false,
-        } => {
-            condition.is_algebraic() && scalar_algebraic(when_true) && scalar_algebraic(when_false)
-        }
-        KernelScalar::Sqrt(x) | KernelScalar::Neg(x) | KernelScalar::Inverse(x) => {
-            scalar_algebraic(x)
-        }
-        KernelScalar::Mul(a, b) | KernelScalar::Add(a, b) => {
-            scalar_algebraic(a) && scalar_algebraic(b)
-        }
-        _ => true,
-    }
-}
-pub(super) fn is_algebraic(t: &WorkingTerm) -> bool {
-    t.phase.is_algebraic()
-        && t.constraints
-            .iter()
-            .all(KernelBooleanPolynomial::is_algebraic)
-        && scalar_algebraic(&t.coefficient)
-}
-
-
 fn reduce_term(term: &KernelTerm) -> Reduction {
     reduce_working_term(working_term(term))
 }
@@ -307,9 +281,8 @@ fn reduce_working_term_with_checkpoint(
     mut term: WorkingTerm,
     checkpoint: Option<&mut Option<WorkingTerm>>,
 ) -> Reduction {
-    if !is_algebraic(&term) {
-        // Graph-native reduction is a separate audit unit; never expand here.
-        return Reduction::Residual;
+    if !graph::is_algebraic(&term) {
+        return graph::reduce(term);
     }
     if term.phase.term_count() > MAX_PHASE_TERMS && term.initial_alias_compaction_within_budget() {
         // Literal renaming cannot grow any Boolean/phase polynomial. This
