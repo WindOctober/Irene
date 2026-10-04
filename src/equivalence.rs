@@ -1,7 +1,7 @@
 //! Equivalence analysis by trace, exact HPS, and affine output-support certificates.
 //!
 //! Cases outside these certificates return Unknown. Density-kernel aggregation
-//! and SMT are not yet connected to this entry point.
+//! is not yet connected; restricted path-free obligations can use SMT.
 
 use bitgauss::BitMatrix;
 use std::collections::{BTreeMap, BTreeSet};
@@ -15,10 +15,11 @@ use crate::symbolic::{
 };
 
 mod aggregate;
-mod canonical;
 mod boolean_query;
-mod interface;
+mod canonical;
+mod deterministic;
 mod input_recovery;
+mod interface;
 mod kernel;
 mod model_witness;
 mod phase_compare;
@@ -27,6 +28,10 @@ mod solver_query;
 mod tuning;
 mod unitary_rewrite;
 mod unitary_trace;
+
+pub use smt::{
+    PortfolioConsensus, PortfolioResult, Solver, SolverDisagreement, SolverResult, SolverStatus,
+};
 
 pub use kernel::{DensityKernel, KernelBuildError};
 
@@ -70,9 +75,15 @@ impl fmt::Display for Verdict {
 /// Exact evidence supporting a verdict, or the boundary that made it unknown.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Evidence {
-    /// A path-free, unit-weight fragment has the same classical observations;
-    /// phase erasure is justified and complete snapshots match exactly.
+    /// A path-free, unit-weight fragment has equal observable outputs and
+    /// satisfies the applicable history and relative-phase obligations.
     DeterministicExact,
+    /// Exact output-difference SMT query is SAT.
+    OutputCounterexample,
+    /// Exact relative-phase query is SAT after proving injectivity.
+    PhaseCounterexample,
+    /// A required SMT obligation had no sufficient definitive answer.
+    SolverInconclusive,
     /// Exact affine computational-basis output supports differ at a checked input.
     OutputSupportMismatch,
     /// Complete single-component snapshots agree under checked path renaming.
@@ -102,6 +113,18 @@ pub struct Analysis {
     pub verdict: Verdict,
     pub evidence: Evidence,
     pub counterexample: Option<Counterexample>,
+    pub solver_queries: Vec<PortfolioResult>,
+}
+
+impl Analysis {
+    fn new(verdict: Verdict, evidence: Evidence, _kernel_terms: (usize, usize)) -> Self {
+        Self {
+            verdict,
+            evidence,
+            counterexample: None,
+            solver_queries: Vec::new(),
+        }
+    }
 }
 
 /// Boolean input assignment in the explicit interface's paired-input order.
@@ -119,7 +142,8 @@ pub struct Counterexample {
 /// A trace refusal falls through to execution, exact HPS comparison, and
 /// affine output-support comparison;
 /// execution errors propagate as errors. Structural mismatch is inconclusive,
-/// not a negative certificate. Kernel/SMT fallback stages are not connected.
+/// not a negative certificate. Restricted path-free SMT comparison follows;
+/// general density-kernel fallback is not connected.
 pub fn analyze(
     left: &Program,
     right: &Program,
@@ -137,6 +161,7 @@ pub fn analyze(
                 verdict: Verdict::Equivalent,
                 evidence: Evidence::UnitaryTraceExact,
                 counterexample: None,
+                solver_queries: Vec::new(),
             });
         }
         let evidence = match norm {
@@ -153,6 +178,7 @@ pub fn analyze(
             verdict: Verdict::NotEquivalent,
             evidence,
             counterexample: None,
+            solver_queries: Vec::new(),
         });
     }
 
@@ -163,6 +189,7 @@ pub fn analyze(
                 verdict: Verdict::Unknown,
                 evidence: Evidence::UnsupportedInterface(reason),
                 counterexample: None,
+                solver_queries: Vec::new(),
             });
         }
         Err(error) => return Err(error),
@@ -172,15 +199,20 @@ pub fn analyze(
             verdict: Verdict::Equivalent,
             evidence: Evidence::ExactHps,
             counterexample: None,
+            solver_queries: Vec::new(),
         });
     }
     if let Some(analysis) = compare_affine_output_support(&prepared) {
         return Ok(analysis);
     }
+    if let Some(result) = deterministic::compare(&prepared, (0, 0)) {
+        return result.map_err(InterfaceError::from);
+    }
     Ok(Analysis {
         verdict: Verdict::Unknown,
         evidence: Evidence::KernelAggregationRequired,
         counterexample: None,
+        solver_queries: Vec::new(),
     })
 }
 
@@ -197,6 +229,7 @@ fn compare_affine_output_support(prepared: &PreparedComparison) -> Option<Analys
         verdict: Verdict::NotEquivalent,
         evidence: Evidence::OutputSupportMismatch,
         counterexample: None,
+        solver_queries: Vec::new(),
     };
     analysis.counterexample = Some(Counterexample {
         ket_inputs: witness,
