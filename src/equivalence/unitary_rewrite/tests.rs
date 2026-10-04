@@ -2,16 +2,40 @@ use super::*;
 use crate::frontend::openqasm3;
 
 #[test]
+fn ablation_bypasses_gate_rewriting_without_changing_source() {
+    let source = parse("cx q[0], q[1]; t q[0]; cx q[0], q[1];");
+    assert_eq!(
+        preprocess_with(&source, Strategy::Wire)
+            .unwrap()
+            .operation_count(),
+        1
+    );
+    let (rewritten, report) = crate::ablation::run(
+        crate::ablation::Config::without([crate::ablation::Group::GateRewrite]),
+        || preprocess_with(&source, Strategy::Wire),
+    );
+    assert!(rewritten.is_none());
+    assert_eq!(source.operation_count(), 3);
+    assert_eq!(
+        report.counts(crate::ablation::Group::GateRewrite).skipped,
+        1
+    );
+}
+
+#[test]
 fn explicitly_unavailable_strategies_do_not_silently_select_off() {
     assert_eq!(parse_strategy(None), Ok(Strategy::Off));
     assert_eq!(parse_strategy(Some("wire")), Ok(Strategy::Wire));
     assert!(parse_strategy(Some("wrie")).is_err());
     assert!(parse_strategy(Some("")).is_err());
+    #[cfg(feature = "rewrite-experiments")]
+    assert_eq!(parse_strategy(Some("port")), Ok(Strategy::Port));
+    #[cfg(not(feature = "rewrite-experiments"))]
     assert!(parse_strategy(Some("port")).is_err());
 }
 
 #[test]
-fn commuting_control_phase_is_a_native_candidate() {
+fn commuting_control_phase_is_a_native_candidate_but_not_a_port_pattern() {
     let source = parse("cx q[0], q[1]; t q[0]; cx q[0], q[1];");
     for strategy in [Strategy::Scan, Strategy::Wire] {
         assert_eq!(
@@ -21,6 +45,8 @@ fn commuting_control_phase_is_a_native_candidate() {
             1
         );
     }
+    #[cfg(feature = "rewrite-experiments")]
+    assert!(preprocess_with(&source, Strategy::Port).is_none());
 }
 
 fn parse(body: &str) -> Program {
@@ -31,7 +57,12 @@ fn parse(body: &str) -> Program {
     .unwrap()
 }
 fn strategies() -> Vec<Strategy> {
-    vec![Strategy::Scan, Strategy::Wire]
+    vec![
+        Strategy::Scan,
+        Strategy::Wire,
+        #[cfg(feature = "rewrite-experiments")]
+        Strategy::Port,
+    ]
 }
 
 // Independent exact dense operator evaluation in Q(zeta_16), zeta^8=-1.
