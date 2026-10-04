@@ -1,4 +1,5 @@
 //! Independent dense-matrix checks of the lowered IR (all basis columns).
+mod common;
 use irene::frontend::{openqasm2, openqasm3};
 use irene::ir::{
     Block, Gate, NumericConstant, NumericExpr, NumericExprKind, Program, StatementKind,
@@ -300,10 +301,11 @@ fn extension_arity_and_broadcast_are_validated() {
         "broadcast",
     )
     .unwrap();
-    assert_eq!(
-        broadcast.operation_count(),
-        2 * q2(2, "cu(0.1,0.2,0.3,0.4) q[0],q[1];").operation_count()
-    );
+    common::unitary::assert_action(&broadcast, |state| {
+        for i in 0..2 {
+            common::unitary::apply(state, &[i], i + 2, common::unitary::u(0.1, 0.2, 0.3, 0.4));
+        }
+    });
     assert!(
         openqasm2::parse_str(
             "OPENQASM 2.0; include \"qelib1.inc\"; qreg a[2]; qreg b[3]; cu(0.1,0.2,0.3,0.4) a,b;",

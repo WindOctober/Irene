@@ -79,7 +79,7 @@ fn public_entry_preserves_nonrational_mismatch_coefficients() {
 }
 
 #[test]
-fn incomplete_or_inapplicable_trace_is_unknown_not_a_negative_certificate() {
+fn incomplete_or_inapplicable_trace_defers_to_other_certificates() {
     for (left, right) in [
         ("reset q[0];", ""),
         ("bit c; c = measure q[0];", "bit c = 0;"),
@@ -91,12 +91,15 @@ fn incomplete_or_inapplicable_trace_is_unknown_not_a_negative_certificate() {
         let config = config(&left, &right);
         assert!(unitary_trace::certificate(&left, &right, &config).is_none());
         let result = analyze(&left, &right, &config).unwrap();
-        // Trace refusal is not a negative certificate. Later support reasoning
-        // may independently establish a mismatch.
+        // Trace refusal is not a negative certificate. Later support or exact
+        // density reasoning may independently establish a mismatch.
         assert!(matches!(
             result.evidence,
-            Evidence::KernelAggregationRequired | Evidence::OutputSupportMismatch
+            Evidence::KernelAggregationRequired
+                | Evidence::OutputSupportMismatch
+                | Evidence::DensityEntryCounterexample
         ));
+        assert_ne!(result.verdict, Verdict::Equivalent);
     }
 }
 

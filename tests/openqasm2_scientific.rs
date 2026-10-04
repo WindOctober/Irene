@@ -47,3 +47,16 @@ fn scientific_literals_are_exact() {
         );
     }
 }
+#[test]
+fn long_flat_circuit_is_not_macro_expansion() {
+    let src = format!(
+        "OPENQASM 2.0; include \"qelib1.inc\"; qreg q[1]; {}",
+        "h q[0];\n".repeat(50_010)
+    );
+    assert_eq!(
+        openqasm2::parse_str(&src, "test")
+            .unwrap()
+            .operation_count(),
+        50_010
+    );
+}

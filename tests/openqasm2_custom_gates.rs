@@ -114,3 +114,90 @@ fn legal_acyclic_chain_has_no_fixed_depth_cap() {
         1
     );
 }
+
+#[test]
+fn itertestq_custom_gate_examples_parse() {
+    let base =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("benchmarks/itertestq/programs");
+    if !base.is_dir() {
+        return;
+    } // External corpus is optional in a source checkout.
+    for id in ["itertestq-0078", "itertestq-0157"] {
+        for side in ["left", "right"] {
+            let path = base.join(id).join(format!("{side}.qasm"));
+            let text = std::fs::read_to_string(&path).unwrap();
+            openqasm2::parse_str(&text, path.to_str().unwrap()).unwrap();
+        }
+    }
+}
+
+#[test]
+fn nested_parameters_preserve_unitary_semantics() {
+    use irene::equivalence::{
+        Endpoint, EquivalenceConfig, InputPair, OutputPair, Verdict, analyze,
+    };
+    use irene::ir::Qubit;
+    let left = openqasm2::parse_str(&source("gate inner(t) a,b { ry(t) a; cx a,b; } gate outer(t) a,b { inner(t/2) b,a; } qreg q[2]; outer(pi/2) q[0],q[1];"), "left").unwrap();
+    let right =
+        openqasm2::parse_str(&source("qreg q[2]; ry(pi/4) q[1]; cx q[1],q[0];"), "right").unwrap();
+    let mut ids = Vec::new();
+    left.visit_ast_ids(|id| ids.push(id.index()));
+    ids.sort_unstable();
+    assert_eq!(ids, (0..left.ast_id_bound()).collect::<Vec<_>>());
+    let endpoint = |p: &irene::ir::Program, index| {
+        Endpoint::Quantum(Qubit {
+            register: p.quantum_registers[0].id,
+            index,
+        })
+    };
+    let config = EquivalenceConfig {
+        input_pairs: (0..2)
+            .map(|i| InputPair {
+                left: endpoint(&left, i),
+                right: endpoint(&right, i),
+            })
+            .collect(),
+        output_pairs: (0..2)
+            .map(|i| OutputPair {
+                left: endpoint(&left, i),
+                right: endpoint(&right, i),
+            })
+            .collect(),
+        ..Default::default()
+    };
+    assert_eq!(
+        analyze(&left, &right, &config).unwrap().verdict,
+        Verdict::Equivalent
+    );
+}
+
+#[test]
+fn scan_optional_itertestq_corpus() {
+    let base =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("benchmarks/itertestq/programs");
+    if !base.is_dir() {
+        return;
+    }
+    let mut passed = 0;
+    let mut errors = std::collections::BTreeMap::<String, usize>::new();
+    for entry in std::fs::read_dir(base).unwrap() {
+        let entry = entry.unwrap();
+        let mut failure = None;
+        for side in ["left", "right"] {
+            let path = entry.path().join(format!("{side}.qasm"));
+            let text = std::fs::read_to_string(path).unwrap();
+            if let Err(error) = openqasm2::parse_str(&text, "corpus") {
+                failure = Some(error.to_string());
+                break;
+            }
+        }
+        if let Some(error) = failure {
+            *errors.entry(error).or_default() += 1;
+        } else {
+            passed += 1;
+        }
+    }
+    eprintln!("IterTestQ parse pairs: {passed} passed; failures: {errors:?}");
+    assert!(passed > 0, "the optional corpus must not be empty");
+    assert!(errors.is_empty());
+}

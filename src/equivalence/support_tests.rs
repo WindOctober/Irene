@@ -101,10 +101,22 @@ fn equal_support_does_not_prove_equal_phase_or_probabilities() {
     let left = parse("bit c = 0; z q[0];");
     let right = parse("bit c = 0;");
     let config = EquivalenceConfig::positional(&left, &right).unwrap();
+    let prepared = prepare_comparison(&left, &right, &config).unwrap();
+    assert!(compare_affine_output_support(&prepared, (0, 0)).is_none());
     let result = analyze(&left, &right, &config).unwrap();
-    assert_eq!(result.verdict, Verdict::Unknown);
-    assert_eq!(result.evidence, Evidence::KernelAggregationRequired);
-    assert!(result.counterexample.is_none());
+    // Equal affine supports do not settle phase equality. Later exact routes
+    // can certify Z != I; a missing solver may still leave this inconclusive.
+    match result.verdict {
+        Verdict::Unknown => assert!(matches!(
+            result.evidence,
+            Evidence::KernelAggregationRequired | Evidence::SolverInconclusive
+        )),
+        Verdict::NotEquivalent => assert!(matches!(
+            result.evidence,
+            Evidence::PhaseCounterexample | Evidence::DensityEntryCounterexample
+        )),
+        Verdict::Equivalent => panic!("equal supports must not erase a relative phase"),
+    }
 }
 
 fn bits(mask: usize, width: usize) -> Vec<bool> {
