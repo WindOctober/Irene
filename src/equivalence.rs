@@ -32,6 +32,8 @@ mod solver_query;
 mod tuning;
 mod unitary_rewrite;
 mod unitary_trace;
+pub mod interval_hps;
+pub mod dependency_miter;
 
 pub use smt::{
     PortfolioConsensus, PortfolioResult, Solver, SolverDisagreement, SolverResult, SolverStatus,

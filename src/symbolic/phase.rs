@@ -80,6 +80,19 @@ impl PhaseCoefficient {
         self.rational_turns.clone()
     }
 
+    /// Constant linear phase only: exact turns plus exact rational radians.
+    /// Numeric inputs and other symbolic atoms are deliberately not approximated.
+    pub(crate) fn constant_turns_radians(&self) -> Option<(BigRational, BigRational)> {
+        let mut radians = integer(0);
+        for (basis, coefficient) in &self.angle_terms {
+            if !matches!(basis, AngleBasis::Radian) {
+                return None;
+            }
+            radians += coefficient;
+        }
+        Some((self.rational_turns.clone(), radians))
+    }
+
     /// Returns the exact coefficient when it contains no symbolic angle atom.
     pub(crate) fn as_rational(&self) -> Option<BigRational> {
         self.angle_terms
