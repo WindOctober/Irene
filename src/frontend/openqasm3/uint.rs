@@ -90,7 +90,7 @@ impl Lowerer {
         rhs: Expr,
         source: &T,
     ) -> Result<TypedClassicalExpr, FrontendError> {
-        // Discard temporary AST IDs before owning only
+        // As in angle lowering, discard temporary AST IDs before owning only
         // the final expression. All reads (even shifted-out bits) are retained.
         let saved = self.ids.clone();
         let result = (|| {
