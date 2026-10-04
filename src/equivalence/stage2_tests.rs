@@ -18,6 +18,17 @@ fn check(left: &Program, right: &Program, config: &EquivalenceConfig, equivalent
         "must exercise Stage 2"
     );
     let result = analyze(left, right, config).unwrap();
+    if !equivalent {
+        // This test checks refusal of the structural rule, not later rules.
+        let prepared = prepare_comparison(left, right, config).unwrap();
+        assert!(!exact_hps_certificate(&prepared));
+        assert!(matches!(
+            result.evidence,
+            Evidence::KernelAggregationRequired | Evidence::OutputSupportMismatch
+        ));
+        assert_ne!(result.verdict, Verdict::Equivalent);
+        return;
+    }
     assert_eq!(
         result.verdict,
         if equivalent {
