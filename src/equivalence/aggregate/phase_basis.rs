@@ -47,9 +47,7 @@ pub(super) fn matches(left: &Reduction, right: &Reduction) -> bool {
     let (Reduction::Sum(left), Reduction::Sum(right)) = (left, right) else {
         return false;
     };
-    if !crate::ablation::permit(crate::ablation::Group::PathSumPlanning) {
-        return false;
-    }
+
     super::phase_schedule::matches(left, right, prove_terms, factored::matches_components)
 }
 
@@ -58,9 +56,7 @@ fn matches_using(left: &Reduction, right: &Reduction, blocks: bool, paths: usize
     let (Reduction::Sum(left), Reduction::Sum(right)) = (left, right) else {
         return false;
     };
-    if !crate::ablation::permit(crate::ablation::Group::PathSumPlanning) {
-        return false;
-    }
+
     let strategy = match (blocks, paths) {
         (false, _) => super::phase_schedule::Strategy::Single,
         (true, 8) => super::phase_schedule::Strategy::Blocks8,
@@ -112,9 +108,7 @@ fn matches_reduced_components(left: &Reduction, right: &Reduction, work: &mut us
     let (Reduction::Sum(left), Reduction::Sum(right)) = (left, right) else {
         return false;
     };
-    if !crate::ablation::permit(crate::ablation::Group::PathSumPlanning) {
-        return false;
-    }
+
     super::phase_schedule::matches_reduced_components(
         left,
         right,

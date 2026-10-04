@@ -37,11 +37,6 @@ pub fn candidate(
     config: &EquivalenceConfig,
     options: &Options,
 ) -> Option<Candidate> {
-    // Without this group the caller compares the original pair through HPS/
-    // kernel, rather than executing an unrewritten inverse-composition miter.
-    if !crate::ablation::permit(crate::ablation::Group::GateRewrite) {
-        return None;
-    }
     if !options.exact_order.is_power_of_two() || options.exact_order < 8 {
         return None;
     }

@@ -29,11 +29,6 @@ pub(super) fn certificate(
     right: &Program,
     config: &EquivalenceConfig,
 ) -> Option<TraceNorm> {
-    // Gate-level ablation includes inverse composition, not just rewrites of
-    // an already-built miter. Decline before constructing or executing it.
-    if !crate::ablation::permit(crate::ablation::Group::GateRewrite) {
-        return None;
-    }
     // The miter uses positional wires. Require exactly that full interface;
     // do not silently replace a different pairing or classical observation.
     let l = super::qubits(left);

@@ -1,5 +1,5 @@
 use irene::{
-    ablation, equivalence,
+    equivalence,
     frontend::openqasm3,
     symbolic::representation_stats::{Config, Session},
 };
@@ -15,7 +15,7 @@ fn path() -> std::path::PathBuf {
 }
 
 #[test]
-fn observation_preserves_verdict_evidence_and_ablation_counts() {
+fn observation_preserves_verdict_and_evidence() {
     let parse = |body: &str| {
         openqasm3::parse_str(
             &format!("OPENQASM 3.0; include \"stdgates.inc\"; {body}"),
@@ -26,12 +26,8 @@ fn observation_preserves_verdict_evidence_and_ablation_counts() {
     let left = parse("qubit q; bit c; h q; c = measure q; if (c) { x q; } c = false;");
     let right = parse("qubit q; bit c; reset q; c = false;");
     let config = equivalence::EquivalenceConfig::positional(&left, &right).unwrap();
-    let run = || {
-        ablation::run(ablation::Config::default(), || {
-            equivalence::analyze(&left, &right, &config).unwrap()
-        })
-    };
-    let (normal, normal_ablation) = run();
+    let run = || equivalence::analyze(&left, &right, &config).unwrap();
+    let normal = run();
     let path = path();
     let session = Session::start(
         &path,
@@ -41,11 +37,10 @@ fn observation_preserves_verdict_evidence_and_ablation_counts() {
         },
     )
     .unwrap();
-    let (observed, observed_ablation) = run();
+    let observed = run();
     session.finish().unwrap();
     assert_eq!(normal.verdict, observed.verdict);
     assert_eq!(normal.evidence, observed.evidence);
-    assert_eq!(normal_ablation, observed_ablation);
     let trace = std::fs::read_to_string(&path).unwrap();
     assert!(trace.contains("\"type\":\"snapshot\""));
     assert!(trace.lines().last().unwrap().contains("\"type\":\"end\""));

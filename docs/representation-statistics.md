@@ -2,8 +2,7 @@
 
 This is a representation-size experiment, not a replacement ANF verifier.
 The normal verifier is unchanged. Observation is opt-in and synchronous/thread-local.
-It neither calls simplification nor changes any HPS field, proof choice, or ablation
-switch. Recording costs time/memory: do not use instrumented runs as performance
+It neither calls simplification nor changes any HPS field, proof choice, or verification configuration. Recording costs time/memory: do not use instrumented runs as performance
 measurements, and do not promise identical outcomes under wall-clock limits.
 
 ## Collect one trace per pair

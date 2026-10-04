@@ -255,9 +255,6 @@ impl Dag {
         live
     }
     pub(super) fn simplified(&self, roots: Value) -> Option<(Dag, Value)> {
-        if !crate::ablation::permit(crate::ablation::Group::ExpressionSimplify) {
-            return None;
-        }
         self.rewritten(roots, self.context_enabled).or_else(|| {
             self.context_enabled
                 .then(|| self.rewritten(roots, false))

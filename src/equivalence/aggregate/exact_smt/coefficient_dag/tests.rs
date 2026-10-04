@@ -27,45 +27,6 @@ fn evaluate(dag: &Dag, roots: Value, bit: bool) -> Vec<BigRational> {
     }
     roots.iter().map(|i| values[*i].clone()).collect()
 }
-#[test]
-fn ablation_retains_coefficient_backend_and_complete_sums() {
-    let (_, report) = crate::ablation::run(
-        crate::ablation::Config::without(crate::ablation::Group::ALL),
-        contraction_matches_independent_complete_atom_sum,
-    );
-    assert!(
-        report
-            .counts(crate::ablation::Group::ExpressionSimplify)
-            .skipped
-            > 0
-    );
-    assert!(
-        report
-            .counts(crate::ablation::Group::PathSumPlanning)
-            .skipped
-            > 0
-    );
-}
-
-#[test]
-fn ablation_disables_enhanced_coefficient_rewrites_only() {
-    crate::ablation::run(
-        crate::ablation::Config::without([crate::ablation::Group::ExpressionSimplify]),
-        || {
-            let mut dag = Dag::new();
-            assert!(!dag.expression_simplify && !dag.simplify && !dag.context_enabled);
-            let p = KernelBooleanPolynomial::variable(KernelVariable::QuantumOutputKet(0));
-            let a = dag.select(p.clone(), 1, 0).unwrap();
-            let b = dag.select(p.complement(), 1, 0).unwrap();
-            let product = dag.multiply(a, b).unwrap();
-            assert!(matches!(dag.nodes[product], Node::Multiply(..)));
-            assert!(dag.simplified([product, 0, 0, 0]).is_none());
-            for bit in [false, true] {
-                assert_eq!(evaluate(&dag, [product, 0, 0, 0], bit), vec![integer(0); 4]);
-            }
-        },
-    );
-}
 
 #[test]
 fn contraction_matches_independent_complete_atom_sum() {

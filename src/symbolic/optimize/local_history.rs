@@ -19,9 +19,6 @@ use super::{reduce_path_sums, simplify::substitute_component};
 /// A pivot visible there cannot subsequently be removed by the history rule.
 /// Unknown comparisons and exhausted budgets leave the original untouched.
 pub(crate) fn collapse_local_history(component: &mut Component) {
-    if !crate::ablation::permit(crate::ablation::Group::FeedbackSummary) {
-        return;
-    }
     if !local_history_has_work(component) {
         return;
     }

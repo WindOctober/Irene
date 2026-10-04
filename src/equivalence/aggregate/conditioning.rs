@@ -4,7 +4,6 @@
 //! exposes useful exact cofactors earlier than input-order splitting. This is
 //! a heuristic, not an invariant about circuit semantics or a case-name rule.
 //! Both COMPLETE cofactors are always summed; free coordinates are never split.
-//! IRENE_PATH_ORDER=legacy retains the old order for controlled comparisons.
 use super::*;
 
 fn children(t: &WorkingTerm, v: &KernelVariable) -> Option<[Reduction; 2]> {
@@ -22,17 +21,7 @@ fn children(t: &WorkingTerm, v: &KernelVariable) -> Option<[Reduction; 2]> {
 }
 
 pub(super) fn split(t: &WorkingTerm) -> Option<[Reduction; 2]> {
-    let variable = if !crate::ablation::permit(crate::ablation::Group::PathSumPlanning) {
-        t.paths.first()?.clone()
-    } else if std::env::var("IRENE_PATH_ORDER").as_deref() == Ok("legacy") {
-        if graph::is_algebraic(t) {
-            t.residual_split_variable()?
-        } else {
-            t.paths.first()?.clone()
-        }
-    } else {
-        t.paths.last()?.clone()
-    };
+    let variable = t.paths.last()?.clone();
     children(t, &variable)
 }
 

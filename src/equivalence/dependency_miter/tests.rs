@@ -254,28 +254,3 @@ fn tiny_exact_inverse_pair_is_preferred_to_tolerant_singletons() {
     assert!(c.is_exact());
     assert_eq!(c.statistics.approximate_single_gates, 0);
 }
-
-#[test]
-fn gate_ablation_declines_all_miter_modes_before_rewriting() {
-    use crate::ablation::{self, Config, Group};
-    for body in ["h q[0]; h q[0];", "p(0.00000000000000001) q[0];"] {
-        let left = parse(body);
-        let right = parse("");
-        let config = EquivalenceConfig::positional(&left, &right).unwrap();
-        for mode in [Mode::Wire, Mode::Dag, Mode::DagScheduled] {
-            for tolerant in [false, true] {
-                let options = Options {
-                    mode,
-                    ..options(tolerant)
-                };
-                let (result, report) = ablation::run(Config::without([Group::GateRewrite]), || {
-                    candidate(&left, &right, &config, &options)
-                });
-                assert!(result.is_none(), "{mode:?}, tolerant={tolerant}");
-                assert_eq!(report.counts(Group::GateRewrite).skipped, 1);
-                assert_eq!(report.counts(Group::GateRewrite).admitted, 0);
-                assert!(candidate(&left, &right, &config, &options).is_some());
-            }
-        }
-    }
-}

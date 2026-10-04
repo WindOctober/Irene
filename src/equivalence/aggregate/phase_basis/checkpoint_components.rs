@@ -5,9 +5,6 @@ use super::super::checkpoint_factors::{Components, components};
 use super::*;
 
 pub(super) fn matches(left: &WorkingTerm, right: &WorkingTerm) -> bool {
-    if !crate::ablation::permit(crate::ablation::Group::PathSumPlanning) {
-        return false;
-    }
     let mut work = WORK_CELLS;
     let result = (|| {
         let left = components(left, &mut work)?;
