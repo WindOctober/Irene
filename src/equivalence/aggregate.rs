@@ -10,7 +10,6 @@ use scalar::{normalize_scalar, scalar_conditions_within_budget, scalar_within_bu
 use collection::{ExactAggregate, ExactTerm, accumulate_exact_term, aggregate_difference};
 use super::DensityCounterexample;
 use scalar::integer;
-#[cfg(test)]
 use scalar::ratio;
 
 mod checkpoint;
@@ -46,6 +45,9 @@ mod xor_blocks;
 mod zero_product;
 
 mod exact_smt;
+mod conditioning;
+mod factored;
+mod phase_basis;
 
 /// Exact squared modulus in the power basis of Q(zeta_(2^62)).
 /// The empty vector is zero; all exponents are below 2^61.
