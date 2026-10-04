@@ -2,7 +2,8 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::Parser;
-use irene::equivalence::{self, Verdict};
+use irene::ablation;
+use irene::equivalence::{self, EquivalenceConfig, Verdict};
 use irene::frontend::{openqasm2, openqasm3};
 use irene::utils::load_openqasm_source;
 
@@ -13,11 +14,37 @@ struct Cli {
     left: PathBuf,
     /// Right-hand OpenQASM program.
     right: PathBuf,
+    /// Disable optimization groups (comma-separated), or `all`. Overrides IRENE_ABLATE.
+    #[arg(long)]
+    ablate: Option<String>,
+    /// Print effective ablation switches and entry-gate counts to stderr.
+    #[arg(long)]
+    ablation_report: bool,
 }
 
 fn main() -> ExitCode {
-    let Cli { left, right } = Cli::parse();
-    match check_equivalence(&left, &right) {
+    let Cli {
+        left,
+        right,
+        ablate,
+        ablation_report,
+    } = Cli::parse();
+    let config = match ablate
+        .as_deref()
+        .map(ablation::Config::parse)
+        .unwrap_or_else(ablation::Config::from_env)
+    {
+        Ok(config) => config,
+        Err(error) => {
+            eprintln!("{error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let (result, report) = ablation::run(config, || check_equivalence(&left, &right));
+    if ablation_report {
+        eprint!("{report}");
+    }
+    match result {
         Ok(verdict) => {
             println!("{verdict}");
             ExitCode::SUCCESS
@@ -61,10 +88,10 @@ fn check_equivalence(left_path: &Path, right_path: &Path) -> Result<Verdict, Str
         }
     };
 
-    let Some(config) = equivalence::EquivalenceConfig::positional(&left, &right) else {
+    let Some(interface) = EquivalenceConfig::positional(&left, &right) else {
         return Ok(Verdict::Unknown);
     };
-    equivalence::analyze(&left, &right, &config)
+    equivalence::analyze(&left, &right, &interface)
         .map(|analysis| analysis.verdict)
         .map_err(|error| error.to_string())
 }

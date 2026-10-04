@@ -121,6 +121,9 @@ impl Executor {
         statements: &[Statement],
         plan: &SlicePlan,
     ) -> Option<(usize, Vec<Component>)> {
+        if !crate::ablation::permit(crate::ablation::Group::FeedbackSummary) {
+            return None;
+        }
         if prefix.is_empty() || prefix.len() > MAX_COMPONENTS {
             return None;
         }

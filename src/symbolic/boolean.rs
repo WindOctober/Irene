@@ -137,6 +137,11 @@ impl BooleanPolynomial {
     /// keyed by nodes of the live source DAG; temporary rewrite nodes are never
     /// entered by address (their allocations can otherwise be reused).
     pub(crate) fn factored(&self) -> Self {
+        // Check before consulting normalized caches: a previous enabled scope
+        // must not silently supply its rewrite to an ablated execution.
+        if !crate::ablation::permit(crate::ablation::Group::ExpressionSimplify) {
+            return self.clone();
+        }
         fn root(p: BooleanPolynomial) -> BooleanPolynomial {
             if !matches!(p.expression(), Expression::Xor(_)) {
                 return p;
