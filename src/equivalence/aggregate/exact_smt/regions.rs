@@ -55,9 +55,6 @@ impl Encoder {
         a: &[Polynomial],
         b: &[Polynomial],
     ) -> Option<crate::equivalence::smt::PortfolioResult> {
-        if !crate::ablation::permit(crate::ablation::Group::PathSumPlanning) {
-            return None;
-        }
         let guard_vars: BTreeSet<_> = a
             .iter()
             .chain(b)

@@ -41,8 +41,7 @@ pub(super) fn norm(circuit: &Program) -> Option<Vec<(u64, BigRational)>> {
         terms: vec![],
     };
     let mut encoder = Encoder::new(&kernel)?;
-    // This optional route remains bounded even during solver diagnostic runs.
-    encoder.unlimited_work = false;
+    // This optional route has its own bounded work allowance.
     encoder.work = MAX_WORK;
     let result = matrix(circuit, &mut encoder).and_then(|(dimension, values)| {
         let mut trace = Vec::new();

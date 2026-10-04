@@ -30,7 +30,6 @@ struct Dag {
     work: usize,
     start: Instant,
     width: usize,
-    expression_simplify: bool,
 }
 impl Dag {
     fn new() -> Self {
@@ -46,9 +45,6 @@ impl Dag {
             work: crate::equivalence::tuning::limits().interval_work,
             start: Instant::now(),
             width: 0,
-            expression_simplify: crate::ablation::permit(
-                crate::ablation::Group::ExpressionSimplify,
-            ),
         }
     }
     fn tick(&mut self) -> Option<()> {
@@ -136,9 +132,6 @@ impl Dag {
         if a == b {
             return Some(a);
         }
-        if !self.expression_simplify {
-            return self.expression(Key::Select(p, a, b));
-        }
         // Exact XAG complement normalization aligns opposite branch orders.
         let complement = p.xor(&BooleanPolynomial::one());
         if complement < p {
@@ -198,7 +191,7 @@ impl Dag {
                     constant = constant.mul(&v);
                     have = true;
                 }
-                Node::Expression(Key::Select(p, a, b)) if self.expression_simplify => {
+                Node::Expression(Key::Select(p, a, b)) => {
                     selections.entry(p).or_default().push((a, b))
                 }
                 _ => rest.push(id),
@@ -248,8 +241,6 @@ impl Dag {
         }
         let id = if let (Some(a), Some(b)) = (self.value(a), self.value(b)) {
             self.constant(a.add(&b))?
-        } else if !self.expression_simplify {
-            self.expression(key.clone())?
         } else if let (
             Node::Expression(Key::Select(p, at, af)),
             Node::Expression(Key::Select(q, bt, bf)),
@@ -478,18 +469,20 @@ impl Dag {
     fn sum_paths(&mut self, mut factors: Vec<Id>, mut paths: BTreeSet<Variable>) -> Option<Id> {
         while !paths.is_empty() {
             self.tick()?;
-            let v = crate::ablation::choose_path(paths.iter(), |v| {
-                let selected: Vec<_> = factors
-                    .iter()
-                    .filter(|i| self.supports[**i].contains(v))
-                    .collect();
-                let scope: BTreeSet<_> = selected
-                    .iter()
-                    .flat_map(|i| self.supports[**i].iter())
-                    .collect();
-                (scope.len(), selected.len())
-            })?
-            .clone();
+            let v = paths
+                .iter()
+                .min_by_key(|v| {
+                    let selected: Vec<_> = factors
+                        .iter()
+                        .filter(|i| self.supports[**i].contains(v))
+                        .collect();
+                    let scope: BTreeSet<_> = selected
+                        .iter()
+                        .flat_map(|i| self.supports[**i].iter())
+                        .collect();
+                    (scope.len(), selected.len())
+                })?
+                .clone();
             paths.remove(&v);
             let (selected, mut rest): (Vec<_>, Vec<_>) = factors
                 .into_iter()
@@ -608,39 +601,7 @@ pub(super) fn identity_bound(program: &Program) -> Report {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn ablation_keeps_interval_sum_but_not_selector_rewrites() {
-        let (_, report) = crate::ablation::run(
-            crate::ablation::Config::without(crate::ablation::Group::ALL),
-            || {
-                let mut d = Dag::new();
-                let p = BooleanPolynomial::variable(Variable::Path(0));
-                let two = d.rational(&BigRational::from_integer(2.into())).unwrap();
-                let a = d.select(p.clone(), two, 1).unwrap();
-                let b = d.select(p.complement(), two, 1).unwrap();
-                let sum = d.add(a, b).unwrap();
-                assert!(d.value(sum).is_none());
-                let total = d
-                    .sum_paths(vec![sum], BTreeSet::from([Variable::Path(0)]))
-                    .unwrap();
-                let value = d.value(total).unwrap();
-                assert_eq!(value.re.lo, 6);
-                assert_eq!(value.re.hi, 6);
-            },
-        );
-        assert!(
-            report
-                .counts(crate::ablation::Group::ExpressionSimplify)
-                .skipped
-                > 0
-        );
-        assert!(
-            report
-                .counts(crate::ablation::Group::PathSumPlanning)
-                .skipped
-                > 0
-        );
-    }
+
     #[test]
     fn deep_scalar_import_is_iterative() {
         let mut s = Scalar::one();

@@ -165,22 +165,12 @@ fn solve(q: &Query) -> DensityCounterexample {
 }
 
 #[test]
-fn work_ablation_removes_global_and_probe_cutoffs_without_dropping_terms() {
+fn work_limits_apply_to_global_and_probe_budgets() {
     let mut e = Encoder::new(&kernel()).unwrap();
-    e.unlimited_work = false;
     e.work = 10;
     assert_eq!(e.probe_work_budget(4), 4);
+    assert_eq!(e.probe_work_budget(20), 10);
     assert!(e.charge(11).is_none());
-    let mut e = Encoder::new(&kernel()).unwrap();
-    e.unlimited_work = true;
-    e.work = usize::MAX;
-    assert_eq!(e.probe_work_budget(4), usize::MAX);
-    e.charge(MAX_WORK + 1).unwrap();
-    assert_eq!(e.work, usize::MAX - MAX_WORK - 1);
-    let p = e.literal(integer(3), ORDER / 8, false).unwrap();
-    let q = e.literal(integer(2), 0, false).unwrap();
-    let product = e.multiply(p, q).unwrap();
-    assert!(product == e.literal(integer(6), ORDER / 8, false).unwrap());
 }
 
 #[test]

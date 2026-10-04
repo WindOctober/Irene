@@ -161,9 +161,6 @@ pub(crate) fn normalize(
     work: usize,
     nodes: usize,
 ) -> Option<Network> {
-    if !crate::ablation::permit(crate::ablation::Group::ExpressionSimplify) {
-        return None;
-    }
     if !source.validate() || source.inputs > 128 || source.nodes.len() > work {
         return None;
     }

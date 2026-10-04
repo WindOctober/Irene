@@ -316,8 +316,12 @@ fn reduce_run(
     ids: &mut AstIdGenerator,
     work: &mut usize,
 ) -> Vec<Statement> {
-    let mut slots: Vec<_> = run.into_iter().map(Op::from)
-        .filter(|op| !op.is_identity()).map(Some).collect();
+    let mut slots: Vec<_> = run
+        .into_iter()
+        .map(Op::from)
+        .filter(|op| !op.is_identity())
+        .map(Some)
+        .collect();
     for _ in 0..MAX_PASSES {
         let mut index = WireIndex::new();
         for (i, op) in slots.iter().enumerate() {
@@ -422,9 +426,6 @@ pub(super) fn preprocess(source: &Program) -> Option<Program> {
 }
 
 pub(super) fn preprocess_with(source: &Program, strategy: Strategy) -> Option<Program> {
-    if !crate::ablation::permit(crate::ablation::Group::GateRewrite) {
-        return None;
-    }
     let start = std::time::Instant::now();
     if strategy == Strategy::Off
         || unitary::validate(source).is_err()

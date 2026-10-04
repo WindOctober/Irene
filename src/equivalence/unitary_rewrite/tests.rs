@@ -2,27 +2,6 @@ use super::*;
 use crate::frontend::openqasm3;
 
 #[test]
-fn ablation_bypasses_gate_rewriting_without_changing_source() {
-    let source = parse("cx q[0], q[1]; t q[0]; cx q[0], q[1];");
-    assert_eq!(
-        preprocess_with(&source, Strategy::Wire)
-            .unwrap()
-            .operation_count(),
-        1
-    );
-    let (rewritten, report) = crate::ablation::run(
-        crate::ablation::Config::without([crate::ablation::Group::GateRewrite]),
-        || preprocess_with(&source, Strategy::Wire),
-    );
-    assert!(rewritten.is_none());
-    assert_eq!(source.operation_count(), 3);
-    assert_eq!(
-        report.counts(crate::ablation::Group::GateRewrite).skipped,
-        1
-    );
-}
-
-#[test]
 fn explicitly_unavailable_strategies_do_not_silently_select_off() {
     assert_eq!(parse_strategy(None), Ok(Strategy::Off));
     assert_eq!(parse_strategy(Some("wire")), Ok(Strategy::Wire));

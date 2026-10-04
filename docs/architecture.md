@@ -199,7 +199,6 @@ unsupported constants and exhausted contractions.
 | --- | --- |
 | `IRENE_ALPHA_STATS=1` | Per-call bound-path matching diagnostics |
 | `IRENE_XAG_DAVIO=reverse` | Default deterministic-output preprocessing; `forward` changes order, `off` disables it |
-| `IRENE_PATH_ORDER=legacy` | Use residual-split selection for algebraic terms; otherwise select the first bound path |
 
 Davio preprocessing uses a shared ordered positive-Davio DAG before the Bitwuzla
 miter. Input/node/work limits retain the original query on refusal or growth.
@@ -212,7 +211,3 @@ free inputs remain free.
 - `src/equivalence/aggregate/exact_smt/tests.rs`, `exact_smt/coefficient_dag/tests.rs`
   and `exact_smt/frontier/tests.rs`: encoding and contraction.
 - `tests/angles_constants.rs`, `tests/static_integers.rs` and frontend tests: source semantics.
-
-See [ablation studies](ablation.md) for optimization switches and baseline settings.
-Disabling `gate-rewrite` bypasses inverse-composition miter construction and its
-proof routes, comparing the original programs directly through HPS/kernel.

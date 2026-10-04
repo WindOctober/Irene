@@ -24,8 +24,6 @@ mod checkpoint_factors;
 mod collection;
 mod constraint_rows;
 mod constraints;
-#[cfg(test)]
-mod local_reducer_tests;
 mod exact_affine_pivot;
 mod exact_guard_pivot;
 mod exact_smt;
@@ -39,6 +37,8 @@ mod factor_relation;
 mod factored;
 mod factorization;
 mod free_split;
+#[cfg(test)]
+mod local_reducer_tests;
 mod pair_period;
 mod path_sum;
 mod phase_schedule;
@@ -239,9 +239,6 @@ fn tensor_aggregate_match(
     right: &ExactAggregate,
     free_budget: &mut usize,
 ) -> bool {
-    if !crate::ablation::permit(crate::ablation::Group::PathSumPlanning) {
-        return false;
-    }
     if left.len() != 1 || right.len() != 1 || left.keys().next() != right.keys().next() {
         if std::env::var_os("IRENE_DEBUG_AGGREGATE").is_some() {
             eprintln!("aggregate tensor refused: selectors");
@@ -444,9 +441,6 @@ fn factor_phase_sums_with_guard_cells(
     term: &WorkingTerm,
     guard_phase_cells: usize,
 ) -> Option<Vec<WorkingTerm>> {
-    if !crate::ablation::permit(crate::ablation::Group::PathSumPlanning) {
-        return None;
-    }
     factorization::factor(term, guard_phase_cells)
 }
 
@@ -839,9 +833,6 @@ impl WorkingTerm {
     /// independent phase factors. This is scheduling only: both assignments
     /// still contribute, with the original shared budgets and full summand.
     fn residual_split_variable(&self) -> Option<KernelVariable> {
-        if !crate::ablation::permit(crate::ablation::Group::PathSumPlanning) {
-            return self.paths.first().cloned();
-        }
         let mut visits = 0usize;
         let mut selected = None;
         let mut inspect = |polynomial: &KernelBooleanPolynomial| {

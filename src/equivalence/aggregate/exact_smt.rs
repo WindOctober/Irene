@@ -208,7 +208,6 @@ struct Encoder {
     definitions: String,
     cache: BTreeMap<(String, String), String>,
     work: usize,
-    unlimited_work: bool,
     schedule_attempts: usize,
     guards: BTreeMap<String, KernelBooleanPolynomial>,
 }
@@ -251,30 +250,17 @@ impl Encoder {
         let definitions = (0..coordinates.len())
             .map(|i| format!("(declare-fun u{i} () Bool)\n"))
             .collect();
-        // Diagnostic ablation only: keep representation/bit-width safeguards,
-        // but remove global and nested work cutoffs for an externally timed run.
-        let unlimited_work =
-            std::env::var("IRENE_EXACT_SMT_UNLIMITED_WORK").is_ok_and(|value| value == "1");
         Some(Self {
             coordinates,
             bound: BTreeMap::new(),
             definitions,
             cache: BTreeMap::new(),
-            work: if unlimited_work {
-                usize::MAX
-            } else {
-                crate::equivalence::tuning::limits().exact_work
-            },
-            unlimited_work,
+            work: crate::equivalence::tuning::limits().exact_work,
             schedule_attempts: 0,
             guards: BTreeMap::new(),
         })
     }
     fn charge(&mut self, n: usize) -> Option<()> {
-        if self.unlimited_work {
-            self.work = self.work.saturating_sub(n);
-            return Some(());
-        }
         if n > self.work && std::env::var_os("IRENE_DEBUG_AGGREGATE").is_some() {
             eprintln!(
                 "density exact SMT work refused: need={n} remaining={}",
@@ -285,11 +271,7 @@ impl Encoder {
         Some(())
     }
     fn probe_work_budget(&self, cap: usize) -> usize {
-        if self.unlimited_work {
-            self.work
-        } else {
-            self.work.min(cap)
-        }
+        self.work.min(cap)
     }
     fn define(&mut self, sort: &str, expression: String) -> Option<String> {
         self.charge(1)?;
@@ -1455,9 +1437,7 @@ pub(super) fn compare(source: &ExactAggregate, k: &DensityKernel) -> AggregateCo
 }
 pub(super) fn compare_raw(left: &DensityKernel, right: &DensityKernel) -> AggregateComparison {
     let result = compare_raw_atoms(left, right);
-    if matches!(result, AggregateComparison::Unknown)
-        && std::env::var_os("IRENE_DISABLE_COEFFICIENT_DAG").is_none()
-    {
+    if matches!(result, AggregateComparison::Unknown) {
         return coefficient_dag::compare(left, right).unwrap_or(result);
     }
     result
@@ -1547,9 +1527,6 @@ impl Encoder {
         b: &[Polynomial],
         degree: usize,
     ) -> Option<crate::equivalence::smt::PortfolioResult> {
-        if !crate::ablation::permit(crate::ablation::Group::PathSumPlanning) {
-            return None;
-        }
         if a.is_empty() || a.len() != b.len() || a.len() > 8 {
             return None;
         }

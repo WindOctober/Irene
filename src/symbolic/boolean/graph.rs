@@ -6,9 +6,6 @@ impl BooleanPolynomial {
     /// The stored representation remains XAG. Refusal never yields a partial
     /// function or a claim that a variable is independent.
     pub(crate) fn normalize_local(roots: &[Self]) -> Option<Vec<Self>> {
-        if !crate::ablation::permit(crate::ablation::Group::ExpressionSimplify) {
-            return None;
-        }
         let (network, variables) = Self::graph_network(roots);
         let normalized = crate::xag::davio::normalize(
             &network,

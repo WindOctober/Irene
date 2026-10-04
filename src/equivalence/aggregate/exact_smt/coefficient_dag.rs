@@ -25,7 +25,6 @@ struct Dag {
     work: usize,
     started: std::time::Instant,
     simplify: bool,
-    expression_simplify: bool,
     context_enabled: bool,
     context_cache: BTreeMap<(Id, KernelBooleanPolynomial), Id>,
     context_support: BTreeMap<Id, Option<BTreeSet<KernelVariable>>>,
@@ -35,8 +34,6 @@ struct Dag {
 impl Dag {
     fn new() -> Self {
         let nodes = vec![Node::Constant(integer(0)), Node::Constant(integer(1))];
-        let expression_simplify =
-            crate::ablation::permit(crate::ablation::Group::ExpressionSimplify);
         Self {
             unique: nodes
                 .iter()
@@ -47,14 +44,8 @@ impl Dag {
             nodes,
             work: crate::equivalence::tuning::limits().coefficient_work,
             started: std::time::Instant::now(),
-            expression_simplify,
-            simplify: expression_simplify
-                && matches!(
-                    std::env::var("IRENE_COEFFICIENT_SIMPLIFY").as_deref(),
-                    Ok("light")
-                ),
-            context_enabled: expression_simplify
-                && std::env::var_os("IRENE_DISABLE_COEFFICIENT_CONTEXT").is_none(),
+            simplify: false,
+            context_enabled: true,
             context_cache: BTreeMap::new(),
             context_support: BTreeMap::new(),
             context_work: crate::equivalence::tuning::limits().context_work,
@@ -125,16 +116,14 @@ impl Dag {
             return self.scale(va, ra + rb);
         }
         // 1-[p] and weighted variants remain selectors, not arithmetic trees.
-        if self.expression_simplify
-            && va == 1
+        if va == 1
             && let Some(p) = self.indicator(vb)
         {
             let yes = self.constant(&ra + rb)?;
             let no = self.constant(ra)?;
             return self.select(p, yes, no);
         }
-        if self.expression_simplify
-            && vb == 1
+        if vb == 1
             && let Some(p) = self.indicator(va)
         {
             let yes = self.constant(ra + &rb)?;
@@ -163,9 +152,7 @@ impl Dag {
         }
         let (ra, a) = self.scaled(a);
         let (rb, b) = self.scaled(b);
-        let base = if self.expression_simplify
-            && let (Some(p), Some(q)) = (self.indicator(a), self.indicator(b))
-        {
+        let base = if let (Some(p), Some(q)) = (self.indicator(a), self.indicator(b)) {
             // Indicator multiplication is Boolean AND, hence idempotent and
             // mutually exclusive guards annihilate before coefficient lowering.
             let p = KernelBooleanPolynomial::from_graph(p.as_graph().and(&q.as_graph()));
@@ -365,16 +352,18 @@ impl Dag {
         let mut width = 0;
         while !pending.is_empty() {
             self.tick()?;
-            let v = crate::ablation::choose_path(pending.iter(), |v| {
-                tables
-                    .iter()
-                    .filter(|f| f.scope.contains(v))
-                    .flat_map(|f| &f.scope)
-                    .filter(|w| *w != *v)
-                    .collect::<BTreeSet<_>>()
-                    .len()
-            })?
-            .clone();
+            let v = pending
+                .iter()
+                .min_by_key(|v| {
+                    tables
+                        .iter()
+                        .filter(|f| f.scope.contains(v))
+                        .flat_map(|f| &f.scope)
+                        .filter(|w| *w != *v)
+                        .collect::<BTreeSet<_>>()
+                        .len()
+                })?
+                .clone();
             pending.remove(&v);
             let (selected, mut rest): (Vec<_>, Vec<_>) =
                 tables.into_iter().partition(|f| f.scope.contains(&v));
@@ -466,15 +455,11 @@ impl Dag {
         }
         let mut best = t.clone();
         let cost = |t: &WorkingTerm| (t.paths.len(), t.constraints.len(), t.phase.term_count());
-        let orders = if crate::ablation::permit(crate::ablation::Group::PathSumPlanning) {
-            vec![
-                schedule::central_order(&t),
-                t.paths.iter().cloned().collect(),
-                t.paths.iter().rev().cloned().collect(),
-            ]
-        } else {
-            vec![t.paths.iter().cloned().collect()]
-        };
+        let orders = vec![
+            schedule::central_order(&t),
+            t.paths.iter().cloned().collect(),
+            t.paths.iter().rev().cloned().collect(),
+        ];
         for order in orders {
             let mut current = t.clone();
             for _ in 0..4 {
@@ -756,14 +741,11 @@ pub(super) fn compare(left: &DensityKernel, right: &DensityKernel) -> Option<Agg
         let minus = dag.scale(b[i], integer(-1))?;
         difference[i] = dag.add(a[i], minus)?;
     }
-    let mode = std::env::var("IRENE_COEFFICIENT_SIMPLIFY").unwrap_or_else(|_| "auto".to_owned());
     let mut query = dag.query(difference, left);
     // Keep the original complete query on refusal or an unfavorable rewrite.
     // Compare actual lowered text and safe width, not just arithmetic DAG size:
     // a smaller arithmetic graph can hide a substantially larger Boolean XAG.
-    if mode != "baseline"
-        && mode != "light"
-        && let Some((candidate, roots)) = dag.simplified(difference)
+    if let Some((candidate, roots)) = dag.simplified(difference)
         && let Some(new_query) = candidate.query(roots, left)
         && query.as_ref().is_none_or(|old| {
             new_query.script.len() <= old.script.len() && new_query.width <= old.width

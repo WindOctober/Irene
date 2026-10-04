@@ -40,9 +40,6 @@ pub(super) mod tests;
 /// successors of an unfinished classical branch use coherent merging only.
 pub(crate) fn merge_components(components: Vec<Component>) -> Vec<Component> {
     let components = merge_coherent_components(components);
-    if !crate::ablation::permit(crate::ablation::Group::FeedbackSummary) {
-        return components;
-    }
 
     // Removing an orthogonality record from just one visible-output group can
     // make its representative interfere with representatives of other groups.

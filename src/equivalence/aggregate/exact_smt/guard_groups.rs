@@ -250,9 +250,6 @@ impl Encoder {
         b: &Polynomial,
         domain: &[String],
     ) -> Option<crate::equivalence::smt::PortfolioResult> {
-        if !crate::ablation::permit(crate::ablation::Group::PathSumPlanning) {
-            return None;
-        }
         fn groups(p: &Polynomial) -> BTreeMap<String, Polynomial> {
             let mut groups = BTreeMap::<String, Polynomial>::new();
             for atom in p {

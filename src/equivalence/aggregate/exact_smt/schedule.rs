@@ -98,9 +98,6 @@ pub(super) fn central_order(t: &WorkingTerm) -> Vec<KernelVariable> {
 }
 
 pub(super) fn normalize(t: &WorkingTerm, preferred: &[KernelVariable]) -> Option<WorkingTerm> {
-    if !crate::ablation::permit(crate::ablation::Group::ExpressionSimplify) {
-        return None;
-    }
     let mut roots = t.constraints.clone();
     let mut coefficients = Vec::new();
     let mut sign = KernelBooleanPolynomial::zero();
@@ -170,24 +167,6 @@ pub(super) fn normalize(t: &WorkingTerm, preferred: &[KernelVariable]) -> Option
 
 impl Encoder {
     pub(super) fn scheduled_sum(&mut self, t: &WorkingTerm) -> Option<Polynomial> {
-        if !crate::ablation::permit(crate::ablation::Group::PathSumPlanning) {
-            // Retain expression normalization, but only with a fixed order.
-            // No candidate search, cost ranking or alternative contraction order.
-            let order: Vec<_> = t.paths.iter().cloned().collect();
-            return match refine(t.clone(), |current| {
-                normalize(current, &order).map(reduce_working_term)
-            }) {
-                Reduction::Zero => Some(Vec::new()),
-                Reduction::Exact(x) => self.term(&WorkingTerm {
-                    paths: BTreeSet::new(),
-                    constraints: x.constraints,
-                    coefficient: x.coefficient,
-                    phase: x.phase,
-                }),
-                Reduction::Sum(x) => self.contract(&x),
-                Reduction::Residual => unreachable!("refine retains the last candidate"),
-            };
-        }
         if t.paths.is_empty() {
             return self.term(t);
         }

@@ -56,8 +56,6 @@ pub(crate) fn reduce_path_sums(component: &mut Component, allow_history: bool) -
     if !simplify_component(component) {
         return false;
     }
-    let allow_history =
-        allow_history && crate::ablation::permit(crate::ablation::Group::FeedbackSummary);
     if allow_history {
         cancel_half_turn_history_phases(component);
     }

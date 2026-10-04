@@ -19,7 +19,6 @@ external solvers; see the [architecture guide](docs/architecture.md#exact-coeffi
 
 - [Architecture and semantics](docs/architecture.md)
 - [Language support and limitations](docs/language-support.md)
-- [Optimization ablation studies](docs/ablation.md)
 - [Benchmarks](benchmarks/README.md)
 
 Run the test suite with `cargo test --release`.

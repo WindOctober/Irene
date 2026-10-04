@@ -18,31 +18,6 @@ fn complement_product(n: usize) -> BooleanPolynomial {
 }
 
 #[test]
-fn ablation_disables_factoring_even_after_cache_warmup() {
-    let source = v(0).and(&v(1)).xor(&v(0).and(&v(2)));
-    let factored = source.factored();
-    assert_ne!(factored, source);
-    let (raw, report) = crate::ablation::run(
-        crate::ablation::Config::without([crate::ablation::Group::ExpressionSimplify]),
-        || {
-            assert!(BooleanPolynomial::normalize_local(&[source.clone()]).is_none());
-            source.factored()
-        },
-    );
-    assert_eq!(raw, source);
-    assert!(
-        report
-            .counts(crate::ablation::Group::ExpressionSimplify)
-            .skipped
-            >= 2
-    );
-    assert_eq!(source.factored(), factored);
-    for bits in 0..8 {
-        assert_eq!(value(&raw, bits), value(&factored, bits));
-    }
-}
-
-#[test]
 fn flattened_conjunction_preserves_composite_complement_cancellation() {
     let a = v(0).xor(&v(1));
     let b = v(2).and(&v(3));
