@@ -19,6 +19,7 @@ mod canonical;
 mod interface;
 mod input_recovery;
 mod kernel;
+mod phase_compare;
 mod smt;
 mod tuning;
 mod unitary_rewrite;
