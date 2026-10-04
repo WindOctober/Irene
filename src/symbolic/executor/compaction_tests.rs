@@ -55,14 +55,41 @@ fn partial_compaction_preserves_cross_terms_with_an_outside_summand() {
 fn complete_hidden_history_reduction_preserves_density() {
     let mut component = visible_path();
     let path = component.output.quantum.pop_first().unwrap().1;
-    component
-        .output
-        .history
-        .push(HistoryEntry::Discard { value: path });
+    component.output.history.push(HistoryEntry::Discard { value: path });
     let original = vec![component];
     let result = compact_components(original.clone(), true);
     assert_density(&original, &result);
     assert!(result[0].path_support.is_empty());
+}
+
+#[test]
+fn sequential_nonmonomial_feedback_merges_local_groups_at_last_use() {
+    let source = "OPENQASM 2.0; include \"qelib1.inc\";
+        qreg q[3]; creg r[1]; creg c[1];
+        h q[0]; measure q[0] -> r[0]; if(r==1) h q[2];
+        h q[1]; measure q[1] -> c[0];
+        if(c==1) h q[2]; if(c==0) h q[2];";
+    let program = crate::frontend::openqasm2::parse_str(source, "groups.qasm").unwrap();
+    let wire = Qubit {
+        register: program.quantum_registers[0].id,
+        index: 2,
+    };
+    let r = ClassicalBit {
+        register: program.classical_registers[0].id,
+        index: 0,
+    };
+    let selection = OutputSelection::new([wire.clone()], [r]);
+    let plan = slice::build_slice_plan(&program, &selection).unwrap();
+    let hps = execute_with_plan(
+        &program,
+        &ExecutionConfig::with_symbolic_inputs([wire]),
+        &plan,
+    )
+    .unwrap();
+    // Four successors: r=0/1, each with c=0/1. The two c groups converge
+    // locally although their r-dependent operators differ (H versus I).
+    assert_eq!(hps.components.len(), 2);
+    assert!(hps.components.iter().all(|c| c.output.classical.len() == 1));
 }
 
 // Deliberately call execute_with_plan, BEFORE execute()'s final simplify.
@@ -91,6 +118,16 @@ fn correction_boundary(source_tail: &str, classical_live: bool) -> HybridPathSum
         &plan,
     )
     .unwrap()
+}
+
+#[test]
+fn last_correction_converges_before_final_simplification() {
+    for correction in ["if(c==1) x q[1];", "x q[1]; if(c==0) x q[1];"] {
+        let hps = correction_boundary(correction, false);
+        assert_eq!(hps.components.len(), 1);
+        assert!(hps.components[0].output.history.is_empty());
+        assert_eq!(hps.components[0].path_support.len(), 1);
+    }
 }
 
 #[test]
@@ -144,6 +181,45 @@ fn visible_path() -> Component {
             )]),
             ..HybridMemory::default()
         },
+    }
+}
+
+#[test]
+fn shared_boolean_products_need_no_auxiliary_paths() {
+    let polynomial = |offset: usize| {
+        (1..32).fold(BooleanPolynomial::zero(), |sum, bits| {
+            let monomial = (0usize..5).filter(|i| bits & (1 << i) != 0).fold(
+                BooleanPolynomial::one(),
+                |product, index| {
+                    product.and(&BooleanPolynomial::variable(Variable::Input(Qubit {
+                        register: SymbolId(0),
+                        index: offset + index,
+                    })))
+                },
+            );
+            sum.xor(&monomial)
+        })
+    };
+    let component = visible_path();
+    let left = polynomial(0);
+    let right = polynomial(5);
+    let product = left.and(&right);
+    assert_eq!(component.path_support, BTreeSet::from([0]));
+    assert!(component.guard.is_empty());
+    // One graph product adds at most a root and two edges; unlike the old
+    // ANF metric, storage_size also counts every input node and graph edge.
+    assert!(product.storage_size() <= left.storage_size() + right.storage_size() + 3);
+    assert_eq!(component.scalar, Scalar::one());
+    assert_eq!(component.phase, PhasePolynomial::zero());
+    assert!(component.output.history.is_empty());
+    for inputs in 0..1024 {
+        let actual = product
+            .evaluate::<std::convert::Infallible>(|v| match v {
+                Variable::Input(q) => Ok(inputs & (1 << q.index) != 0),
+                Variable::Path(_) => panic!("Boolean DAG must not introduce paths"),
+            })
+            .unwrap();
+        assert_eq!(actual, inputs & 31 != 0 && inputs & (31 << 5) != 0);
     }
 }
 

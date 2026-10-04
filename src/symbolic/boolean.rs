@@ -649,6 +649,9 @@ impl fmt::Display for BooleanPolynomial {
     }
 }
 #[cfg(test)]
+mod tests;
+
+#[cfg(test)]
 mod representation_tests;
 
 #[cfg(test)]

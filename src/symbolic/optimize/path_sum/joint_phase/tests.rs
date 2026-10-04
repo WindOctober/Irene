@@ -331,3 +331,47 @@ fn zero_joint_derivative_still_rewrites_the_zero_cofactor() {
         );
     }
 }
+
+#[test]
+fn recovered_guard_pivot_propagates_to_all_hps_fields() {
+    let mut c = fixture();
+    let a = y();
+    let b = x(1);
+    let f = x(2).xor(&x(3));
+    c.guard.push(
+        a.and(&b)
+            .xor(&a.and(&f))
+            .xor(&a.and(&f.complement()))
+            .xor(&a.complement().and(&b)),
+    );
+    let q = Qubit {
+        register: SymbolId(0),
+        index: 0,
+    };
+    c.output.quantum.insert(q.clone(), y());
+    c.output.history.push(HistoryEntry::Discard { value: y() });
+    c.scalar = Scalar::select(y(), Scalar::one(), Scalar::rational(integer(2)));
+    add(&mut c, y(), 1, 8);
+    assert!(super::super::simplify_component(&mut c));
+    assert!(!c.path_support.contains(&0));
+    assert!(c.guard.is_empty());
+    assert_eq!(c.output.quantum[&q], b);
+    assert_eq!(
+        c.output.history,
+        vec![HistoryEntry::Discard { value: b.clone() }]
+    );
+    assert_eq!(
+        c.scalar,
+        Scalar::select(b, Scalar::one(), Scalar::rational(integer(2)))
+    );
+    for input in 0..16 {
+        assert_eq!(
+            phase(&c.phase, input, false),
+            if input & 2 != 0 {
+                ratio(1, 8)
+            } else {
+                integer(0)
+            }
+        );
+    }
+}

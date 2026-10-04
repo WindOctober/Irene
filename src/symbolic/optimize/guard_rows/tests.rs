@@ -339,6 +339,27 @@ fn conflicting_unique_witness_equations_remain_unsatisfiable() {
 }
 
 #[test]
+fn local_history_alignment_exceeds_the_old_enumeration_support() {
+    let mut c = fixture();
+    let mut rhs = p(1);
+    for i in 0..10 {
+        rhs = rhs.xor(&x(2 * i).and(&x(2 * i + 1)));
+    }
+    c.guard = vec![p(9).xor(&rhs)];
+    c.output.quantum.insert(q(30), x(0));
+    c.output.history.push(HistoryEntry::Discard { value: p(1) });
+    super::super::local_history::collapse_local_history(&mut c);
+    assert!(c.path_support.is_empty());
+    assert!(c.output.history.is_empty());
+    assert!(c.guard.is_empty());
+    assert_eq!(c.output.quantum[&q(30)], x(0));
+    assert_eq!(
+        c.scalar,
+        Scalar::rational(ratio(1, 3)).multiply(Scalar::sqrt(Scalar::rational(ratio(2, 1))))
+    );
+}
+
+#[test]
 fn path_inference_preserves_amplitudes_even_when_history_cannot_collapse() {
     let mut c = fixture();
     c.output.quantum.insert(q(2), x(0));
@@ -351,4 +372,21 @@ fn path_inference_preserves_amplitudes_even_when_history_cannot_collapse() {
     assert_eq!(c.output.history, before.output.history);
     assert!(c.path_support.len() < before.path_support.len());
     assert_eq!(vector(&before), vector(&c));
+}
+
+#[test]
+fn guard_alignment_exposes_the_hidden_history_factor() {
+    let mut c = fixture();
+    c.guard
+        .push(x(0).and(&p(9).xor(&p(1))).xor(&x(0).and(&x(1))));
+    c.output.quantum.insert(q(2), x(0));
+    c.output.history.push(HistoryEntry::Discard { value: p(1) });
+    super::super::local_history::collapse_local_history(&mut c);
+    assert!(c.path_support.is_empty());
+    assert!(c.output.history.is_empty());
+    // The history contributes sqrt(2), while solving its partner contributes 1.
+    assert_eq!(
+        c.scalar,
+        Scalar::rational(ratio(1, 3)).multiply(Scalar::sqrt(Scalar::rational(ratio(2, 1))))
+    );
 }

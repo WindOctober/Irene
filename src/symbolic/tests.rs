@@ -12,7 +12,8 @@ use crate::ir::{
 
 use super::{
     BooleanPolynomial, ExecutionConfig, HistoryEntry, HybridPathSum, Monomial, OutputSelection,
-    PhaseCoefficient, Scalar, ScalarBindings, SymbolicError, Variable, execute as execute_observed,
+    PhaseCoefficient, PhasePolynomial, Scalar, ScalarBindings, SymbolicError, Variable,
+    execute as execute_observed,
 };
 
 fn qubit(register: usize, index: usize) -> Qubit {
@@ -31,6 +32,92 @@ fn bit(register: usize, index: usize) -> ClassicalBit {
 
 fn ratio(numerator: i64, denominator: i64) -> BigRational {
     BigRational::new(numerator.into(), denominator.into())
+}
+
+#[test]
+fn integer_phase_scaling_is_independent_of_modular_representative() {
+    for numerator in -16..=16 {
+        for denominator in 1..=12 {
+            for scale in -4..=4 {
+                let phase = PhaseCoefficient::rational(ratio(numerator, denominator));
+                let shifted =
+                    PhaseCoefficient::rational(ratio(numerator, denominator) + ratio(3, 1));
+                let expected = PhaseCoefficient::rational(ratio(numerator * scale, denominator));
+                assert_eq!(phase.scaled(scale.into()), expected);
+                assert_eq!(shifted.scaled(scale.into()), expected);
+            }
+        }
+    }
+    let mut ids = AstIdGenerator::default();
+    let angle = ids.node(NumericExprKind::Input(SymbolId(7)));
+    let phase = PhaseCoefficient::angle(angle.clone(), ratio(2, 3));
+    for scale in -4..=4 {
+        assert_eq!(
+            phase.scaled(scale.into()),
+            PhaseCoefficient::angle(angle.clone(), ratio(2 * scale, 3)),
+        );
+    }
+}
+
+#[test]
+fn sparse_boolean_and_phase_substitution_match_distributive_reference() {
+    let variables = [Variable::Path(0), Variable::Path(1)];
+    let x = BooleanPolynomial::variable(variables[0].clone());
+    let y = BooleanPolynomial::variable(variables[1].clone());
+    let atoms = [BooleanPolynomial::one(), x.clone(), y.clone(), x.and(&y)];
+    let polynomial = |bits: usize| {
+        atoms
+            .iter()
+            .enumerate()
+            .fold(BooleanPolynomial::zero(), |sum, (i, m)| {
+                if bits & (1 << i) == 0 {
+                    sum
+                } else {
+                    sum.xor(m)
+                }
+            })
+    };
+    for bits in 0..16 {
+        let source = polynomial(bits);
+        for replacement_bits in 0..16 {
+            let replacement = polynomial(replacement_bits);
+            for variable in &variables {
+                let expand = |monomial: &Monomial| {
+                    monomial
+                        .variables()
+                        .fold(BooleanPolynomial::one(), |product, current| {
+                            product.and(&if current == variable {
+                                replacement.clone()
+                            } else {
+                                BooleanPolynomial::variable(current.clone())
+                            })
+                        })
+                };
+                let expected = source
+                    .terms()
+                    .fold(BooleanPolynomial::zero(), |sum, monomial| {
+                        sum.xor(&expand(&monomial))
+                    });
+                assert_eq!(
+                    source.substitute(variable, &replacement).expanded_terms(64),
+                    expected.expanded_terms(64)
+                );
+                let mut phase = PhasePolynomial::zero();
+                for (i, monomial) in source.terms().enumerate() {
+                    phase.add_boolean(
+                        &BooleanPolynomial::from_monomial(monomial.clone()),
+                        PhaseCoefficient::rational(ratio(1, [8, 3, 4, 7][i])),
+                    );
+                }
+                let mut reference = PhasePolynomial::zero();
+                for (monomial, coefficient) in phase.terms() {
+                    reference.add_boolean(&expand(&monomial), coefficient.clone());
+                }
+                phase.substitute(variable, &replacement);
+                assert_eq!(phase.expanded_terms(1024), reference.expanded_terms(1024));
+            }
+        }
+    }
 }
 
 fn node<T>(kind: T) -> AstNode<T> {
@@ -530,10 +617,7 @@ fn nonlinear_predicate_remains_exact_without_world_splitting() {
     assert!(component.guard.is_empty());
     assert_eq!(component.path_support, [0, 1].into());
     let mut expected = component.clone();
-    expected
-        .output
-        .quantum
-        .insert(q0, left.xor(&left.and(&right)));
+    expected.output.quantum.insert(q0, left.xor(&left.and(&right)));
     super::optimize::assert_density(
         std::slice::from_ref(component),
         std::slice::from_ref(&expected),
@@ -731,6 +815,84 @@ fn branch_local_partial_trace_preserves_the_observed_distribution() {
 }
 
 #[test]
+fn a_dead_branch_condition_is_removed_after_predicated_execution() {
+    let measured = qubit(0, 0);
+    let output = qubit(0, 1);
+    let outcome = bit(1, 0);
+    let program = program(
+        2,
+        1,
+        vec![
+            statement(StatementKind::Apply {
+                gate: Gate::H,
+                parameters: Vec::new(),
+                qubits: vec![measured.clone()],
+            }),
+            statement(StatementKind::Measure {
+                qubit: measured,
+                target: outcome.clone(),
+            }),
+            statement(StatementKind::If {
+                condition: classical(ClassicalExprKind::Bit(outcome.clone())),
+                then_branch: block(vec![statement(StatementKind::Apply {
+                    gate: Gate::X,
+                    parameters: Vec::new(),
+                    qubits: vec![output.clone()],
+                })]),
+                else_branch: block(Vec::new()),
+            }),
+        ],
+    );
+
+    let hps = execute_observed(
+        &program,
+        &ExecutionConfig::zero(),
+        &OutputSelection::new([output.clone()], []),
+    )
+    .unwrap();
+
+    assert_eq!(hps.components.len(), 1);
+    assert!(!hps.components[0].output.classical.contains_key(&outcome));
+    assert_eq!(
+        hps.components[0].output.quantum[&output],
+        BooleanPolynomial::variable(Variable::Path(0))
+    );
+}
+
+#[test]
+fn ccz_adds_only_the_exact_cubic_phase_without_paths() {
+    let qubits = vec![qubit(0, 0), qubit(0, 1), qubit(0, 2)];
+    let hps = execute_all_outputs(
+        &program(
+            3,
+            0,
+            vec![statement(StatementKind::Apply {
+                gate: Gate::Ccz,
+                parameters: Vec::new(),
+                qubits: qubits.clone(),
+            })],
+        ),
+        &ExecutionConfig::all_symbolic(),
+    )
+    .unwrap();
+    assert_eq!(hps.components.len(), 1);
+    let component = &hps.components[0];
+    assert!(component.path_support.is_empty());
+    assert!(component.output.history.is_empty());
+    assert!(component.guard.is_empty());
+    let mut cubic = BooleanPolynomial::one();
+    for q in qubits {
+        let input = BooleanPolynomial::variable(Variable::Input(q.clone()));
+        assert_eq!(component.output.quantum[&q], input);
+        cubic = cubic.and(&input);
+    }
+    let mut expected = PhasePolynomial::zero();
+    expected.add_boolean(&cubic, PhaseCoefficient::rational(ratio(1, 2)));
+    assert_eq!(component.phase, expected);
+    assert_eq!(component.scalar, Scalar::rational(ratio(1, 1)));
+}
+
+#[test]
 fn predicated_monomial_gates_respect_constant_conditions() {
     let q0 = qubit(0, 0);
     let q1 = qubit(0, 1);
@@ -752,6 +914,7 @@ fn predicated_monomial_gates_respect_constant_conditions() {
         (Gate::Cp, vec![q0.clone(), q1.clone()]),
         (Gate::Crz, vec![q0.clone(), q1.clone()]),
         (Gate::Ccx, vec![q0.clone(), q1.clone(), q2.clone()]),
+        (Gate::Ccz, vec![q0.clone(), q1.clone(), q2.clone()]),
     ];
 
     for (gate, qubits) in cases {
@@ -1178,6 +1341,75 @@ fn phase_lifting_preserves_xor_semantics() {
     assert_eq!(
         hps.components[0].phase.coefficient(&cross),
         PhaseCoefficient::rational(ratio(3, 4))
+    );
+}
+
+#[test]
+fn modular_phase_lifting_discards_integer_interactions_early() {
+    let variables: Vec<_> = (0..4)
+        .map(|index| Variable::Input(qubit(0, index)))
+        .collect();
+    let parity = variables
+        .iter()
+        .fold(BooleanPolynomial::zero(), |sum, variable| {
+            sum.xor(&BooleanPolynomial::variable(variable.clone()))
+        });
+    let product = |indices: &[usize]| {
+        indices.iter().fold(Monomial::one(), |term, index| {
+            term.multiply(&Monomial::variable(variables[*index].clone()))
+        })
+    };
+
+    let mut half_turn = PhasePolynomial::zero();
+    half_turn.add_boolean(&parity, PhaseCoefficient::rational(ratio(1, 2)));
+    assert_eq!(
+        half_turn.coefficient(&product(&[0])),
+        PhaseCoefficient::rational(ratio(1, 2))
+    );
+    assert_eq!(
+        half_turn.coefficient(&product(&[0, 1])),
+        PhaseCoefficient::default()
+    );
+
+    let mut quarter_turn = PhasePolynomial::zero();
+    quarter_turn.add_boolean(&parity, PhaseCoefficient::rational(ratio(1, 4)));
+    assert_eq!(
+        quarter_turn.coefficient(&product(&[0, 1])),
+        PhaseCoefficient::rational(ratio(1, 2))
+    );
+    assert_eq!(
+        quarter_turn.coefficient(&product(&[0, 1, 2])),
+        PhaseCoefficient::default()
+    );
+
+    let mut eighth_turn = PhasePolynomial::zero();
+    eighth_turn.add_boolean(&parity, PhaseCoefficient::rational(ratio(1, 8)));
+    assert_eq!(
+        eighth_turn.coefficient(&product(&[0, 1])),
+        PhaseCoefficient::rational(ratio(3, 4))
+    );
+    assert_eq!(
+        eighth_turn.coefficient(&product(&[0, 1, 2])),
+        PhaseCoefficient::rational(ratio(1, 2))
+    );
+    assert_eq!(
+        eighth_turn.coefficient(&product(&[0, 1, 2, 3])),
+        PhaseCoefficient::default()
+    );
+
+    let theta = numeric(NumericExprKind::Input(SymbolId(9)));
+    let mut symbolic = PhasePolynomial::zero();
+    symbolic.add_boolean(
+        &variables[..2]
+            .iter()
+            .fold(BooleanPolynomial::zero(), |sum, variable| {
+                sum.xor(&BooleanPolynomial::variable((*variable).clone()))
+            }),
+        PhaseCoefficient::angle(theta.clone(), ratio(1, 1)),
+    );
+    assert_eq!(
+        symbolic.coefficient(&product(&[0, 1])),
+        PhaseCoefficient::angle(theta, ratio(-2, 1))
     );
 }
 

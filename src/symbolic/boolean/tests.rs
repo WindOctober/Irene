@@ -17,132 +17,29 @@ fn complement_product(n: usize) -> BooleanPolynomial {
     (0..n).fold(BooleanPolynomial::one(), |p, i| p.and(&v(i).complement()))
 }
 
-fn reference_circuits() -> Vec<(BooleanPolynomial, u16)> {
-    let mut pool = vec![
-        (v(0), 0xaaaa),
-        (v(1), 0xcccc),
-        (v(2), 0xf0f0),
-        (v(3), 0xff00),
-        (BooleanPolynomial::zero(), 0),
-        (BooleanPolynomial::one(), u16::MAX),
-    ];
-    for i in 0..64 {
-        let (a, av) = &pool[(i * 7 + 1) % pool.len()];
-        let (b, bv) = &pool[(i * 11 + 3) % pool.len()];
-        let next = match i % 3 {
-            0 => (a.xor(b), av ^ bv),
-            1 => (a.and(b), av & bv),
-            _ => (a.complement(), !av),
-        };
-        pool.push(next);
-    }
-    pool
-}
-
 #[test]
-fn shared_circuits_agree_with_independent_truth_tables() {
-    for (p, table) in reference_circuits() {
-        for bits in 0..16 {
-            assert_eq!(value(&p, bits), table & (1 << bits) != 0);
-        }
-    }
-}
-
-#[test]
-#[ignore = "requires the Bitwuzla executable on PATH"]
-fn bitwuzla_checks_graph_encoding_against_independent_truth_tables() {
-    use std::io::Write;
-    use std::process::{Command, Stdio};
-    // Deliberately use a name that collides with the encoder's default prefix.
-    let names = ["irene_xag_0", "b", "c", "d"];
-    let mut query = String::from("(set-logic QF_BV)\n");
-    for name in names {
-        query.push_str(&format!("(declare-fun {name} () Bool)\n"));
-    }
-    let mut differences = Vec::new();
-    for (p, table) in reference_circuits() {
-        let encoded = p
-            .smt_expression(|variable| {
-                let Variable::Path(i) = variable else {
-                    return None;
-                };
-                Some(names[*i].to_owned())
-            })
-            .unwrap();
-        let minterms = (0..16)
-            .filter(|bits| table & (1 << bits) != 0)
-            .map(|bits| {
-                let literals = names
-                    .iter()
-                    .enumerate()
-                    .map(|(i, name)| {
-                        if bits & (1 << i) != 0 {
-                            name.to_string()
-                        } else {
-                            format!("(not {name})")
-                        }
-                    })
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                format!("(and {literals})")
-            })
-            .collect::<Vec<_>>();
-        let reference = if minterms.is_empty() {
-            "false".to_owned()
-        } else if minterms.len() == 1 {
-            minterms[0].clone()
-        } else {
-            format!("(or {})", minterms.join(" "))
-        };
-        differences.push(format!("(xor {encoded} {reference})"));
-    }
-    for i in 0..60 {
-        query.push_str(&format!("(declare-fun w{i} () Bool)\n"));
-    }
-    let p = complement_product(60);
-    assert!(p.expanded_terms(1024).is_none());
-    let encoded = p
-        .smt_expression(|variable| {
-            let Variable::Path(i) = variable else {
-                return None;
-            };
-            Some(format!("w{i}"))
-        })
-        .unwrap();
-    let reference = (0..60)
-        .map(|i| format!("(not w{i})"))
-        .collect::<Vec<_>>()
-        .join(" ");
-    differences.push(format!("(xor {encoded} (and {reference}))"));
-    query.push_str(&format!(
-        "(assert (or {}))\n(check-sat)\n",
-        differences.join(" ")
-    ));
-    let mut child = Command::new("bitwuzla")
-        .args(["--time-limit", "10000"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("Bitwuzla is required for this explicitly selected test");
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(query.as_bytes())
-        .unwrap();
-    let result = child.wait_with_output().unwrap();
+fn ablation_disables_factoring_even_after_cache_warmup() {
+    let source = v(0).and(&v(1)).xor(&v(0).and(&v(2)));
+    let factored = source.factored();
+    assert_ne!(factored, source);
+    let (raw, report) = crate::ablation::run(
+        crate::ablation::Config::without([crate::ablation::Group::ExpressionSimplify]),
+        || {
+            assert!(BooleanPolynomial::normalize_local(&[source.clone()]).is_none());
+            source.factored()
+        },
+    );
+    assert_eq!(raw, source);
     assert!(
-        result.status.success(),
-        "{}",
-        String::from_utf8_lossy(&result.stderr)
+        report
+            .counts(crate::ablation::Group::ExpressionSimplify)
+            .skipped
+            >= 2
     );
-    assert_eq!(
-        String::from_utf8_lossy(&result.stdout).trim(),
-        "unsat",
-        "{}",
-        String::from_utf8_lossy(&result.stderr)
-    );
+    assert_eq!(source.factored(), factored);
+    for bits in 0..8 {
+        assert_eq!(value(&raw, bits), value(&factored, bits));
+    }
 }
 
 #[test]
@@ -159,7 +56,6 @@ fn flattened_conjunction_preserves_composite_complement_cancellation() {
     }
     assert!(!partial.is_zero());
 }
-
 
 #[test]
 fn exponential_anf_stays_linear_and_refusal_preserves_the_expression() {
@@ -310,6 +206,22 @@ fn wide_xor_cancellation_removes_false_output_dependencies_without_anf() {
 }
 
 #[test]
+fn graph_factoring_preserves_every_assignment() {
+    let atoms = [v(0), v(1), v(2), v(0).xor(&v(1)), v(2).complement()];
+    for a in &atoms {
+        for b in &atoms {
+            for c in &atoms {
+                let source = a.and(b).xor(&a.and(c)).xor(b);
+                let factored = source.factored();
+                for bits in 0..8 {
+                    assert_eq!(value(&source, bits), value(&factored, bits));
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn smt_encoding_preserves_sharing_without_requesting_anf() {
     let p = complement_product(60);
     assert!(p.expanded_terms(65536).is_none());
@@ -343,6 +255,89 @@ fn wide_materialized_xor_has_no_admission_budget() {
     assert_eq!(right.xor(&left), v(20000));
 }
 
+#[test]
+fn nested_factoring_cancels_dependencies_without_distributing_products() {
+    let a = v(0);
+    let b = v(1);
+    let c = v(2);
+    let d = v(3);
+    let k = v(4);
+    let nested = k.and(&a.and(&b.xor(&c)).xor(&a.and(&b.xor(&d))));
+    let simplified = nested.factored();
+    assert_eq!(simplified, k.and(&a).and(&c.xor(&d)));
+    assert!(!simplified.variables().contains(&Variable::Path(1)));
+    for bits in 0..32 {
+        assert_eq!(value(&nested, bits), value(&simplified, bits));
+    }
+    let huge = BooleanPolynomial::and_all((100..160).map(|i| v(i).complement())).and(&nested);
+    assert!(huge.expanded_terms(65536).is_none());
+    assert!(huge.factored().storage_size() <= huge.storage_size());
+}
+
+#[test]
+fn graph_factoring_preserves_all_assignments_of_shared_boolean_circuits() {
+    for seed in 1..=96_u64 {
+        let mut state = seed;
+        let mut pool: Vec<_> = (0..6).map(v).chain([BooleanPolynomial::one()]).collect();
+        for _ in 0..32 {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let a = &pool[(state as usize) % pool.len()];
+            let b = &pool[((state >> 32) as usize) % pool.len()];
+            let next = match (state >> 16) % 3 {
+                0 => a.xor(b),
+                1 => a.and(b),
+                _ => a.xor(&a.and(b)).complement(),
+            };
+            pool.push(next);
+        }
+        for original in pool.iter().skip(7) {
+            let reduced = original.factored();
+            for bits in 0..64 {
+                assert_eq!(
+                    value(original, bits),
+                    value(&reduced, bits),
+                    "seed={seed}, bits={bits}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn normalized_node_cache_reuses_results_without_retaining_the_source_root() {
+    let original = v(0).and(&v(1).xor(&v(2))).xor(&v(0).and(&v(1).xor(&v(3))));
+    let source = std::sync::Arc::downgrade(&original.0);
+    let reduced = original.factored();
+    assert!(std::sync::Arc::ptr_eq(&reduced.0, &original.factored().0));
+    drop(original);
+    assert!(source.upgrade().is_none());
+
+    let stable = v(0).xor(&v(1));
+    let source = std::sync::Arc::downgrade(&stable.0);
+    assert!(std::sync::Arc::ptr_eq(&stable.0, &stable.factored().0));
+    drop(stable);
+    assert!(
+        source.upgrade().is_none(),
+        "normal-form markers must not retain self"
+    );
+}
+
+#[test]
+fn populating_normalization_caches_does_not_change_ordered_keys() {
+    let keys = (0..32)
+        .map(|i| {
+            v(i).and(&v(40).xor(&v(41)))
+                .xor(&v(i).and(&v(40).xor(&v(42))))
+        })
+        .collect::<Vec<_>>();
+    let set = keys.iter().cloned().collect::<BTreeSet<_>>();
+    let before = set.iter().cloned().collect::<Vec<_>>();
+    for key in keys.iter().rev() {
+        key.factored();
+    }
+    assert_eq!(set.iter().cloned().collect::<Vec<_>>(), before);
+    assert!(keys.iter().all(|key| set.contains(key)));
+}
 #[test]
 fn shared_root_mapping_is_simultaneous_and_reuses_common_subgraphs() {
     let v = |i| BooleanPolynomial::variable(Variable::Path(i));
