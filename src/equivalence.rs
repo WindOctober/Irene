@@ -20,6 +20,7 @@ mod boolean_query;
 mod interface;
 mod input_recovery;
 mod kernel;
+mod model_witness;
 mod phase_compare;
 mod smt;
 mod solver_query;
