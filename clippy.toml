@@ -1,0 +1,3 @@
+# The normalization cache never participates in BooleanPolynomial Eq/Ord:
+# keys compare only their immutable expression. Populating it cannot reorder keys.
+ignore-interior-mutability = ["irene::symbolic::boolean::BooleanPolynomial"]
