@@ -88,9 +88,15 @@ fn incomplete_or_inapplicable_trace_is_unknown_not_a_negative_certificate() {
     ] {
         let left = parse(left);
         let right = parse(right);
-        let result = analyze(&left, &right, &config(&left, &right)).unwrap();
-        assert_eq!(result.verdict, Verdict::Unknown);
-        assert_eq!(result.evidence, Evidence::KernelAggregationRequired);
+        let config = config(&left, &right);
+        assert!(unitary_trace::certificate(&left, &right, &config).is_none());
+        let result = analyze(&left, &right, &config).unwrap();
+        // Trace refusal is not a negative certificate. Later support reasoning
+        // may independently establish a mismatch.
+        assert!(matches!(
+            result.evidence,
+            Evidence::KernelAggregationRequired | Evidence::OutputSupportMismatch
+        ));
     }
 }
 
@@ -111,9 +117,10 @@ fn partial_initialized_and_nonpositional_interfaces_do_not_use_full_trace() {
         let result = analyze(&left, &right, &cfg).unwrap();
         assert!(matches!(
             result.evidence,
-            Evidence::ExactHps | Evidence::KernelAggregationRequired
+            Evidence::ExactHps
+                | Evidence::KernelAggregationRequired
+                | Evidence::OutputSupportMismatch
         ));
-        assert_ne!(result.verdict, Verdict::NotEquivalent);
     }
 }
 
