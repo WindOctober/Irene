@@ -1,39 +1,45 @@
-//! Exact kernel constraint preparation and unique bound-path substitution.
-use super::kernel::{
-    DensityKernel, KernelBooleanPolynomial, KernelMonomial, KernelPhasePolynomial, KernelScalar, KernelTerm,
-    KernelVariable,
-};
+//! Exact, resource-bounded reduction of density-kernel summations.
+//!
+//! This pass works after ket/bra doubling, where hidden-history equalities are
+//! available. Local reduction does not enumerate assignments; a bounded
+//! exact Shannon fallback handles small residual sums. A constraint
+//! `v xor f = 0`, with bound path `v` absent from `f`, has exactly one value of
+//! `v` for every assignment of the remaining variables, so the summation may
+//! substitute `v=f` without changing its coefficient. A subsequently unused
+//! path contributes the exact factor `sum_v 1 = 2`.
+
 use std::collections::{BTreeMap, BTreeSet};
+
 use num_bigint::BigInt;
 use num_rational::BigRational;
-use scalar::{normalize_scalar, scalar_conditions_within_budget, scalar_within_budget};
-use collection::{ExactAggregate, ExactTerm, accumulate_exact_term, aggregate_difference};
+
 use super::DensityCounterexample;
-use scalar::integer;
-use scalar::ratio;
-#[cfg(test)]
-use collection::ExactEntry;
-#[cfg(test)]
-use free_split::restrict_aggregate;
+use super::kernel::{
+    DensityKernel, KernelBooleanPolynomial, KernelMonomial, KernelPhasePolynomial, KernelScalar,
+    KernelTerm, KernelVariable,
+};
 
 mod checkpoint;
 mod checkpoint_factors;
 mod collection;
 mod constraint_rows;
 mod constraints;
-mod graph;
-mod exact_trig;
+#[cfg(test)]
+mod local_reducer_tests;
 mod exact_affine_pivot;
 mod exact_guard_pivot;
+mod exact_smt;
+mod exact_trig;
 mod factor_match;
 mod factor_normalize;
+mod factor_pair;
 mod factor_rectangle;
 mod factor_refine;
 mod factor_relation;
+mod factored;
 mod factorization;
 mod free_split;
 mod pair_period;
-mod factor_pair;
 mod path_sum;
 mod phase_schedule;
 mod phase_unit;
@@ -42,16 +48,21 @@ mod product_form;
 mod scalar;
 mod shannon;
 mod small_sum;
+
+use collection::{
+    ExactAggregate, ExactEntry, ExactTerm, accumulate_exact_term, aggregate_difference,
+};
+use free_split::{remove_common_phase, restrict_aggregate};
+use scalar::{normalize_scalar, scalar_conditions_within_budget, scalar_within_budget};
+mod phase_basis;
+
+mod conditioning;
+mod graph;
 mod vacuous;
 mod witness;
 mod xor_basis;
 mod xor_blocks;
 mod zero_product;
-
-mod exact_smt;
-mod conditioning;
-mod factored;
-mod phase_basis;
 
 /// Exact squared modulus in the power basis of Q(zeta_(2^62)).
 /// The empty vector is zero; all exponents are below 2^61.
@@ -82,215 +93,8 @@ const MAX_RESIDUAL_SPLITS: usize = 255;
 const MAX_RESIDUAL_ORDER_VISITS: usize = 4096;
 const MAX_FACTOR_PRODUCTS: usize = 100_000;
 const MAX_FACTOR_PHASE_CELLS: usize = 250_000;
-const MAX_FREE_SPLITS: usize = 4095;
 const MAX_FREE_SPLIT_DEPTH: usize = 12;
-
-#[derive(Clone)]
-struct WorkingTerm {
-    constraints: Vec<KernelBooleanPolynomial>,
-    paths: BTreeSet<KernelVariable>,
-    coefficient: KernelScalar,
-    phase: KernelPhasePolynomial,
-}
-
-enum ConstraintNormalization {
-    Normalized,
-    Contradiction,
-    BudgetExceeded,
-}
-
-/// Canonicalizes the GF(2) linear span of complete ANF equations.
-///
-/// Monomials are formal columns, not independent Boolean inputs. An elementary
-/// XOR row operation preserves simultaneous zero evaluation at *every* actual
-/// input assignment: `f=0 && g=0` iff `f=0 && (f xor g)=0`. Thus equal row
-/// spaces certify equal selectors even for nonlinear equations. This does not
-/// compute the Boolean ideal: multiplying equations by variables can yield
-/// equivalent selectors with different spans, which remain inconclusive.
-///
-/// Run once after bound-path elimination; the inner reducer keeps its cheaper
-/// affine normal form. Preflight bounds packed matrix storage; decoded rows
-/// must also fit the sparse output budget. Both forms use bitgauss RREF.
-fn normalize_constraint_span(
-    constraints: &mut Vec<KernelBooleanPolynomial>,
-) -> ConstraintNormalization {
-    match constraint_rows::reduce(&constraints.iter().collect::<Vec<_>>()) {
-        Ok(normalized) => {
-            *constraints = normalized;
-            ConstraintNormalization::Normalized
-        }
-        Err(status) => status,
-    }
-}
-
-impl WorkingTerm {
-    /// A selector/weight dependency prevents phase-only factorization. Split
-    /// such a binder first, rather than spending the entire Shannon depth on
-    /// independent phase factors. This is scheduling only: both assignments
-    /// still contribute, with the original shared budgets and full summand.
-    fn residual_split_variable(&self) -> Option<KernelVariable> {
-        if !crate::ablation::permit(crate::ablation::Group::PathSumPlanning) {
-            return self.paths.first().cloned();
-        }
-        let mut visits = 0usize;
-        let mut selected = None;
-        let mut inspect = |polynomial: &KernelBooleanPolynomial| {
-            for variable in polynomial.terms().flat_map(KernelMonomial::variables) {
-                visits += 1;
-                if visits > MAX_RESIDUAL_ORDER_VISITS {
-                    return false;
-                }
-                if self.paths.contains(variable) {
-                    selected = Some(variable.clone());
-                    return false;
-                }
-            }
-            true
-        };
-        if self.constraints.iter().all(&mut inspect) {
-            scalar_conditions_within_budget(&self.coefficient, &mut inspect);
-        }
-        selected.or_else(|| self.paths.first().cloned())
-    }
-
-
-    fn substitution_within_budget(
-        &self,
-        variable: &KernelVariable,
-        replacement: &KernelBooleanPolynomial,
-    ) -> bool {
-        // Check indexed phase growth first: oversized parity lifts can be
-        // rejected without repeatedly scanning every unrelated constraint.
-        // These are read-only conjuncts of the same preflight predicate.
-        let replacement_terms = replacement.term_count();
-        let mut projected_terms = self.phase.term_count() - self.phase.occurrence_count(variable);
-        for (_, coefficient) in self.phase.terms_containing(variable) {
-            let Some(lifted_terms) = lifted_boolean_term_bound(replacement_terms, coefficient)
-            else {
-                return false;
-            };
-            let Some(projected) = projected_terms.checked_add(lifted_terms) else {
-                return false;
-            };
-            projected_terms = projected;
-            if projected_terms > MAX_PHASE_TERMS {
-                return false;
-            }
-        }
-        self.constraints
-            .iter()
-            .all(|value| boolean_substitution_within_budget(value, variable, replacement))
-            && scalar_substitution_within_budget(&self.coefficient, variable, replacement)
-    }
-
-    fn within_budget(&self) -> bool {
-        self.constraints.len() <= MAX_CONSTRAINTS
-            && self
-                .constraints
-                .iter()
-                .all(|value| value.term_count() <= MAX_BOOLEAN_TERMS)
-            && self.phase.term_count() <= MAX_PHASE_TERMS
-            && scalar_within_budget(&self.coefficient)
-    }
-}
-
-/// Bounds one direct ANF substitution without constructing its products.
-///
-/// A monomial without `variable` contributes at most one output term. A
-/// monomial containing it contributes at most one copy of every replacement
-/// term after multiplication by the remaining variables. XOR collisions can
-/// only decrease that count.
-fn boolean_substitution_within_budget(
-    polynomial: &KernelBooleanPolynomial,
-    variable: &KernelVariable,
-    replacement: &KernelBooleanPolynomial,
-) -> bool {
-    if polynomial.term_count() > MAX_BOOLEAN_TERMS || replacement.term_count() > MAX_BOOLEAN_TERMS {
-        return false;
-    }
-
-    let replacement_terms = replacement.term_count();
-    // A read-only sufficient bound: every old monomial contributes at most
-    // max(1, replacement_terms) terms, regardless of whether it contains v.
-    // For the usual small constraints, avoid visiting all their monomials on
-    // every pivot. If this loose bound fails, retain the exact old preflight.
-    if polynomial
-        .term_count()
-        .checked_mul(replacement_terms.max(1))
-        .is_some_and(|bound| bound <= MAX_BOOLEAN_TERMS)
-    {
-        return true;
-    }
-    let mut projected_terms = 0usize;
-    for monomial in polynomial.terms() {
-        let contribution = if monomial.contains(variable) {
-            replacement_terms
-        } else {
-            1
-        };
-        let Some(projected) = projected_terms.checked_add(contribution) else {
-            return false;
-        };
-        projected_terms = projected;
-        if projected_terms > MAX_BOOLEAN_TERMS {
-            return false;
-        }
-    }
-    true
-}
-
-/// Bounds scalar cloning and every Boolean condition rewritten inside it.
-/// Scalar substitution never duplicates an arithmetic node: an undecided
-/// select retains both branches and a decided select drops one. The Boolean
-/// conditions are the only scalar children whose ANF can expand.
-fn scalar_substitution_within_budget(
-    scalar: &KernelScalar,
-    variable: &KernelVariable,
-    replacement: &KernelBooleanPolynomial,
-) -> bool {
-    scalar_conditions_within_budget(scalar, |condition| {
-        boolean_substitution_within_budget(condition, variable, replacement)
-    })
-}
-
-/// Upper-bounds the number of nonzero arithmetic monomials created by lifting
-/// an ANF XOR into a phase. For a rational coefficient with denominator
-/// `2^e`, products above degree `e` have integral coefficients and disappear
-/// modulo one. Other exact coefficients use the full `2^n - 1` bound.
-fn lifted_boolean_term_bound(
-    boolean_terms: usize,
-    coefficient: &crate::symbolic::PhaseCoefficient,
-) -> Option<usize> {
-    if boolean_terms == 0 {
-        return Some(0);
-    }
-    let maximum_degree = coefficient.as_rational().map_or(boolean_terms, |value| {
-        let mut denominator = value.denom().clone();
-        let two = BigInt::from(2);
-        let mut exponent = 0usize;
-        while &denominator % &two == BigInt::from(0) {
-            denominator /= &two;
-            exponent += 1;
-        }
-        if denominator == BigInt::from(1) {
-            exponent.min(boolean_terms)
-        } else {
-            boolean_terms
-        }
-    });
-
-    let mut total = 0usize;
-    let mut binomial = 1usize;
-    for degree in 1..=maximum_degree {
-        binomial = binomial.checked_mul(boolean_terms + 1 - degree)? / degree;
-        total = total.checked_add(binomial)?;
-        if total > MAX_PHASE_TERMS {
-            return None;
-        }
-    }
-    Some(total)
-}
-
+const MAX_FREE_SPLITS: usize = 4095;
 // Optional scheduling probes, shared across one local reduction's iterations.
 const MAX_ALTERNATIVE_PIVOT_PROBES: usize = 32;
 const MAX_DEFERRED_PHASE_PROBES: usize = 16;
@@ -312,6 +116,18 @@ struct ReductionBudget {
     splits: usize,
     products: usize,
     phase_cells: usize,
+}
+
+/// Proves equality when both kernels reduce to the same exact formal sum.
+///
+/// Failure is deliberately inconclusive: distinct residual syntax can still
+/// denote the same channel after Fourier elimination or coefficient summation.
+#[cfg(test)]
+fn exact_aggregate_match(left: &DensityKernel, right: &DensityKernel) -> bool {
+    matches!(
+        compare_kernels(left, right),
+        AggregateComparison::Equivalent | AggregateComparison::SmtEquivalent(_)
+    )
 }
 
 pub(crate) enum AggregateComparison {
@@ -948,6 +764,44 @@ fn debug_term(stage: &str, term: &WorkingTerm) {
     }
 }
 
+#[derive(Clone)]
+struct WorkingTerm {
+    constraints: Vec<KernelBooleanPolynomial>,
+    paths: BTreeSet<KernelVariable>,
+    coefficient: KernelScalar,
+    phase: KernelPhasePolynomial,
+}
+
+enum ConstraintNormalization {
+    Normalized,
+    Contradiction,
+    BudgetExceeded,
+}
+
+/// Canonicalizes the GF(2) linear span of complete ANF equations.
+///
+/// Monomials are formal columns, not independent Boolean inputs. An elementary
+/// XOR row operation preserves simultaneous zero evaluation at *every* actual
+/// input assignment: `f=0 && g=0` iff `f=0 && (f xor g)=0`. Thus equal row
+/// spaces certify equal selectors even for nonlinear equations. This does not
+/// compute the Boolean ideal: multiplying equations by variables can yield
+/// equivalent selectors with different spans, which remain inconclusive.
+///
+/// Run once after bound-path elimination; the inner reducer keeps its cheaper
+/// affine normal form. Preflight bounds packed matrix storage; decoded rows
+/// must also fit the sparse output budget. Both forms use bitgauss RREF.
+fn normalize_constraint_span(
+    constraints: &mut Vec<KernelBooleanPolynomial>,
+) -> ConstraintNormalization {
+    match constraint_rows::reduce(&constraints.iter().collect::<Vec<_>>()) {
+        Ok(normalized) => {
+            *constraints = normalized;
+            ConstraintNormalization::Normalized
+        }
+        Err(status) => status,
+    }
+}
+
 impl WorkingTerm {
     fn initial_alias_compaction_within_budget(&self) -> bool {
         if self.paths.len() > 100_000
@@ -978,6 +832,35 @@ impl WorkingTerm {
             && scalar_conditions_within_budget(&self.coefficient, |row| {
                 row.terms().all(&mut inspect)
             })
+    }
+
+    /// A selector/weight dependency prevents phase-only factorization. Split
+    /// such a binder first, rather than spending the entire Shannon depth on
+    /// independent phase factors. This is scheduling only: both assignments
+    /// still contribute, with the original shared budgets and full summand.
+    fn residual_split_variable(&self) -> Option<KernelVariable> {
+        if !crate::ablation::permit(crate::ablation::Group::PathSumPlanning) {
+            return self.paths.first().cloned();
+        }
+        let mut visits = 0usize;
+        let mut selected = None;
+        let mut inspect = |polynomial: &KernelBooleanPolynomial| {
+            for variable in polynomial.terms().flat_map(KernelMonomial::variables) {
+                visits += 1;
+                if visits > MAX_RESIDUAL_ORDER_VISITS {
+                    return false;
+                }
+                if self.paths.contains(variable) {
+                    selected = Some(variable.clone());
+                    return false;
+                }
+            }
+            true
+        };
+        if self.constraints.iter().all(&mut inspect) {
+            scalar_conditions_within_budget(&self.coefficient, &mut inspect);
+        }
+        selected.or_else(|| self.paths.first().cloned())
     }
 
     /// Eliminate a forest of equations v=w in one traversal of the summand.
@@ -1162,6 +1045,35 @@ impl WorkingTerm {
         })
     }
 
+    fn substitution_within_budget(
+        &self,
+        variable: &KernelVariable,
+        replacement: &KernelBooleanPolynomial,
+    ) -> bool {
+        // Check indexed phase growth first: oversized parity lifts can be
+        // rejected without repeatedly scanning every unrelated constraint.
+        // These are read-only conjuncts of the same preflight predicate.
+        let replacement_terms = replacement.term_count();
+        let mut projected_terms = self.phase.term_count() - self.phase.occurrence_count(variable);
+        for (_, coefficient) in self.phase.terms_containing(variable) {
+            let Some(lifted_terms) = lifted_boolean_term_bound(replacement_terms, coefficient)
+            else {
+                return false;
+            };
+            let Some(projected) = projected_terms.checked_add(lifted_terms) else {
+                return false;
+            };
+            projected_terms = projected;
+            if projected_terms > MAX_PHASE_TERMS {
+                return false;
+            }
+        }
+        self.constraints
+            .iter()
+            .all(|value| boolean_substitution_within_budget(value, variable, replacement))
+            && scalar_substitution_within_budget(&self.coefficient, variable, replacement)
+    }
+
     /// Checks the largest phase representation that a local rewrite can
     /// create before changing the working term.
     ///
@@ -1203,7 +1115,121 @@ impl WorkingTerm {
         self.coefficient = normalize_scalar(factor.multiply(self.coefficient.clone()));
     }
 
+    fn within_budget(&self) -> bool {
+        self.constraints.len() <= MAX_CONSTRAINTS
+            && self
+                .constraints
+                .iter()
+                .all(|value| value.term_count() <= MAX_BOOLEAN_TERMS)
+            && self.phase.term_count() <= MAX_PHASE_TERMS
+            && scalar_within_budget(&self.coefficient)
+    }
+}
+
+/// Bounds one direct ANF substitution without constructing its products.
+///
+/// A monomial without `variable` contributes at most one output term. A
+/// monomial containing it contributes at most one copy of every replacement
+/// term after multiplication by the remaining variables. XOR collisions can
+/// only decrease that count.
+fn boolean_substitution_within_budget(
+    polynomial: &KernelBooleanPolynomial,
+    variable: &KernelVariable,
+    replacement: &KernelBooleanPolynomial,
+) -> bool {
+    if polynomial.term_count() > MAX_BOOLEAN_TERMS || replacement.term_count() > MAX_BOOLEAN_TERMS {
+        return false;
+    }
+
+    let replacement_terms = replacement.term_count();
+    // A read-only sufficient bound: every old monomial contributes at most
+    // max(1, replacement_terms) terms, regardless of whether it contains v.
+    // For the usual small constraints, avoid visiting all their monomials on
+    // every pivot. If this loose bound fails, retain the exact old preflight.
+    if polynomial
+        .term_count()
+        .checked_mul(replacement_terms.max(1))
+        .is_some_and(|bound| bound <= MAX_BOOLEAN_TERMS)
+    {
+        return true;
+    }
+    let mut projected_terms = 0usize;
+    for monomial in polynomial.terms() {
+        let contribution = if monomial.contains(variable) {
+            replacement_terms
+        } else {
+            1
+        };
+        let Some(projected) = projected_terms.checked_add(contribution) else {
+            return false;
+        };
+        projected_terms = projected;
+        if projected_terms > MAX_BOOLEAN_TERMS {
+            return false;
+        }
+    }
+    true
+}
+
+/// Bounds scalar cloning and every Boolean condition rewritten inside it.
+/// Scalar substitution never duplicates an arithmetic node: an undecided
+/// select retains both branches and a decided select drops one. The Boolean
+/// conditions are the only scalar children whose ANF can expand.
+fn scalar_substitution_within_budget(
+    scalar: &KernelScalar,
+    variable: &KernelVariable,
+    replacement: &KernelBooleanPolynomial,
+) -> bool {
+    scalar_conditions_within_budget(scalar, |condition| {
+        boolean_substitution_within_budget(condition, variable, replacement)
+    })
+}
+
+/// Upper-bounds the number of nonzero arithmetic monomials created by lifting
+/// an ANF XOR into a phase. For a rational coefficient with denominator
+/// `2^e`, products above degree `e` have integral coefficients and disappear
+/// modulo one. Other exact coefficients use the full `2^n - 1` bound.
+fn lifted_boolean_term_bound(
+    boolean_terms: usize,
+    coefficient: &crate::symbolic::PhaseCoefficient,
+) -> Option<usize> {
+    if boolean_terms == 0 {
+        return Some(0);
+    }
+    let maximum_degree = coefficient.as_rational().map_or(boolean_terms, |value| {
+        let mut denominator = value.denom().clone();
+        let two = BigInt::from(2);
+        let mut exponent = 0usize;
+        while &denominator % &two == BigInt::from(0) {
+            denominator /= &two;
+            exponent += 1;
+        }
+        if denominator == BigInt::from(1) {
+            exponent.min(boolean_terms)
+        } else {
+            boolean_terms
+        }
+    });
+
+    let mut total = 0usize;
+    let mut binomial = 1usize;
+    for degree in 1..=maximum_degree {
+        binomial = binomial.checked_mul(boolean_terms + 1 - degree)? / degree;
+        total = total.checked_add(binomial)?;
+        if total > MAX_PHASE_TERMS {
+            return None;
+        }
+    }
+    Some(total)
+}
+
+fn integer(value: i64) -> BigRational {
+    BigRational::from_integer(BigInt::from(value))
+}
+
+fn ratio(numerator: i64, denominator: i64) -> BigRational {
+    BigRational::new(BigInt::from(numerator), BigInt::from(denominator))
 }
 
 #[cfg(test)]
-mod local_reducer_tests;
+mod tests;
