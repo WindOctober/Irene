@@ -9,16 +9,15 @@ use super::*;
 
 fn children(t: &WorkingTerm, v: &KernelVariable) -> Option<[Reduction; 2]> {
     let mut result = Vec::new();
-    for bit in [false, true] {
-        let rhs = KernelBooleanPolynomial::from(bit);
-        if graph::is_algebraic(t) && !t.substitution_within_budget(v, &rhs) {
-            return None;
-        }
-        let mut child = t.clone();
-        child.substitute(v, &rhs);
-        child.paths.remove(v);
-        result.push(reduce_working_term(child));
-    }
+    shannon::visit_bound_cofactors(
+        t,
+        v,
+        |rhs| !graph::is_algebraic(t) || t.substitution_within_budget(v, rhs),
+        |child| {
+            result.push(reduce_working_term(child));
+            Some(())
+        },
+    )?;
     result.try_into().ok()
 }
 
