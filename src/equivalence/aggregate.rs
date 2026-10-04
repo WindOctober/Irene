@@ -77,6 +77,7 @@ const MAX_RESIDUAL_ORDER_VISITS: usize = 4096;
 const MAX_FACTOR_PRODUCTS: usize = 100_000;
 const MAX_FACTOR_PHASE_CELLS: usize = 250_000;
 const MAX_FREE_SPLITS: usize = 4095;
+const MAX_FREE_SPLIT_DEPTH: usize = 12;
 
 #[derive(Clone)]
 struct WorkingTerm {
@@ -460,6 +461,34 @@ fn factor_free_tensor(
     factor_refine::tensor(source, MAX_FACTOR_PHASE_CELLS, |l, r| {
         multiply_aggregates(l, r, budget)
     })
+}
+
+/// Proves that a difference is zero on *all* free input/output coordinates.
+/// Unlike bound-path splitting, free branches are checked separately, never
+/// added: both cofactors must be identically zero. Exact cancellation prunes
+/// subtrees; exhausting either the depth or total work budget is inconclusive.
+fn zero_by_free_splitting(difference: ExactAggregate, budget: &mut usize, depth: usize) -> bool {
+    zero_by_free_splitting_with_algebra(
+        difference,
+        budget,
+        &mut witness::ConstantBudget::default(),
+        depth,
+    )
+}
+
+fn zero_by_free_splitting_with_algebra(
+    difference: ExactAggregate,
+    budget: &mut usize,
+    algebra: &mut witness::ConstantBudget,
+    depth: usize,
+) -> bool {
+    free_split::prove_zero(
+        difference,
+        budget,
+        depth,
+        MAX_FREE_SPLIT_DEPTH,
+        &mut |source| witness::constant_is_zero(source, algebra),
+    )
 }
 
 /// Reduces and coherently combines every component-pair contribution.
