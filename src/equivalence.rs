@@ -17,6 +17,8 @@ use crate::symbolic::{
     BooleanPolynomial, HistoryEntry, HybridPathSum, Monomial, PhasePolynomial, Scalar, Variable,
 };
 
+use canonical::{ExactMatch, exact_match};
+
 mod aggregate;
 mod boolean_query;
 mod canonical;
@@ -209,75 +211,81 @@ fn analyze_inner(
     config: &EquivalenceConfig,
 ) -> Result<Analysis, InterfaceError> {
     unitary_rewrite::strategy().map_err(InterfaceError::InvalidConfiguration)?;
-    // These exact operator rewrites preserve declarations and interface IDs.
+    // Exact operator rewrites are also safe for a single unitary side of a
+    // channel comparison. Keep each side's declarations and paired interface.
     let rewritten_left = unitary_rewrite::preprocess(left);
     let rewritten_right = unitary_rewrite::preprocess(right);
     let left = rewritten_left.as_ref().unwrap_or(left);
     let right = rewritten_right.as_ref().unwrap_or(right);
     if let Some(norm) = unitary_trace::certificate(left, right, config) {
-        if norm.is_one() {
-            return Ok(Analysis {
-                verdict: Verdict::Equivalent,
-                evidence: Evidence::UnitaryTraceExact,
-                counterexample: None,
-                solver_queries: Vec::new(),
-                density_counterexample: None,
-                kernel_terms: (0, 0),
-            });
-        }
-        let evidence = match norm {
-            unitary_trace::TraceNorm::Rational(norm) => Evidence::UnitaryTraceMismatch {
-                normalized_trace_norm_squared: norm,
-            },
-            unitary_trace::TraceNorm::Cyclotomic(norm) => {
-                Evidence::UnitaryTraceCyclotomicMismatch {
+        return Ok(if norm.is_one() {
+            Analysis::new(Verdict::Equivalent, Evidence::UnitaryTraceExact, (0, 0))
+        } else {
+            let evidence = match norm {
+                unitary_trace::TraceNorm::Rational(norm) => Evidence::UnitaryTraceMismatch {
                     normalized_trace_norm_squared: norm,
+                },
+                unitary_trace::TraceNorm::Cyclotomic(norm) => {
+                    Evidence::UnitaryTraceCyclotomicMismatch {
+                        normalized_trace_norm_squared: norm,
+                    }
                 }
-            }
-        };
-        return Ok(Analysis {
-            verdict: Verdict::NotEquivalent,
-            evidence,
-            counterexample: None,
-            solver_queries: Vec::new(),
-            density_counterexample: None,
-            kernel_terms: (0, 0),
+            };
+            Analysis::new(Verdict::NotEquivalent, evidence, (0, 0))
         });
     }
-
     let prepared = match prepare_comparison(left, right, config) {
         Ok(prepared) => prepared,
         Err(InterfaceError::Unsupported(reason)) => {
-            return Ok(Analysis {
-                verdict: Verdict::Unknown,
-                evidence: Evidence::UnsupportedInterface(reason),
-                counterexample: None,
-                solver_queries: Vec::new(),
-                density_counterexample: None,
-                kernel_terms: (0, 0),
-            });
+            return Ok(Analysis::new(
+                Verdict::Unknown,
+                Evidence::UnsupportedInterface(reason),
+                (0, 0),
+            ));
         }
         Err(error) => return Err(error),
     };
-    if exact_hps_certificate(&prepared) {
-        return Ok(Analysis {
-            verdict: Verdict::Equivalent,
-            evidence: Evidence::ExactHps,
-            counterexample: None,
-            solver_queries: Vec::new(),
-            density_counterexample: None,
-            kernel_terms: (0, 0),
-        });
+
+    // Graph-native certificates must run before the optional bounded
+    // polynomial backend. No ANF expansion is needed for these proofs.
+    let kernel_terms = (0, 0);
+
+    // Terminal values are stored outside `PreparedSide::hps`. Reinsert them
+    // under canonical keys before applying the exact HPS certificate; omitting
+    // them here would prove equality of programs with different outputs.
+    //
+    // This certificate is deliberately limited to one component on each
+    // side. A component is an amplitude summand, not an independently
+    // normalized state: in a multi-component HPS, coherence between two
+    // summands depends on their histories being positionally compatible.
+    // `complete_snapshot` canonicalizes the self-pairing constraints that
+    // remain for a single component, so applying it component-by-component
+    // would erase precisely that cross-component information.
+    if prepared.left.hps.components.len() == 1 && prepared.right.hps.components.len() == 1 {
+        let left_snapshot = complete_snapshot(&prepared.left);
+        let right_snapshot = complete_snapshot(&prepared.right);
+        let exact = exact_match(&left_snapshot, &right_snapshot);
+        if matches!(exact, ExactMatch::Match { .. }) {
+            return Ok(Analysis::new(
+                Verdict::Equivalent,
+                Evidence::ExactHps,
+                kernel_terms,
+            ));
+        }
     }
-    if let Some(analysis) = compare_affine_output_support(&prepared) {
+
+    if let Some(analysis) = compare_affine_output_support(&prepared, kernel_terms) {
         return Ok(analysis);
     }
-    if let Some(result) = deterministic::compare(&prepared, (0, 0)) {
-        return result.map_err(InterfaceError::from);
+
+    if let Some(analysis) = compare_deterministic(&prepared, kernel_terms) {
+        return analysis.map_err(InterfaceError::from);
     }
+
     if let Some(result) = graph_compare::compare(&prepared) {
         return result.map_err(InterfaceError::from);
     }
+
     if std::env::var_os("IRENE_DEBUG_AGGREGATE").is_some() {
         eprintln!("comparison prepared; kernel build start");
     }
@@ -367,20 +375,20 @@ fn kernel_for(side: &PreparedSide) -> Result<DensityKernel, KernelBuildError> {
 /// Detects unequal affine output supports without evaluating amplitudes.
 /// Joint (output, history) injectivity prevents cancellation between paths;
 /// equal supports are inconclusive, not a proof of channel equality.
-fn compare_affine_output_support(prepared: &PreparedComparison) -> Option<Analysis> {
+fn compare_affine_output_support(
+    prepared: &PreparedComparison,
+    kernel_terms: (usize, usize),
+) -> Option<Analysis> {
     let left = exact_output_support(&prepared.left)?;
     let right = exact_output_support(&prepared.right)?;
     let witness =
         output_support_witness(&left, &right, prepared.left.quantum_input_positions.len())?;
 
-    let mut analysis = Analysis {
-        verdict: Verdict::NotEquivalent,
-        evidence: Evidence::OutputSupportMismatch,
-        counterexample: None,
-        solver_queries: Vec::new(),
-        density_counterexample: None,
-        kernel_terms: (0, 0),
-    };
+    let mut analysis = Analysis::new(
+        Verdict::NotEquivalent,
+        Evidence::OutputSupportMismatch,
+        kernel_terms,
+    );
     analysis.counterexample = Some(Counterexample {
         ket_inputs: witness,
         bra_inputs: None,
@@ -669,3 +677,10 @@ mod support_tests;
 
 #[cfg(test)]
 mod kernel_adapter_tests;
+
+fn compare_deterministic(
+    prepared: &PreparedComparison,
+    kernel_terms: (usize, usize),
+) -> Option<Result<Analysis, SolverDisagreement>> {
+    deterministic::compare(prepared, kernel_terms)
+}
