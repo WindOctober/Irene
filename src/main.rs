@@ -5,6 +5,7 @@ use clap::Parser;
 use irene::ablation;
 use irene::equivalence::{self, EquivalenceConfig, Verdict};
 use irene::frontend::{openqasm2, openqasm3};
+use irene::symbolic::representation_stats;
 use irene::utils::load_openqasm_source;
 
 #[derive(Debug, Parser)]
@@ -20,6 +21,12 @@ struct Cli {
     /// Print effective ablation switches and entry-gate counts to stderr.
     #[arg(long)]
     ablation_report: bool,
+    /// Write read-only HPS Boolean-graph snapshots to a NEW JSONL file; ANF analysis is offline.
+    #[arg(long)]
+    representation_stats: Option<PathBuf>,
+    /// Observe every N retained statement/summary checkpoints (1 records every checkpoint).
+    #[arg(long, default_value_t = 32)]
+    representation_stats_every: usize,
 }
 
 fn main() -> ExitCode {
@@ -28,6 +35,8 @@ fn main() -> ExitCode {
         right,
         ablate,
         ablation_report,
+        representation_stats,
+        representation_stats_every,
     } = Cli::parse();
     let config = match ablate
         .as_deref()
@@ -40,7 +49,31 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    let statistics = match representation_stats
+        .map(|path| {
+            representation_stats::Session::start(
+                path,
+                representation_stats::Config {
+                    every: representation_stats_every,
+                    ..Default::default()
+                },
+            )
+        })
+        .transpose()
+    {
+        Ok(session) => session,
+        Err(error) => {
+            eprintln!("representation statistics: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
     let (result, report) = ablation::run(config, || check_equivalence(&left, &right));
+    if let Some(session) = statistics {
+        if let Err(error) = session.finish() {
+            // Observation failure never changes the verification result.
+            eprintln!("representation statistics incomplete: {error}");
+        }
+    }
     if ablation_report {
         eprint!("{report}");
     }

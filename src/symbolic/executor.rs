@@ -213,6 +213,7 @@ pub fn execute(
     if let [component] = hps.components.as_mut_slice() {
         collapse_local_history(component);
     }
+    super::representation_stats::observe("hps_final", &hps.components, true);
     Ok(hps)
 }
 
@@ -433,6 +434,7 @@ impl Executor {
             {
                 components = composed;
                 summarized_until = index + length;
+                super::representation_stats::observe("region_summary", &components, false);
                 continue;
             }
             let is_join = matches!(&statement.kind, StatementKind::If { .. });
@@ -488,6 +490,7 @@ impl Executor {
                     components = self.compact_at_boundary(components, complete_component_set);
                 }
             }
+            super::representation_stats::observe("statement", &components, false);
         }
         Ok(components)
     }

@@ -198,6 +198,14 @@ pub fn analyze(
     right: &Program,
     config: &EquivalenceConfig,
 ) -> Result<Analysis, InterfaceError> {
+    crate::symbolic::representation_stats::run_if_requested(|| analyze_inner(left, right, config))
+}
+
+fn analyze_inner(
+    left: &Program,
+    right: &Program,
+    config: &EquivalenceConfig,
+) -> Result<Analysis, InterfaceError> {
     unitary_rewrite::strategy().map_err(InterfaceError::InvalidConfiguration)?;
     // These exact operator rewrites preserve declarations and interface IDs.
     let rewritten_left = unitary_rewrite::preprocess(left);

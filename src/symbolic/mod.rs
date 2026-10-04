@@ -13,6 +13,7 @@ mod validate;
 
 pub(crate) use boolean::Expression as BooleanExpression;
 pub use boolean::{BooleanPolynomial, Monomial, Variable};
+pub use boolean::statistics as representation_stats;
 pub use executor::{
     Component, ExecutionConfig, HistoryEntry, HybridMemory, HybridPathSum, InitialState,
     SymbolicError, execute,
