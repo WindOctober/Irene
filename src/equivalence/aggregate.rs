@@ -11,6 +11,10 @@ use collection::{ExactAggregate, ExactTerm, accumulate_exact_term, aggregate_dif
 use super::DensityCounterexample;
 use scalar::integer;
 use scalar::ratio;
+#[cfg(test)]
+use collection::ExactEntry;
+#[cfg(test)]
+use free_split::restrict_aggregate;
 
 mod checkpoint;
 mod checkpoint_factors;
