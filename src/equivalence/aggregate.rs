@@ -72,6 +72,7 @@ const MAX_AFFINE_MATRIX_CELLS: usize = 10_000_000;
 const MAX_PHASE_TERMS: usize = 100_000;
 const MAX_SPLIT_DEPTH: usize = 8;
 const MAX_RESIDUAL_SPLITS: usize = 255;
+const MAX_RESIDUAL_ORDER_VISITS: usize = 4096;
 const MAX_FACTOR_PRODUCTS: usize = 100_000;
 const MAX_FACTOR_PHASE_CELLS: usize = 250_000;
 
@@ -114,6 +115,36 @@ fn normalize_constraint_span(
 }
 
 impl WorkingTerm {
+    /// A selector/weight dependency prevents phase-only factorization. Split
+    /// such a binder first, rather than spending the entire Shannon depth on
+    /// independent phase factors. This is scheduling only: both assignments
+    /// still contribute, with the original shared budgets and full summand.
+    fn residual_split_variable(&self) -> Option<KernelVariable> {
+        if !crate::ablation::permit(crate::ablation::Group::PathSumPlanning) {
+            return self.paths.first().cloned();
+        }
+        let mut visits = 0usize;
+        let mut selected = None;
+        let mut inspect = |polynomial: &KernelBooleanPolynomial| {
+            for variable in polynomial.terms().flat_map(KernelMonomial::variables) {
+                visits += 1;
+                if visits > MAX_RESIDUAL_ORDER_VISITS {
+                    return false;
+                }
+                if self.paths.contains(variable) {
+                    selected = Some(variable.clone());
+                    return false;
+                }
+            }
+            true
+        };
+        if self.constraints.iter().all(&mut inspect) {
+            scalar_conditions_within_budget(&self.coefficient, &mut inspect);
+        }
+        selected.or_else(|| self.paths.first().cloned())
+    }
+
+
     fn substitution_within_budget(
         &self,
         variable: &KernelVariable,
@@ -387,6 +418,51 @@ fn accumulate_reduction_with_depth(
         Reduction::Exact(term) => term,
     };
     accumulate_exact_term(exact, aggregate, atoms)
+}
+
+/// Factor separated bound sums. The real scalar must contain no bound path;
+/// each whole guard equation connects all of its bound dependencies. Shared
+/// *free* coordinates do not connect factors:
+/// for each fixed u, sum_(a,b) C(u) exp(i(P(a,u)+Q(b,u))) is the product of
+/// the two sums times C(u). Every phase monomial connects all of its bound
+/// variables, so a mixed term can never be accidentally split between them.
+fn factor_phase_sums(term: &WorkingTerm) -> Option<Vec<WorkingTerm>> {
+    factor_phase_sums_with_guard_cells(term, 32768)
+}
+
+// The optional compactor supplies its separately preflighted scan/copy bound.
+// Ordinary aggregation and factor proofs retain their original entrance.
+fn factor_phase_sums_with_guard_cells(
+    term: &WorkingTerm,
+    guard_phase_cells: usize,
+) -> Option<Vec<WorkingTerm>> {
+    if !crate::ablation::permit(crate::ablation::Group::PathSumPlanning) {
+        return None;
+    }
+    factorization::factor(term, guard_phase_cells)
+}
+
+/// Exact convolution, with a shared kernel-wide bound on all atom pairs
+/// visited (including pairs that later cancel). Failure discards the entire
+/// product; neither a partial factor nor a partially accumulated kernel is a
+/// certificate. Constraint conjunction, scalar multiplication and phase
+/// addition are all retained in each product entry.
+fn multiply_aggregates(
+    left: ExactAggregate,
+    right: ExactAggregate,
+    budget: &mut ReductionBudget,
+) -> Option<ExactAggregate> {
+    factorization::multiply(
+        left,
+        right,
+        &mut budget.products,
+        &mut budget.phase_cells,
+        |term| match reduce_working_term(term) {
+            Reduction::Zero => Some(None),
+            Reduction::Exact(exact) => Some(Some(exact)),
+            _ => None,
+        },
+    )
 }
 
 fn reduce_term(term: &KernelTerm) -> Reduction {
