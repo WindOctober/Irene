@@ -32,10 +32,6 @@ impl<T> AstNode<T> {
     pub(crate) fn new(ast_id: AstId, kind: T) -> Self {
         Self { ast_id, kind }
     }
-
-    pub fn ast_id(&self) -> AstId {
-        self.ast_id
-    }
 }
 
 impl<T> Deref for AstNode<T> {

@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 
 use crate::ir::{NumericConstant, NumericType, SymbolId};
 
@@ -36,10 +36,10 @@ impl QuantumType {
 /// distinction while allowing the language's implicit scalar bool/bit casts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum BitType {
-    Angle { width: usize },
     Bool,
     Bit,
     Register { width: usize },
+    Angle { width: usize },
     Uint { width: usize, explicit_width: bool },
 }
 
@@ -146,7 +146,7 @@ pub(super) struct ScopeStack {
 }
 
 impl ScopeStack {
-    pub(super) fn global_static_ids(&self) -> BTreeSet<SymbolId> {
+    pub(super) fn global_static_ids(&self) -> std::collections::BTreeSet<SymbolId> {
         self.scopes[0]
             .bindings
             .values()
