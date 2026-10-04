@@ -408,6 +408,60 @@ pub(crate) fn compare_kernels(left: &DensityKernel, right: &DensityKernel) -> Ag
     }
 }
 
+/// A sufficient product certificate for a single common selector. The
+/// proposed ket/bra separation is checked by reconstructing the original
+/// formal aggregate exactly, before either smaller equality is used.
+fn tensor_aggregate_match(
+    left: &ExactAggregate,
+    right: &ExactAggregate,
+    free_budget: &mut usize,
+) -> bool {
+    if !crate::ablation::permit(crate::ablation::Group::PathSumPlanning) {
+        return false;
+    }
+    if left.len() != 1 || right.len() != 1 || left.keys().next() != right.keys().next() {
+        if std::env::var_os("IRENE_DEBUG_AGGREGATE").is_some() {
+            eprintln!("aggregate tensor refused: selectors");
+        }
+        return false;
+    }
+    let mut budget = ReductionBudget {
+        splits: 0,
+        products: MAX_FACTOR_PRODUCTS,
+        phase_cells: MAX_FACTOR_PHASE_CELLS,
+    };
+    let Some([left_ket, left_bra]) = factor_free_tensor(left, &mut budget) else {
+        return false;
+    };
+    let Some([right_ket, right_bra]) = factor_free_tensor(right, &mut budget) else {
+        return false;
+    };
+    if std::env::var_os("IRENE_DEBUG_AGGREGATE").is_some() {
+        eprintln!("aggregate tensor factors reconstructed on both sides");
+    }
+    for (left, right) in [(left_ket, right_ket), (left_bra, right_bra)] {
+        if left == right {
+            continue;
+        }
+        let Some(difference) = aggregate_difference(left, right) else {
+            return false;
+        };
+        if !zero_by_free_splitting(difference, free_budget, 0) {
+            return false;
+        }
+    }
+    true
+}
+
+fn factor_free_tensor(
+    source: &ExactAggregate,
+    budget: &mut ReductionBudget,
+) -> Option<[ExactAggregate; 2]> {
+    factor_refine::tensor(source, MAX_FACTOR_PHASE_CELLS, |l, r| {
+        multiply_aggregates(l, r, budget)
+    })
+}
+
 /// Reduces and coherently combines every component-pair contribution.
 ///
 /// A resource refusal or unexpanded residual aborts the entire certificate. Returning a partially
