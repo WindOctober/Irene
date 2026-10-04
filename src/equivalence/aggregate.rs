@@ -1,15 +1,16 @@
 //! Exact kernel constraint preparation and unique bound-path substitution.
 use super::kernel::{
-    KernelBooleanPolynomial, KernelMonomial, KernelPhasePolynomial, KernelScalar, KernelTerm,
+    DensityKernel, KernelBooleanPolynomial, KernelMonomial, KernelPhasePolynomial, KernelScalar, KernelTerm,
     KernelVariable,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use num_bigint::BigInt;
 use num_rational::BigRational;
 use scalar::{normalize_scalar, scalar_conditions_within_budget, scalar_within_budget};
-use collection::ExactTerm;
+use collection::{ExactAggregate, ExactTerm, accumulate_exact_term};
+use scalar::integer;
 #[cfg(test)]
-use scalar::{integer, ratio};
+use scalar::ratio;
 
 mod checkpoint;
 mod checkpoint_factors;
@@ -69,6 +70,10 @@ const MAX_BOOLEAN_TERMS: usize = 100_000;
 const MAX_CONSTRAINTS: usize = 100_000;
 const MAX_AFFINE_MATRIX_CELLS: usize = 10_000_000;
 const MAX_PHASE_TERMS: usize = 100_000;
+const MAX_SPLIT_DEPTH: usize = 8;
+const MAX_RESIDUAL_SPLITS: usize = 255;
+const MAX_FACTOR_PRODUCTS: usize = 100_000;
+const MAX_FACTOR_PHASE_CELLS: usize = 250_000;
 
 #[derive(Clone)]
 struct WorkingTerm {
@@ -261,6 +266,127 @@ enum Reduction {
     Sum(Box<WorkingTerm>),
     /// Unsupported/resource refusal; must not be salvaged as a partial sum.
     Residual,
+}
+
+struct ReductionBudget {
+    splits: usize,
+    products: usize,
+    phase_cells: usize,
+}
+
+/// Reduces and coherently combines every component-pair contribution.
+///
+/// A resource refusal or unexpanded residual aborts the entire certificate. Returning a partially
+/// accumulated map would make resource or rule order observable in the proof
+/// result.  Zero terms and exact coefficient cancellations are removed only
+/// after exact normalization.
+fn reduce_kernel(kernel: &DensityKernel) -> Option<ExactAggregate> {
+    reduce_reductions(kernel.terms.iter().map(reduce_term))
+}
+
+fn reduce_reductions(reductions: impl Iterator<Item = Reduction>) -> Option<ExactAggregate> {
+    let mut aggregate = ExactAggregate::new();
+    let mut atoms = 0usize;
+    let mut budget = ReductionBudget {
+        splits: MAX_RESIDUAL_SPLITS,
+        products: MAX_FACTOR_PRODUCTS,
+        phase_cells: MAX_FACTOR_PHASE_CELLS,
+    };
+    for reduction in reductions {
+        accumulate_reduction(reduction, &mut aggregate, &mut atoms, &mut budget, 0)?;
+    }
+    aggregate.retain(|_, coefficient| !coefficient.is_empty());
+    Some(aggregate)
+}
+
+/// Exact Shannon splitting of a *bound* Boolean sum. No averaging factor is
+/// introduced: sum_v F(v) = F(0) + F(1). Each child again uses local exact
+/// identities before another split. A shared kernel-wide budget and depth
+/// bound prevent an unbounded enumeration fallback; any refusal discards the
+/// complete aggregate, including already visited siblings.
+fn accumulate_reduction(
+    reduction: Reduction,
+    aggregate: &mut ExactAggregate,
+    atoms: &mut usize,
+    budget: &mut ReductionBudget,
+    depth: usize,
+) -> Option<()> {
+    accumulate_reduction_with_depth(reduction, aggregate, atoms, budget, depth, MAX_SPLIT_DEPTH)
+}
+
+fn accumulate_reduction_with_depth(
+    reduction: Reduction,
+    aggregate: &mut ExactAggregate,
+    atoms: &mut usize,
+    budget: &mut ReductionBudget,
+    depth: usize,
+    depth_limit: usize,
+) -> Option<()> {
+    let exact = match reduction {
+        Reduction::Zero => return Some(()),
+        Reduction::Residual => return None,
+        Reduction::Sum(term) => {
+            if let Some(factors) = factor_phase_sums(&term) {
+                let mut product = ExactAggregate::new();
+                let mut product_atoms = 0;
+                accumulate_exact_term(
+                    ExactTerm {
+                        constraints: Vec::new(),
+                        coefficient: KernelScalar::Rational(integer(1)),
+                        phase: KernelPhasePolynomial::default(),
+                    },
+                    &mut product,
+                    &mut product_atoms,
+                )?;
+                for factor in factors {
+                    let mut factor_sum = ExactAggregate::new();
+                    let mut factor_atoms = 0;
+                    accumulate_reduction_with_depth(
+                        reduce_working_term(factor),
+                        &mut factor_sum,
+                        &mut factor_atoms,
+                        budget,
+                        0,
+                        depth_limit,
+                    )?;
+                    product = multiply_aggregates(product, factor_sum, budget)?;
+                }
+                for (entry, coefficients) in product {
+                    for (phase, coefficient) in coefficients {
+                        accumulate_exact_term(
+                            ExactTerm {
+                                constraints: entry.constraints.clone(),
+                                coefficient,
+                                phase,
+                            },
+                            aggregate,
+                            atoms,
+                        )?;
+                    }
+                }
+                return Some(());
+            }
+            shannon::claim_split(&mut budget.splits, depth, depth_limit)?;
+            let variable = term.residual_split_variable()?;
+            return shannon::visit_bound_cofactors(
+                &term,
+                &variable,
+                |replacement| term.substitution_within_budget(&variable, replacement),
+                |child| {
+                    accumulate_reduction_with_depth(
+                        reduce_working_term(child),
+                        aggregate,
+                        atoms,
+                        budget,
+                        depth + 1,
+                        depth_limit,
+                    )
+                },
+            );
+        }
+        Reduction::Exact(term) => term,
+    };
+    accumulate_exact_term(exact, aggregate, atoms)
 }
 
 fn reduce_term(term: &KernelTerm) -> Reduction {
