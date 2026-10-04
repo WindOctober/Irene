@@ -206,7 +206,20 @@ pub fn execute(
     validate::numeric_domains(program)?;
     let plan = slice::build_slice_plan(program, output_selection)?;
     validate::definite_assignment(program, output_selection)?;
-    let mut hps = simplify(execute_with_plan(program, config, &plan)?);
+    let executed = execute_with_plan(program, config, &plan)?;
+    if std::env::var_os("IRENE_DEBUG_COMPACTION").is_some() {
+        eprintln!(
+            "execution finished: {:?}; final simplify start",
+            compaction_size(&executed.components)
+        );
+    }
+    let mut hps = simplify(executed);
+    if std::env::var_os("IRENE_DEBUG_COMPACTION").is_some() {
+        eprintln!(
+            "final simplify finished: {:?}",
+            compaction_size(&hps.components)
+        );
+    }
     hps.components = merge_components(hps.components);
     // This is the complete final state, not one successor of an unfinished
     // branch. A singleton has no outside coherent summands to protect.
@@ -259,10 +272,10 @@ fn execute_with_plan(
     let mut executor = Executor {
         next_path: 0,
         ids: AstIdGenerator::starting_at(program.ast_id_bound()),
-        pending_feedback: BTreeSet::new(),
-        summarize_regions: true,
         boundaries_since_compaction: 0,
         compaction_interval: MIN_COMPACTION_INTERVAL,
+        pending_feedback: BTreeSet::new(),
+        summarize_regions: true,
     };
     let components = executor.execute_block(vec![component], &program.body, plan, true)?;
     Ok(HybridPathSum { input, components })
@@ -313,12 +326,13 @@ fn initial_memory(
 struct Executor {
     next_path: usize,
     ids: AstIdGenerator,
-    // Retired controls in a partial successor wait for a complete join.
+    boundaries_since_compaction: usize,
+    compaction_interval: usize,
+    // Controls retired inside a partial successor are reconsidered at its
+    // enclosing complete join, where all possible outside sectors are known.
     pending_feedback: BTreeSet<ClassicalBit>,
     // Summary execution itself must not recursively attempt summaries.
     summarize_regions: bool,
-    boundaries_since_compaction: usize,
-    compaction_interval: usize,
 }
 
 const MIN_COMPACTION_INTERVAL: usize = 32;
@@ -338,7 +352,6 @@ impl Executor {
             .collect();
         merge_feedback_groups(components, &retired)
     }
-
     /// Batches single-component maintenance to avoid rescanning every live
     /// path after each of thousands of adjacent reset/discard boundaries.
     /// Multi-component joins are compacted immediately so branch growth stays
@@ -723,7 +736,7 @@ impl Executor {
     /// Boolean update and phase conditions by `predicate`; it introduces no
     /// path variable or branch component.
     fn apply_monomial_gate(
-        &self,
+        &mut self,
         component: &mut Component,
         gate: Gate,
         parameters: &[NumericExpr],
@@ -763,7 +776,8 @@ impl Executor {
                 let left = component.output.quantum[&first].clone();
                 let right = component.output.quantum[&qubits[1]].clone();
                 let target = qubits[2].clone();
-                let change = predicate.and(&left).and(&right);
+                let controls = left.and(&right);
+                let change = predicate.and(&controls);
                 let value = component.output.quantum[&target].xor(&change);
                 component.output.quantum.insert(target, value);
             }
@@ -858,7 +872,7 @@ impl Executor {
 
     /// Applies one already-classified monomial gate without splitting worlds.
     fn apply_predicated_gate(
-        &self,
+        &mut self,
         component: &mut Component,
         gate: Gate,
         parameters: &[NumericExpr],
@@ -872,8 +886,8 @@ impl Executor {
     }
 
     fn fresh_path(&mut self) -> usize {
-        // H and non-diagonal rotations introduce one Boolean output index for
-        // each affected qubit. This monotone counter keeps them unique.
+        // H and rotations share this
+        // monotone namespace, so their bound variables cannot collide.
         let path = self.next_path;
         self.next_path += 1;
         path
@@ -1092,7 +1106,7 @@ fn evaluate_classical(
     expression: &ClassicalExpr,
     memory: &BTreeMap<ClassicalBit, BooleanPolynomial>,
 ) -> Result<BooleanPolynomial, SymbolicError> {
-    // Classical values use the same ANF representation as wire values. For
+    // Classical values use the same shared Boolean representation as wire values. For
     // example, if c0=x and c1=y, `c0 || c1` becomes x ⊕ y ⊕ xy.
     match &expression.kind {
         ClassicalExprKind::Bool(value) => Ok(BooleanPolynomial::from(*value)),
