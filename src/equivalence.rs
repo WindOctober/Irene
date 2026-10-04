@@ -35,6 +35,7 @@ pub use smt::{
 };
 
 pub use kernel::{DensityKernel, KernelBuildError};
+use kernel::{KernelInput, KernelTerminalInput, build_kernel};
 
 pub use interface::{
     Endpoint, EquivalenceConfig, InputPair, InterfaceError, NumericInputPair, OutputPair,
@@ -107,6 +108,8 @@ pub enum Evidence {
     /// The trace, structural, and support certificates did not apply; kernel reasoning
     /// would be required, but is not yet connected to this entry point.
     KernelAggregationRequired,
+    /// Exact kernel construction declined; no equivalence conclusion follows.
+    KernelBuild(KernelBuildError),
 }
 
 /// Result of one analysis. A trace mismatch is an exact operator-level
@@ -214,12 +217,44 @@ pub fn analyze(
     if let Some(result) = graph_compare::compare(&prepared) {
         return result.map_err(InterfaceError::from);
     }
+    // Build each program's kernel independently. Successful construction is
+    // not a comparison: aggregation and the decision layer remain unconnected.
+    for side in [&prepared.left, &prepared.right] {
+        if let Err(error) = kernel_for(side) {
+            return Ok(Analysis::new(
+                Verdict::Unknown,
+                Evidence::KernelBuild(error),
+                (0, 0),
+            ));
+        }
+    }
     Ok(Analysis {
         verdict: Verdict::Unknown,
         evidence: Evidence::KernelAggregationRequired,
         counterexample: None,
         solver_queries: Vec::new(),
     })
+}
+
+/// Preserve canonical input order and per-kind terminal order when lowering
+/// one prepared program. Hidden history stays in the HPS for ket/bra pairing.
+fn kernel_for(side: &PreparedSide) -> Result<DensityKernel, KernelBuildError> {
+    let input_variables = side.hps.input.quantum.keys().cloned().collect();
+    let terminals = side
+        .terminals
+        .iter()
+        .map(|terminal| {
+            let mut input = KernelTerminalInput::default();
+            for output in &terminal.outputs {
+                match output.kind {
+                    PreparedOutputKind::Quantum => input.quantum.push(output.value.clone()),
+                    PreparedOutputKind::Classical => input.classical.push(output.value.clone()),
+                }
+            }
+            input
+        })
+        .collect();
+    build_kernel(&KernelInput::new(&side.hps, input_variables, terminals))
 }
 
 /// Detects unequal affine output supports without evaluating amplitudes.
@@ -522,3 +557,6 @@ mod stage2_tests;
 
 #[cfg(test)]
 mod support_tests;
+
+#[cfg(test)]
+mod kernel_adapter_tests;
