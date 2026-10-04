@@ -1,9 +1,12 @@
-//! Equivalence analysis by trace, exact HPS, and affine output-support certificates.
+//! Equivalence checking for normalized hybrid path sums.
 //!
-//! Cases outside these certificates return Unknown. Density-kernel aggregation
-//! is not yet connected; restricted path-free obligations can use SMT.
+//! Full-unitary trace and exact HPS certificates can finish before density
+//! kernel construction. Remaining comparisons use exact term reduction and
+//! coefficient aggregation, with SMT for admitted complete expressions.
+//! Unsupported encodings and incomplete proofs return `Unknown`, not NEQ.
 
 use bitgauss::BitMatrix;
+use aggregate::{AggregateComparison, compare_kernels};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
@@ -92,6 +95,10 @@ pub enum Evidence {
     OutputSupportMismatch,
     /// Complete single-component snapshots agree under checked path renaming.
     ExactHps,
+    /// Both density kernels reduce exactly after constrained path elimination.
+    DensityKernelExact,
+    /// A complete density-kernel entry difference was evaluated exactly and is nonzero.
+    DensityEntryCounterexample,
     /// A validated full-unitary miter has exact normalized trace modulus one.
     UnitaryTraceExact,
     /// The complete squared trace modulus is rational and different from one.
@@ -105,30 +112,66 @@ pub enum Evidence {
     },
     /// The requested symbolic interface is not supported soundly.
     UnsupportedInterface(UnsupportedInterface),
-    /// The trace, structural, and support certificates did not apply; kernel reasoning
-    /// would be required, but is not yet connected to this entry point.
+    /// The exact fast paths did not apply; kernel coefficient aggregation is required.
     KernelAggregationRequired,
     /// Exact kernel construction declined; no equivalence conclusion follows.
     KernelBuild(KernelBuildError),
 }
 
-/// Result of one analysis. A trace mismatch is an exact operator-level
-/// certificate, not a sampled input or a solver-generated counterexample.
+/// Exact channel-matrix entry witnessing a difference between two programs.
+///
+/// Output vectors use quantum-only / classical-only terminal-pair order.
+/// The difference is
+/// `sum_j (c_j + sqrt(3)*d_j) zeta^j`, multiplied by every `exact_factors`
+/// entry, with zeta = exp(2*pi*i/root_order).
+/// The root order is a power of two. Exponents are below root_order/2;
+/// x^(root_order/2)+1 is irreducible over Q, so a nonempty
+/// normalized coefficient vector certifies a genuinely nonzero complex value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DensityCounterexample {
+    pub ket_inputs: Vec<bool>,
+    pub bra_inputs: Vec<bool>,
+    pub ket_outputs: Vec<bool>,
+    pub bra_outputs: Vec<bool>,
+    pub classical_outputs: Vec<bool>,
+    pub root_of_unity_order: u64,
+    pub difference_coefficients: Vec<(u64, BigRational)>,
+    /// Coefficients of sqrt(3) times the same cyclotomic basis, independent
+    /// over the power-of-two cyclotomic field. Empty for the dyadic fragment.
+    pub sqrt_three_coefficients: Vec<(u64, BigRational)>,
+    /// Additional nonzero exact factors multiplying the two vectors above.
+    pub exact_factors: Vec<DensityExactFactor>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DensityExactFactor {
+    pub coefficients: Vec<(u64, BigRational)>,
+    pub sqrt_three_coefficients: Vec<(u64, BigRational)>,
+}
+
+/// Result of one equivalence analysis.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Analysis {
     pub verdict: Verdict,
     pub evidence: Evidence,
     pub counterexample: Option<Counterexample>,
+    pub density_counterexample: Option<DensityCounterexample>,
+    /// Exact query evidence, recording either a designated backend or portfolio.
     pub solver_queries: Vec<PortfolioResult>,
+    /// Sizes of the exact, unaggregated left and right density kernels.
+    /// `(0, 0)` also denotes a graph-native proof that needed no kernel build.
+    pub kernel_terms: (usize, usize),
 }
 
 impl Analysis {
-    fn new(verdict: Verdict, evidence: Evidence, _kernel_terms: (usize, usize)) -> Self {
+    fn new(verdict: Verdict, evidence: Evidence, kernel_terms: (usize, usize)) -> Self {
         Self {
             verdict,
             evidence,
             counterexample: None,
+            density_counterexample: None,
             solver_queries: Vec::new(),
+            kernel_terms,
         }
     }
 }
@@ -149,7 +192,7 @@ pub struct Counterexample {
 /// affine output-support comparison;
 /// execution errors propagate as errors. Structural mismatch is inconclusive,
 /// not a negative certificate. Restricted path-free SMT comparison follows;
-/// general density-kernel fallback is not connected.
+/// Remaining comparisons use exact term reduction and coefficient aggregation.
 pub fn analyze(
     left: &Program,
     right: &Program,
@@ -168,6 +211,8 @@ pub fn analyze(
                 evidence: Evidence::UnitaryTraceExact,
                 counterexample: None,
                 solver_queries: Vec::new(),
+                density_counterexample: None,
+                kernel_terms: (0, 0),
             });
         }
         let evidence = match norm {
@@ -185,6 +230,8 @@ pub fn analyze(
             evidence,
             counterexample: None,
             solver_queries: Vec::new(),
+            density_counterexample: None,
+            kernel_terms: (0, 0),
         });
     }
 
@@ -196,6 +243,8 @@ pub fn analyze(
                 evidence: Evidence::UnsupportedInterface(reason),
                 counterexample: None,
                 solver_queries: Vec::new(),
+                density_counterexample: None,
+                kernel_terms: (0, 0),
             });
         }
         Err(error) => return Err(error),
@@ -206,6 +255,8 @@ pub fn analyze(
             evidence: Evidence::ExactHps,
             counterexample: None,
             solver_queries: Vec::new(),
+            density_counterexample: None,
+            kernel_terms: (0, 0),
         });
     }
     if let Some(analysis) = compare_affine_output_support(&prepared) {
@@ -217,23 +268,69 @@ pub fn analyze(
     if let Some(result) = graph_compare::compare(&prepared) {
         return result.map_err(InterfaceError::from);
     }
-    // Build each program's kernel independently. Successful construction is
-    // not a comparison: aggregation and the decision layer remain unconnected.
-    for side in [&prepared.left, &prepared.right] {
-        if let Err(error) = kernel_for(side) {
+    if std::env::var_os("IRENE_DEBUG_AGGREGATE").is_some() {
+        eprintln!("comparison prepared; kernel build start");
+    }
+    let left_kernel = match kernel_for(&prepared.left) {
+        Ok(kernel) => kernel,
+        Err(error) => {
             return Ok(Analysis::new(
                 Verdict::Unknown,
                 Evidence::KernelBuild(error),
                 (0, 0),
             ));
         }
+    };
+    let right_kernel = match kernel_for(&prepared.right) {
+        Ok(kernel) => kernel,
+        Err(error) => {
+            return Ok(Analysis::new(
+                Verdict::Unknown,
+                Evidence::KernelBuild(error),
+                (left_kernel.terms.len(), 0),
+            ));
+        }
+    };
+    let kernel_terms = (left_kernel.terms.len(), right_kernel.terms.len());
+    if std::env::var_os("IRENE_DEBUG_AGGREGATE").is_some() {
+        eprintln!("kernel build finished; polynomial aggregation start");
     }
-    Ok(Analysis {
-        verdict: Verdict::Unknown,
-        evidence: Evidence::KernelAggregationRequired,
-        counterexample: None,
-        solver_queries: Vec::new(),
-    })
+
+    match compare_kernels(&left_kernel, &right_kernel) {
+        AggregateComparison::Equivalent => {
+            return Ok(Analysis::new(
+                Verdict::Equivalent,
+                Evidence::DensityKernelExact,
+                kernel_terms,
+            ));
+        }
+        AggregateComparison::SmtEquivalent(query) => {
+            let mut analysis = Analysis::new(
+                Verdict::Equivalent,
+                Evidence::DensityKernelExact,
+                kernel_terms,
+            );
+            analysis.solver_queries.push(query);
+            return Ok(analysis);
+        }
+        AggregateComparison::Different(witness, query) => {
+            let mut analysis = Analysis::new(
+                Verdict::NotEquivalent,
+                Evidence::DensityEntryCounterexample,
+                kernel_terms,
+            );
+            analysis.density_counterexample = Some(*witness);
+            analysis.solver_queries.push(query);
+            return Ok(analysis);
+        }
+        AggregateComparison::Unknown => {}
+    }
+
+    Ok(Analysis::new(
+        Verdict::Unknown,
+        Evidence::KernelAggregationRequired,
+        kernel_terms,
+    ))
 }
 
 /// Preserve canonical input order and per-kind terminal order when lowering
@@ -271,6 +368,8 @@ fn compare_affine_output_support(prepared: &PreparedComparison) -> Option<Analys
         evidence: Evidence::OutputSupportMismatch,
         counterexample: None,
         solver_queries: Vec::new(),
+        density_counterexample: None,
+        kernel_terms: (0, 0),
     };
     analysis.counterexample = Some(Counterexample {
         ket_inputs: witness,
