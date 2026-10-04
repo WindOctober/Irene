@@ -3097,14 +3097,14 @@ id = "quokka-algorithm-routing-nativegates-ibm-qiskit-opt0-2-opt"
 suite = "algorithm-opt"
 left = "programs/algorithm/origin/routing_nativegates_ibm_qiskit_opt0_2.qasm"
 right = "programs/algorithm/opt/routing_nativegates_ibm_qiskit_opt0_2.qasm.opt.qasm"
-truth = "eq"
+truth = "neq"
 equivalence = "unitary"
 input_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]"]
 output_pairs = ["quantum:q[0]=quantum:q[0]", "quantum:q[1]=quantum:q[1]"]
 source_left = "benchmark/algorithm/origin/routing_nativegates_ibm_qiskit_opt0_2.qasm"
 source_right = "benchmark/algorithm/opt/routing_nativegates_ibm_qiskit_opt0_2.qasm.opt.qasm"
 modification = "opt"
-truth_basis = "upstream expected equivalence-preserving PyZX optimization"
+truth_basis = "Upstream expected equivalence-preserving PyZX optimization; exact source-literal semantics differ: independent 60- and 100-digit interval evaluation gives P_left(00|00)-P_right(00|00) in [-1.944773166523e-22, -1.944773166522e-22], excluding zero. No approximate-equivalence claim."
 
 [[case]]
 id = "quokka-algorithm-routing-nativegates-ibm-qiskit-opt0-2-gm"
