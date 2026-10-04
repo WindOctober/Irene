@@ -514,6 +514,7 @@ impl PhasePolynomial {
             }
         }
     }
+
     fn add_selector(&mut self, p: BooleanPolynomial, c: PhaseCoefficient) {
         if p.is_zero() || c.is_zero() {
             return;
@@ -691,5 +692,75 @@ impl fmt::Display for PhaseCoefficient {
             formatter.write_str("0")?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod sparse_half_turn_tests {
+    use super::*;
+
+    #[test]
+    fn shared_phase_substitution_matches_independent_roots_and_merges_collisions() {
+        let v = |i| BooleanPolynomial::variable(Variable::Path(i));
+        let shared = v(0).and(&v(1).xor(&v(2)));
+        let mut original = PhasePolynomial::zero();
+        for (p, numerator) in [
+            (shared.clone(), 1),
+            (shared.xor(&v(3)), 3),
+            (v(1), 7),
+            (v(2), 5),
+        ] {
+            original.add_boolean(&p, PhaseCoefficient::rational(ratio(numerator, 8)));
+        }
+        for replacement in [
+            v(2),
+            v(1).xor(&v(3)),
+            BooleanPolynomial::zero(),
+            BooleanPolynomial::one(),
+        ] {
+            let mut expected = PhasePolynomial::zero();
+            for (p, c) in original.selectors() {
+                expected.add_boolean(&p.substitute(&Variable::Path(1), &replacement), c.clone());
+            }
+            let mut actual = original.clone();
+            actual.substitute(&Variable::Path(1), &replacement);
+            assert_eq!(actual, expected);
+        }
+    }
+
+    #[test]
+    fn sparse_updates_match_full_clone_trials_including_coefficient_collisions() {
+        let variable = |i| BooleanPolynomial::variable(Variable::Path(i));
+        let half = PhaseCoefficient::rational(ratio(1, 2));
+        for seed in 0..48 {
+            let mut original = PhasePolynomial::zero();
+            for i in 0..20 {
+                let p = variable(i % 6).and(&variable((i + seed) % 6));
+                // Direct insertion covers multiple half-turn keys and a new
+                // parity colliding with a non-half-turn coefficient.
+                original.add_selector(
+                    p,
+                    PhaseCoefficient::rational(ratio((i + seed) as i64 % 7 + 1, 8)),
+                );
+            }
+            let values = (0..6)
+                .map(variable)
+                .chain((0..6).flat_map(|i| (0..6).map(move |j| variable(i).and(&variable(j)))))
+                .chain([BooleanPolynomial::zero(), variable(0).xor(&variable(1))])
+                .collect::<Vec<_>>();
+            let mut expected = original.clone();
+            let mut actual = original.clone();
+            for p in &values {
+                let mut candidate = expected.clone();
+                candidate.add_boolean(p, half.clone());
+                if candidate.storage_size() < expected.storage_size() {
+                    expected = candidate;
+                }
+                actual.shorten_half_turns([p.clone()]);
+                assert_eq!(actual, expected, "seed={seed}, p={p}");
+            }
+            original.shorten_half_turns(values);
+            assert_eq!(original, expected, "batch seed={seed}");
+        }
     }
 }

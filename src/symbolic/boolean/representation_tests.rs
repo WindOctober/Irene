@@ -160,6 +160,7 @@ fn flattened_conjunction_preserves_composite_complement_cancellation() {
     assert!(!partial.is_zero());
 }
 
+
 #[test]
 fn exponential_anf_stays_linear_and_refusal_preserves_the_expression() {
     let p = complement_product(60);

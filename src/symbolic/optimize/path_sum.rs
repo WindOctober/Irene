@@ -26,42 +26,6 @@ mod history_tests;
 #[cfg(test)]
 mod history_phase_tests;
 
-/// Cancels common Clifford phases that depend only on hidden history values.
-///
-/// Multiplying an extended state by `(-1)^f(h)` applies a diagonal unitary to
-/// the hidden environment `h`; tracing that environment is invariant under
-/// the unitary. We greedily toggle the frequent linear and quadratic forms
-/// `h_i/2` and `h_i*h_j/2` only when doing so strictly shortens the exact phase
-/// polynomial. Every accepted step is semantic, while the size test merely
-/// chooses a useful representative.
-fn cancel_half_turn_history_phases(component: &mut Component) {
-    const HISTORY_LIMIT: usize = 64;
-
-    let history = component
-        .output
-        .history
-        .iter()
-        .map(HistoryEntry::value)
-        .filter(|value| value.is_affine())
-        .cloned()
-        .collect::<Vec<_>>();
-    // A large history must not suppress the linear single-history scan.
-    // Only the genuinely quadratic pair search retains a scheduling limit.
-    let pairs = (0..history.len())
-        .flat_map(|left| {
-            let history = &history;
-            (left + 1..history.len()).map(move |right| history[left].and(&history[right]))
-        })
-        .take(if history.len() <= HISTORY_LIMIT {
-            usize::MAX
-        } else {
-            0
-        });
-    component
-        .phase
-        .shorten_half_turns(history.iter().cloned().chain(pairs));
-}
-
 // TODO: Unify the duplicated vacuous/Fourier/Omega rule logic with
 // equivalence::aggregate (including its graph reducer). Share the algebraic
 // rules while retaining layer-specific applicability checks and adapters for
@@ -97,6 +61,7 @@ pub(crate) fn reduce_path_sums(component: &mut Component, allow_history: bool) -
     if allow_history {
         cancel_half_turn_history_phases(component);
     }
+
     loop {
         // Visit every current path once before starting another fixed-point
         // round.  A successful elimination can make a path visited earlier in
@@ -206,8 +171,9 @@ fn reduce_path(component: &mut Component, variable: &Variable, allow_history: bo
     }
     let mut profile = phase_profile(component, variable);
     if matches!(profile, PhaseProfile::Unsupported) {
-        // Individual selectors may cancel in the whole phase derivative.
-        // Only a failed syntactic classification needs joint cofactoring.
+        // Different selectors can cancel in the *whole* phase derivative.
+        // Keep the cheap syntactic classifier first; only its failures need
+        // exact joint cofactoring and bounded local function normalization.
         profile = joint_phase::profile(component, variable);
     }
     // Unsupported phases have no local rule, independent of the history.
@@ -233,6 +199,42 @@ fn reduce_path(component: &mut Component, variable: &Variable, allow_history: bo
     };
     rule.apply(component, variable, profile);
     true
+}
+
+/// Cancels common Clifford phases that depend only on hidden history values.
+///
+/// Multiplying an extended state by `(-1)^f(h)` applies a diagonal unitary to
+/// the hidden environment `h`; tracing that environment is invariant under
+/// the unitary. We greedily toggle the frequent linear and quadratic forms
+/// `h_i/2` and `h_i*h_j/2` only when doing so strictly shortens the exact phase
+/// polynomial. Every accepted step is semantic, while the size test merely
+/// chooses a useful representative.
+fn cancel_half_turn_history_phases(component: &mut Component) {
+    const HISTORY_LIMIT: usize = 64;
+
+    let history = component
+        .output
+        .history
+        .iter()
+        .map(HistoryEntry::value)
+        .filter(|value| value.is_affine())
+        .cloned()
+        .collect::<Vec<_>>();
+    // A large history must not suppress the linear single-history scan.
+    // Only the genuinely quadratic pair search retains a scheduling limit.
+    let pairs = (0..history.len())
+        .flat_map(|left| {
+            let history = &history;
+            (left + 1..history.len()).map(move |right| history[left].and(&history[right]))
+        })
+        .take(if history.len() <= HISTORY_LIMIT {
+            usize::MAX
+        } else {
+            0
+        });
+    component
+        .phase
+        .shorten_half_turns(history.iter().cloned().chain(pairs));
 }
 
 /// The complete supported dependence of a phase on one path variable.
@@ -431,4 +433,27 @@ fn integer(value: i64) -> BigRational {
 
 fn ratio(numerator: i64, denominator: i64) -> BigRational {
     BigRational::new(BigInt::from(numerator), BigInt::from(denominator))
+}
+
+#[cfg(test)]
+#[test]
+fn semantic_scalar_independence_also_removes_syntactic_binder_uses() {
+    use crate::symbolic::{HybridMemory, PhasePolynomial};
+    let v = BooleanPolynomial::variable(Variable::Path(0));
+    let a = BooleanPolynomial::variable(Variable::Path(1));
+    let condition = v.xor(&v.and(&a)).xor(&v.and(&a.complement()));
+    assert!(condition.variables().contains(&Variable::Path(0)));
+    let mut c = Component {
+        path_support: [0, 1].into(),
+        guard: vec![],
+        phase: PhasePolynomial::zero(),
+        scalar: Scalar::select(condition, Scalar::rational(integer(3)), Scalar::one()),
+        output: HybridMemory::default(),
+    };
+    assert!(!scalar_depends_on(&c.scalar, &Variable::Path(0)));
+    assert!(reduce_path(&mut c, &Variable::Path(0), false));
+    assert_eq!(c.scalar, Scalar::rational(integer(2)));
+    let mut vars = BTreeSet::new();
+    collect_scalar_variables(&c.scalar, &mut vars);
+    assert!(!vars.contains(&Variable::Path(0)));
 }
