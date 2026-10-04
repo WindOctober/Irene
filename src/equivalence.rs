@@ -16,6 +16,7 @@ use crate::symbolic::{
 
 mod aggregate;
 mod canonical;
+mod boolean_query;
 mod interface;
 mod input_recovery;
 mod kernel;
