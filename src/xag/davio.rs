@@ -198,5 +198,38 @@ pub(crate) fn normalize(
     Some(builder.network)
 }
 
+/// Exact preprocessing at the deterministic-output miter only. Other kernel
+/// obligations and the stored HPS representation are deliberately unchanged.
+pub(crate) fn preprocess(source: Network) -> Network {
+    let mode = std::env::var("IRENE_XAG_DAVIO").unwrap_or_else(|_| "reverse".into());
+    let order = match mode.as_str() {
+        "forward" => Order::Forward,
+        "reverse" => Order::Reverse,
+        _ => return source,
+    };
+    let start = std::time::Instant::now();
+    let result = normalize(&source, order, 1_000_000, 50_000);
+    let accepted = result
+        .as_ref()
+        .is_some_and(|n| n.nodes.len() <= source.nodes.len());
+    let zero_outputs = result.as_ref().map(|n| {
+        n.outputs
+            .iter()
+            .filter(|&&id| n.nodes[id as usize] == [0, 0, 0])
+            .count()
+    });
+    eprintln!(
+        "xag-davio order={order:?} old={} new={:?} accepted={accepted} zero_outputs={zero_outputs:?}/{} elapsed_ms={:.3}",
+        source.nodes.len(),
+        result.as_ref().map(|n| n.nodes.len()),
+        source.outputs.len(),
+        start.elapsed().as_secs_f64() * 1000.0
+    );
+    match result {
+        Some(n) if accepted => n,
+        _ => source,
+    }
+}
+
 #[cfg(test)]
 mod tests;
