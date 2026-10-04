@@ -10,11 +10,18 @@ use crate::ir::{
 use crate::symbolic::{PhaseCoefficient, numeric_domains};
 use num_rational::BigRational;
 
+pub(super) mod dependency;
+
+#[cfg(feature = "rewrite-experiments")]
+mod port;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Strategy {
     Off,
     Scan,
     Wire,
+    #[cfg(feature = "rewrite-experiments")]
+    Port,
 }
 
 fn parse_strategy(value: Option<&str>) -> Result<Strategy, String> {
@@ -22,8 +29,10 @@ fn parse_strategy(value: Option<&str>) -> Result<Strategy, String> {
         None | Some("off") => Ok(Strategy::Off),
         Some("scan") => Ok(Strategy::Scan),
         Some("wire") => Ok(Strategy::Wire),
+        #[cfg(feature = "rewrite-experiments")]
+        Some("port") => Ok(Strategy::Port),
         Some(value) => Err(format!(
-            "unsupported IRENE_UNITARY_REWRITE={value:?}; expected off, scan, or wire"
+            "unsupported IRENE_UNITARY_REWRITE={value:?}; port requires the rewrite-experiments feature"
         )),
     }
 }
@@ -307,12 +316,8 @@ fn reduce_run(
     ids: &mut AstIdGenerator,
     work: &mut usize,
 ) -> Vec<Statement> {
-    let mut slots: Vec<_> = run
-        .into_iter()
-        .map(Op::from)
-        .filter(|op| !op.is_identity())
-        .map(Some)
-        .collect();
+    let mut slots: Vec<_> = run.into_iter().map(Op::from)
+        .filter(|op| !op.is_identity()).map(Some).collect();
     for _ in 0..MAX_PASSES {
         let mut index = WireIndex::new();
         for (i, op) in slots.iter().enumerate() {
@@ -322,7 +327,22 @@ fn reduce_run(
                 }
             }
         }
-        let changed = sweep(&mut slots, &index, strategy, ids, work);
+        let mut changed = false;
+        #[cfg(feature = "rewrite-experiments")]
+        if strategy == Strategy::Port {
+            for selected in port::candidates(&slots) {
+                if !spend(work) {
+                    break;
+                }
+                changed |= apply_candidate(&mut slots, &selected, &index, ids, work);
+            }
+        } else {
+            changed |= sweep(&mut slots, &index, strategy, ids, work);
+        }
+        #[cfg(not(feature = "rewrite-experiments"))]
+        {
+            changed |= sweep(&mut slots, &index, strategy, ids, work);
+        }
         if !changed || *work == 0 {
             break;
         }
