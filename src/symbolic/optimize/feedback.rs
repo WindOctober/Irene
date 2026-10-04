@@ -21,6 +21,9 @@ pub(crate) fn merge_feedback_groups(
     components: Vec<Component>,
     retired: &[ClassicalBit],
 ) -> Vec<Component> {
+    if !crate::ablation::permit(crate::ablation::Group::FeedbackSummary) {
+        return components;
+    }
     if components.len() < 2 || components.len() > 32 {
         return components;
     }
