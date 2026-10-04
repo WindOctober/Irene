@@ -10,11 +10,14 @@ use std::fmt;
 use num_rational::BigRational;
 
 use crate::ir::{ClassicalBit, Program, Qubit, SymbolId};
-use crate::symbolic::{BooleanPolynomial, HistoryEntry, HybridPathSum, Monomial, Scalar, Variable};
+use crate::symbolic::{
+    BooleanPolynomial, HistoryEntry, HybridPathSum, Monomial, PhasePolynomial, Scalar, Variable,
+};
 
 mod aggregate;
 mod canonical;
 mod interface;
+mod input_recovery;
 mod kernel;
 mod smt;
 mod tuning;
@@ -63,6 +66,9 @@ impl fmt::Display for Verdict {
 /// Exact evidence supporting a verdict, or the boundary that made it unknown.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Evidence {
+    /// A path-free, unit-weight fragment has the same classical observations;
+    /// phase erasure is justified and complete snapshots match exactly.
+    DeterministicExact,
     /// Exact affine computational-basis output supports differ at a checked input.
     OutputSupportMismatch,
     /// Complete single-component snapshots agree under checked path renaming.
