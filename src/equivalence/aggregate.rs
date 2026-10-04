@@ -7,7 +7,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use num_bigint::BigInt;
 use num_rational::BigRational;
 use scalar::{normalize_scalar, scalar_conditions_within_budget, scalar_within_budget};
-use collection::{ExactAggregate, ExactTerm, accumulate_exact_term};
+use collection::{ExactAggregate, ExactTerm, accumulate_exact_term, aggregate_difference};
+use super::DensityCounterexample;
 use scalar::integer;
 #[cfg(test)]
 use scalar::ratio;
@@ -75,6 +76,7 @@ const MAX_RESIDUAL_SPLITS: usize = 255;
 const MAX_RESIDUAL_ORDER_VISITS: usize = 4096;
 const MAX_FACTOR_PRODUCTS: usize = 100_000;
 const MAX_FACTOR_PHASE_CELLS: usize = 250_000;
+const MAX_FREE_SPLITS: usize = 4095;
 
 #[derive(Clone)]
 struct WorkingTerm {
@@ -303,6 +305,107 @@ struct ReductionBudget {
     splits: usize,
     products: usize,
     phase_cells: usize,
+}
+
+pub(crate) enum AggregateComparison {
+    Equivalent,
+    SmtEquivalent(crate::equivalence::smt::PortfolioResult),
+    Different(
+        Box<DensityCounterexample>,
+        crate::equivalence::smt::PortfolioResult,
+    ),
+    Unknown,
+}
+
+pub(crate) fn compare_kernels(left: &DensityKernel, right: &DensityKernel) -> AggregateComparison {
+    if left.input_pairs != right.input_pairs
+        || left.quantum_output_count != right.quantum_output_count
+        || left.classical_output_count != right.classical_output_count
+    {
+        return AggregateComparison::Unknown;
+    }
+
+    // A non-flat XAG is not an ANF expansion request. Keep the full graph for
+    // graph-native elimination and exact SMT lowering instead.
+    if left
+        .terms
+        .iter()
+        .chain(&right.terms)
+        .any(|t| !graph::is_algebraic(&working_term(t)))
+    {
+        return exact_smt::compare_raw(left, right);
+    }
+
+    let (reduced_left, reduced_right) =
+        if let ([left_term], [right_term]) = (left.terms.as_slice(), right.terms.as_slice()) {
+            // Reuse the same local reductions if the optional product certificate
+            // refuses. Never repeat large local substitutions merely to probe it.
+            let mut left_checkpoint = None;
+            let mut right_checkpoint = None;
+            let left = reduce_working_term_with_checkpoint(
+                working_term(left_term),
+                Some(&mut left_checkpoint),
+            );
+            let right = reduce_working_term_with_checkpoint(
+                working_term(right_term),
+                Some(&mut right_checkpoint),
+            );
+            if factored::matches(&left, &right) {
+                return AggregateComparison::Equivalent;
+            }
+            if phase_basis::matches(&left, &right) {
+                return AggregateComparison::Equivalent;
+            }
+            if phase_basis::matches_checkpoints(
+                &left,
+                &right,
+                left_checkpoint.as_ref(),
+                right_checkpoint.as_ref(),
+            ) {
+                return AggregateComparison::Equivalent;
+            }
+            (
+                reduce_reductions(std::iter::once(left)),
+                reduce_reductions(std::iter::once(right)),
+            )
+        } else {
+            (reduce_kernel(left), reduce_kernel(right))
+        };
+    if std::env::var_os("IRENE_DEBUG_AGGREGATE").is_some() {
+        for (side, reduced) in [("left", &reduced_left), ("right", &reduced_right)] {
+            eprintln!(
+                "aggregate {side} finished: {:?}",
+                reduced
+                    .as_ref()
+                    .map(|map| (map.len(), map.values().map(BTreeMap::len).sum::<usize>()))
+            );
+        }
+    }
+    match (reduced_left, reduced_right) {
+        (Some(reduced_left), Some(reduced_right)) => {
+            if reduced_left == reduced_right {
+                return AggregateComparison::Equivalent;
+            }
+            let mut budget = MAX_FREE_SPLITS;
+            if tensor_aggregate_match(&reduced_left, &reduced_right, &mut budget) {
+                return AggregateComparison::Equivalent;
+            }
+            let Some(difference) = aggregate_difference(reduced_left, reduced_right) else {
+                return AggregateComparison::Unknown;
+            };
+            // The SMT query sees the COMPLETE selector-bearing difference,
+            // never a selector/phase-erased sufficient EQ obligation.
+            let smt_result = exact_smt::compare(&difference, left);
+            if !matches!(smt_result, AggregateComparison::Unknown) {
+                return smt_result;
+            }
+            if zero_by_free_splitting(difference, &mut budget, 0) {
+                return AggregateComparison::Equivalent;
+            }
+            AggregateComparison::Unknown
+        }
+        _ => exact_smt::compare_raw(left, right),
+    }
 }
 
 /// Reduces and coherently combines every component-pair contribution.
