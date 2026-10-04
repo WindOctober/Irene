@@ -53,6 +53,16 @@ pub(super) fn hps(components: Vec<Component>) -> HybridPathSum {
 }
 
 #[test]
+fn ablation_keeps_vf2_alpha_matching() {
+    crate::ablation::run(
+        crate::ablation::Config::without(crate::ablation::Group::ALL),
+        || {
+            matches_bijective_path_alpha_renaming_and_component_order();
+        },
+    );
+}
+
+#[test]
 fn matches_bijective_path_alpha_renaming_and_component_order() {
     let mut left_first = component(&[3, 8], y(3).xor(&y(8)));
     left_first.guard = vec![y(8).xor(&x(0)), y(3)];

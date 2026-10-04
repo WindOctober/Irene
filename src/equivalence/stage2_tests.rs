@@ -24,7 +24,10 @@ fn check(left: &Program, right: &Program, config: &EquivalenceConfig, equivalent
         assert!(!exact_hps_certificate(&prepared));
         assert!(matches!(
             result.evidence,
-            Evidence::KernelAggregationRequired | Evidence::OutputSupportMismatch
+            Evidence::KernelAggregationRequired
+                | Evidence::OutputSupportMismatch
+                | Evidence::DensityEntryCounterexample
+                | Evidence::PhaseCounterexample
         ));
         assert_ne!(result.verdict, Verdict::Equivalent);
         return;

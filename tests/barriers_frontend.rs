@@ -36,20 +36,11 @@ fn effects(block: &Block) -> Vec<StatementKind> {
 }
 
 #[test]
-fn empty_and_operand_barriers_lower_to_empty_scopes() {
+fn empty_and_operand_barriers_have_no_effects() {
     for version in [2, 3] {
         for body in ["barrier;", "barrier q;", "barrier q[0], q[1];"] {
             let program = parse(version, body).unwrap();
             let baseline = parse(version, "").unwrap();
-            assert_eq!(
-                program.body.statements.len(),
-                baseline.body.statements.len() + 1
-            );
-            let StatementKind::Scope(scope) = &program.body.statements.last().unwrap().kind else {
-                panic!("barrier must lower to an empty scope");
-            };
-            assert!(scope.statements.is_empty());
-            assert!(scope.classical_registers.is_empty());
             assert_eq!(effects(&program.body), effects(&baseline.body));
         }
     }

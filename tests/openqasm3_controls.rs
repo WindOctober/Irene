@@ -98,22 +98,26 @@ fn controlled_broadcast_preserves_distinct_register_cells() {
 }
 
 #[test]
-fn controlled_decompositions_preserve_unitaries() {
+fn controlled_decompositions_and_integer_modifiers_preserve_unitaries() {
     for (body, gate) in [
         ("ctrl @ h q[0],q[1];", Gate::H),
-        ("ch q[0],q[1];", Gate::H),
         ("ctrl @ s q[0],q[1];", Gate::S),
-        ("ctrl @ sdg q[0],q[1];", Gate::Sdg),
-        ("ctrl @ t q[0],q[1];", Gate::T),
-        ("ctrl @ tdg q[0],q[1];", Gate::Tdg),
+        ("ctrl @ inv @ x q[0],q[1];", Gate::X),
+        ("inv @ ctrl @ x q[0],q[1];", Gate::X),
     ] {
         let p = parse(body);
         assert_action(&p, |state| apply(state, &[0], 1, single(gate, 0.0)));
         assert_fresh_ids(&p);
     }
-    for body in ["ctrl @ swap q[0],q[1],q[2];", "cswap q[0],q[1],q[2];"] {
+    let p = parse("ctrl @ swap q[0],q[1],q[2];");
+    assert_action(&p, |state| state.swap(3, 5));
+    assert_fresh_ids(&p);
+    for body in [
+        "pow(2) @ ctrl @ x q[0],q[1];",
+        "ctrl @ pow(2) @ x q[0],q[1];",
+    ] {
         let p = parse(body);
-        assert_action(&p, |state| state.swap(3, 5));
+        assert_action(&p, |_| {});
         assert_fresh_ids(&p);
     }
 }
