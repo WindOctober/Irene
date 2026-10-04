@@ -38,7 +38,8 @@ pub mod interval_hps;
 pub mod dependency_miter;
 
 pub use smt::{
-    PortfolioConsensus, PortfolioResult, Solver, SolverDisagreement, SolverResult, SolverStatus,
+    PortfolioConsensus, PortfolioResult, SOLVER_TIMEOUT, Solver, SolverDisagreement, SolverResult,
+    SolverStatus,
 };
 
 pub use kernel::{DensityKernel, KernelBuildError};
@@ -72,54 +73,69 @@ pub enum Verdict {
 
 impl fmt::Display for Verdict {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let text = match self {
+        formatter.write_str(match self {
             Self::Equivalent => "equivalent",
             Self::NotEquivalent => "not-equivalent",
             Self::Unknown => "unknown",
-        };
-        formatter.write_str(text)
+        })
     }
 }
 
 /// Exact evidence supporting a verdict, or the boundary that made it unknown.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Evidence {
+    // ---------------------------------------------------------------------
+    //                         Equivalent proofs
+    // ---------------------------------------------------------------------
+    /// Complete single-component snapshots agree under checked path renaming.
+    ExactHps,
+    /// A fixed path bijection preserves all outputs and phase modulo one.
+    PathwiseGraph,
     /// A path-free, unit-weight fragment has equal observable outputs and
     /// satisfies the applicable history and relative-phase obligations.
     DeterministicExact,
-    /// A fixed path bijection preserves all outputs and phase modulo one.
-    PathwiseGraph,
+    /// Both density kernels reduce exactly after constrained path elimination.
+    DensityKernelExact,
+    /// A validated full-unitary miter has exact normalized trace modulus one.
+    UnitaryTraceExact,
+
+    // ---------------------------------------------------------------------
+    //                     Not-equivalent witnesses
+    // ---------------------------------------------------------------------
     /// Exact output-difference SMT query is SAT.
     OutputCounterexample,
     /// Exact relative-phase query is SAT after proving injectivity.
     PhaseCounterexample,
-    /// A required SMT obligation had no sufficient definitive answer.
-    SolverInconclusive,
-    /// Exact affine computational-basis output supports differ at a checked input.
+    /// The two programs have different exact affine computational-basis supports.
     OutputSupportMismatch,
-    /// Complete single-component snapshots agree under checked path renaming.
-    ExactHps,
-    /// Both density kernels reduce exactly after constrained path elimination.
-    DensityKernelExact,
     /// A complete density-kernel entry difference was evaluated exactly and is nonzero.
     DensityEntryCounterexample,
-    /// A validated full-unitary miter has exact normalized trace modulus one.
-    UnitaryTraceExact,
-    /// The complete squared trace modulus is rational and different from one.
+    /// The complete normalized trace of a validated full-unitary miter has
+    /// this exact squared modulus, different from one (no tolerance).
     UnitaryTraceMismatch {
         normalized_trace_norm_squared: BigRational,
     },
-    /// The complete squared trace modulus is nonrational, hence not one.
-    /// Canonical power-basis coefficients in Q(zeta_(2^62)), powers below 2^61.
+    /// Exact nonrational squared trace modulus in Q(zeta_(2^62)), encoded as
+    /// canonical (power, rational coefficient) pairs with power below 2^61.
     UnitaryTraceCyclotomicMismatch {
         normalized_trace_norm_squared: Vec<(u64, BigRational)>,
     },
+
+    // ---------------------------------------------------------------------
+    //                 Unsupported or incomplete analyses
+    // ---------------------------------------------------------------------
     /// The requested symbolic interface is not supported soundly.
     UnsupportedInterface(UnsupportedInterface),
     /// The exact fast paths did not apply; kernel coefficient aggregation is required.
     KernelAggregationRequired,
-    /// Exact kernel construction declined; no equivalence conclusion follows.
+
+    // ---------------------------------------------------------------------
+    //                         Analysis failures
+    // ---------------------------------------------------------------------
+    /// The exact density kernel could not be constructed.
     KernelBuild(KernelBuildError),
+    /// A required SMT obligation had no sufficient definitive answer.
+    SolverInconclusive,
 }
 
 /// Exact channel-matrix entry witnessing a difference between two programs.
