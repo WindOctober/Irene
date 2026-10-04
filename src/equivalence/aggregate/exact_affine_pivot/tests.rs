@@ -580,10 +580,15 @@ fn affine_collision_crosses_loose_bound_without_raising_global_cap() {
     }
     assert_eq!(source.phase.term_count(), 96000);
     assert!(!source.substitution_within_budget(&v, &replacement));
+    let whole_source = source.clone();
     assert!(apply(&mut source, &v, &replacement, &mut { WORK_CELLS }));
     assert_eq!(source.phase, expected);
-    // Enclosing reducer integration is audited separately. This module's
-    // complete substitution and unchanged global cap are checked here.
+    let Reduction::Exact(result) = reduce_working_term(whole_source) else {
+        panic!("complete enclosing reduction must preserve the exact rewrite");
+    };
+    assert_eq!(result.phase, expected);
+    assert!(result.constraints.is_empty());
+    assert_eq!(result.coefficient, KernelScalar::Rational(integer(2)));
 
     // Genuine output expansion beyond the original global cap still refuses.
     let (mut source, v, replacement) = fixture();

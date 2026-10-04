@@ -6,7 +6,8 @@ use super::kernel::{
 use std::collections::{BTreeMap, BTreeSet};
 use num_bigint::BigInt;
 use num_rational::BigRational;
-use scalar::{scalar_conditions_within_budget, scalar_within_budget};
+use scalar::{normalize_scalar, scalar_conditions_within_budget, scalar_within_budget};
+use collection::ExactTerm;
 #[cfg(test)]
 use scalar::{integer, ratio};
 
@@ -243,3 +244,599 @@ fn lifted_boolean_term_bound(
     }
     Some(total)
 }
+
+// Optional scheduling probes, shared across one local reduction's iterations.
+const MAX_ALTERNATIVE_PIVOT_PROBES: usize = 32;
+const MAX_DEFERRED_PHASE_PROBES: usize = 16;
+const MAX_DEFERRED_PHASE_PATHS: usize = 64;
+const MAX_DEFERRED_PHASE_TERMS: usize = 4096;
+const MAX_SELECTOR_RECOVERY_ROWS: usize = 64;
+const MAX_SELECTOR_RECOVERY_TERMS: usize = 4096;
+
+enum Reduction {
+    Exact(ExactTerm),
+    Zero,
+    /// A valid, bounded summand that local identities could not finish.
+    Sum(Box<WorkingTerm>),
+    /// Unsupported/resource refusal; must not be salvaged as a partial sum.
+    Residual,
+}
+
+fn scalar_algebraic(s: &KernelScalar) -> bool {
+    match s {
+        KernelScalar::Select {
+            condition,
+            when_true,
+            when_false,
+        } => {
+            condition.is_algebraic() && scalar_algebraic(when_true) && scalar_algebraic(when_false)
+        }
+        KernelScalar::Sqrt(x) | KernelScalar::Neg(x) | KernelScalar::Inverse(x) => {
+            scalar_algebraic(x)
+        }
+        KernelScalar::Mul(a, b) | KernelScalar::Add(a, b) => {
+            scalar_algebraic(a) && scalar_algebraic(b)
+        }
+        _ => true,
+    }
+}
+pub(super) fn is_algebraic(t: &WorkingTerm) -> bool {
+    t.phase.is_algebraic()
+        && t.constraints
+            .iter()
+            .all(KernelBooleanPolynomial::is_algebraic)
+        && scalar_algebraic(&t.coefficient)
+}
+
+
+fn reduce_term(term: &KernelTerm) -> Reduction {
+    reduce_working_term(working_term(term))
+}
+
+fn working_term(term: &KernelTerm) -> WorkingTerm {
+    let mut working = WorkingTerm::from_kernel(term);
+    working.coefficient = normalize_scalar(working.coefficient);
+    working
+}
+
+fn reduce_working_term(term: WorkingTerm) -> Reduction {
+    reduce_working_term_with_checkpoint(term, None)
+}
+
+fn reduce_working_term_with_checkpoint(
+    mut term: WorkingTerm,
+    checkpoint: Option<&mut Option<WorkingTerm>>,
+) -> Reduction {
+    if !is_algebraic(&term) {
+        // Graph-native reduction is a separate audit unit; never expand here.
+        return Reduction::Residual;
+    }
+    if term.phase.term_count() > MAX_PHASE_TERMS && term.initial_alias_compaction_within_budget() {
+        // Literal renaming cannot grow any Boolean/phase polynomial. This
+        // bounded entrance may compact an oversized initial alias encoding,
+        // but the original representation check remains mandatory afterward.
+        term.eliminate_literal_aliases();
+        debug_term("initial-alias-compaction", &term);
+    }
+    if !term.within_budget() {
+        debug_term("initial-representation-budget", &term);
+        return Reduction::Residual;
+    }
+    term.eliminate_literal_aliases();
+    match term.normalize_constraints() {
+        ConstraintNormalization::Normalized => {}
+        ConstraintNormalization::Contradiction => return Reduction::Zero,
+        ConstraintNormalization::BudgetExceeded => {
+            // normalize_constraints is transactional: its matrix work uses
+            // local rows and commits only on success. Keep the original
+            // bounded conjunction and use direct exact pivots instead.
+            debug_term("initial-affine-budget-sparse-fallback", &term);
+            match term.clean_constraints() {
+                ConstraintNormalization::Normalized => {}
+                ConstraintNormalization::Contradiction => return Reduction::Zero,
+                ConstraintNormalization::BudgetExceeded => return Reduction::Residual,
+            }
+        }
+    }
+    term.eliminate_literal_aliases();
+    if term.phase.term_count() >= 256 {
+        term.phase.index_occurrences();
+    }
+    debug_term("initial", &term);
+
+    let mut span_recovery_available = true;
+    let mut selector_recovery_available = true;
+    let mut alternative_pivot_probes = MAX_ALTERNATIVE_PIVOT_PROBES;
+    let mut deferred_phase_probes = MAX_DEFERRED_PHASE_PROBES;
+    let mut exact_pivot_cells = exact_affine_pivot::WORK_CELLS;
+    loop {
+        let mut local_budget_refused = false;
+        if let Some((mut variable, mut replacement)) = term.best_constraint_pivot() {
+            let substitution_fits = term.substitution_within_budget(&variable, &replacement);
+            if !substitution_fits || (span_recovery_available && replacement.term_count() > 64) {
+                // A definition v=F and an observed output o=F can expose
+                // v=o by exact ANF row operations, avoiding expansion of
+                // F into the phase or another large definition. There is
+                // one proactive probe, but a later unsafe substitution may
+                // probe again: exact pivots can have shrunk the matrix since
+                // an earlier refusal. Commit only a changed normal form, so
+                // repeatedly probing the same span cannot cause a loop.
+                span_recovery_available = false;
+                // Probe transactionally: a refused optional normalization
+                // must not discard an otherwise budget-safe substitution or
+                // expose a partially row-reduced constraint collection.
+                let mut normalized = term.constraints.clone();
+                match normalize_constraint_span(&mut normalized) {
+                    ConstraintNormalization::Normalized if normalized != term.constraints => {
+                        term.constraints = normalized;
+                        term.eliminate_literal_aliases();
+                        continue;
+                    }
+                    ConstraintNormalization::Normalized => {}
+                    ConstraintNormalization::Contradiction => return Reduction::Zero,
+                    ConstraintNormalization::BudgetExceeded => {}
+                }
+            }
+            if !substitution_fits {
+                if exact_affine_pivot::apply(
+                    &mut term,
+                    &variable,
+                    &replacement,
+                    &mut exact_pivot_cells,
+                ) {
+                    debug_term("exact-affine-phase-pivot", &term);
+                    match term.clean_constraints() {
+                        ConstraintNormalization::Normalized => continue,
+                        ConstraintNormalization::Contradiction => return Reduction::Zero,
+                        ConstraintNormalization::BudgetExceeded => return Reduction::Residual,
+                    }
+                }
+                if let Some(alternative) =
+                    term.budget_safe_constraint_pivot(&mut alternative_pivot_probes)
+                {
+                    (variable, replacement) = alternative;
+                    debug_term("alternative-pivot", &term);
+                } else if exact_guard_pivot::apply(
+                    &mut term,
+                    &variable,
+                    &replacement,
+                    &mut exact_pivot_cells,
+                ) {
+                    // Preserve cheap safe pivots first; they may shrink the
+                    // complete source/RHS before the shared diagram attempt.
+                    debug_term("exact-guard-pivot", &term);
+                    match term.clean_constraints() {
+                        ConstraintNormalization::Normalized => continue,
+                        ConstraintNormalization::Contradiction => return Reduction::Zero,
+                        ConstraintNormalization::BudgetExceeded => return Reduction::Residual,
+                    }
+                } else {
+                    debug_term("substitution-budget-postponed", &term);
+                    local_budget_refused = true;
+                }
+            }
+            if !local_budget_refused {
+                term.substitute(&variable, &replacement);
+                term.paths.remove(&variable);
+                if !term.within_budget() {
+                    debug_term("representation-budget", &term);
+                    return Reduction::Residual;
+                }
+                match term.clean_constraints() {
+                    ConstraintNormalization::Normalized => {}
+                    ConstraintNormalization::Contradiction => return Reduction::Zero,
+                    ConstraintNormalization::BudgetExceeded => return Reduction::Residual,
+                }
+                continue;
+            }
+        }
+
+        let mut reduced = false;
+        for variable in term.paths.iter().cloned().collect::<Vec<_>>() {
+            if local_budget_refused {
+                // An earlier unbounded phase-first prototype regressed real
+                // cases. Recovery is optional and only scans a small residual,
+                // with a shared probe limit across all local iterations.
+                if deferred_phase_probes == 0
+                    || term.paths.len() > MAX_DEFERRED_PHASE_PATHS
+                    || term.phase.term_count() > MAX_DEFERRED_PHASE_TERMS
+                    || term
+                        .constraints
+                        .iter()
+                        .try_fold(0usize, |total, row| {
+                            total
+                                .checked_add(row.term_count())
+                                .filter(|size| *size <= MAX_DEFERRED_PHASE_TERMS)
+                        })
+                        .is_none()
+                {
+                    break;
+                }
+                deferred_phase_probes -= 1;
+            }
+            let profile = term.phase_sum_profile(&variable);
+            if let Some(additions) = profile.omega_additions()
+                && !term
+                    .phase_rewrite_within_budget(&variable, additions.iter().map(|(p, c)| (p, c)))
+            {
+                debug_term("omega-lift-budget-postponed", &term);
+                local_budget_refused = true;
+                continue;
+            }
+            let Some(factor) = profile.apply(&mut term, &variable) else {
+                continue;
+            };
+            term.remove_summed_path(&variable, factor);
+            if !term.within_budget() {
+                debug_term("path-rule-budget", &term);
+                return Reduction::Residual;
+            }
+            match term.clean_constraints() {
+                ConstraintNormalization::Normalized => {}
+                // In particular, sum_v (-1)^v creates the exact Fourier
+                // constraint 1 = 0 and therefore annihilates this term.
+                ConstraintNormalization::Contradiction => return Reduction::Zero,
+                ConstraintNormalization::BudgetExceeded => {
+                    debug_term("path-rule-budget", &term);
+                    return Reduction::Residual;
+                }
+            }
+            reduced = true;
+            break;
+        }
+        if !reduced {
+            if span_recovery_available
+                && term.constraints.iter().any(|equation| {
+                    equation
+                        .terms()
+                        .flat_map(KernelMonomial::variables)
+                        .any(|variable| term.paths.contains(variable))
+                })
+            {
+                span_recovery_available = false;
+                let mut normalized = term.constraints.clone();
+                match normalize_constraint_span(&mut normalized) {
+                    ConstraintNormalization::Normalized if normalized != term.constraints => {
+                        term.constraints = normalized;
+                        continue;
+                    }
+                    ConstraintNormalization::Contradiction => return Reduction::Zero,
+                    _ => {}
+                }
+            }
+            // Free-coordinate equalities may cancel a bound-dependent phase
+            // before the paths can be summed. Retain their defining deltas;
+            // this is simplification on the selector, never summing a free
+            // coordinate. The optional probe is transactional and runs once.
+            if selector_recovery_available && !term.paths.is_empty() {
+                selector_recovery_available = false;
+                if term.constraints.len() <= MAX_SELECTOR_RECOVERY_ROWS
+                    && term.phase.term_count() <= MAX_SELECTOR_RECOVERY_TERMS
+                    && term
+                        .constraints
+                        .iter()
+                        .try_fold(0usize, |total, row| {
+                            total
+                                .checked_add(row.term_count())
+                                .filter(|size| *size <= MAX_SELECTOR_RECOVERY_TERMS)
+                        })
+                        .is_some()
+                {
+                    let mut normalized = term.clone();
+                    match normalized.normalize_selector() {
+                        ConstraintNormalization::Contradiction => return Reduction::Zero,
+                        ConstraintNormalization::Normalized
+                            if normalized.constraints != term.constraints
+                                || normalized.coefficient != term.coefficient
+                                || normalized.phase != term.phase =>
+                        {
+                            term = normalized;
+                            debug_term("bound-selector-recovery", &term);
+                            continue;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            if local_budget_refused {
+                // Every committed local step is complete. No refused pivot,
+                // partial matrix, or prefix aggregate has changed this term.
+                // Move (do not clone) this exact bounded checkpoint for the
+                // optional EQ-only route; the ordinary result stays Residual.
+                if let Some(checkpoint) = checkpoint {
+                    debug_term("whole-term-checkpoint", &term);
+                    *checkpoint = self::checkpoint::capture(term);
+                }
+                return Reduction::Residual;
+            }
+            break;
+        }
+    }
+
+    if !term.paths.is_empty() {
+        debug_term("residual", &term);
+        return Reduction::Sum(Box::new(term));
+    }
+    match term.normalize_selector() {
+        ConstraintNormalization::Normalized => {}
+        ConstraintNormalization::Contradiction => return Reduction::Zero,
+        ConstraintNormalization::BudgetExceeded => return Reduction::Residual,
+    }
+    debug_term("exact", &term);
+    Reduction::Exact(ExactTerm {
+        constraints: term.constraints,
+        coefficient: normalize_scalar(term.coefficient),
+        phase: term.phase,
+    })
+}
+
+fn debug_term(stage: &str, term: &WorkingTerm) {
+    if std::env::var_os("IRENE_DEBUG_AGGREGATE").is_some() {
+        eprintln!(
+            "aggregate {stage}: paths={} constraints={} phase_terms={}",
+            term.paths.len(),
+            term.constraints.len(),
+            term.phase.term_count(),
+        );
+    }
+}
+
+impl WorkingTerm {
+    fn initial_alias_compaction_within_budget(&self) -> bool {
+        if self.paths.len() > 100_000
+            || self.constraints.len() > MAX_CONSTRAINTS
+            || self.phase.term_count() > 200_000
+            || !scalar_within_budget(&self.coefficient)
+        {
+            return false;
+        }
+        let mut cells = 750_000usize;
+        let Some(remaining) = cells.checked_sub(self.paths.len() + self.constraints.len()) else {
+            return false;
+        };
+        cells = remaining;
+        let mut inspect = |monomial: &KernelMonomial| {
+            for _ in std::iter::once(()).chain(monomial.variables().map(|_| ())) {
+                let Some(remaining) = cells.checked_sub(1) else {
+                    return false;
+                };
+                cells = remaining;
+            }
+            true
+        };
+        self.constraints
+            .iter()
+            .all(|row| row.term_count() <= MAX_BOOLEAN_TERMS && row.terms().all(&mut inspect))
+            && self.phase.terms().all(|(monomial, _)| inspect(monomial))
+            && scalar_conditions_within_budget(&self.coefficient, |row| {
+                row.terms().all(&mut inspect)
+            })
+    }
+
+    /// Eliminate a forest of equations v=w in one traversal of the summand.
+    /// Only locally bound roots can be removed. Each removed Boolean binder
+    /// has exactly one extension, so this introduces no factor of two.
+    /// Distinct free roots are NEVER identified: their equality remains a
+    /// selector after renaming every original equation, including forest edges.
+    fn eliminate_literal_aliases(&mut self) {
+        fn root(
+            parents: &mut BTreeMap<KernelVariable, KernelVariable>,
+            variable: &KernelVariable,
+        ) -> KernelVariable {
+            let mut current = variable.clone();
+            let mut visited = Vec::new();
+            while let Some(parent) = parents.get(&current) {
+                visited.push(current.clone());
+                current = parent.clone();
+            }
+            for variable in visited {
+                parents.insert(variable, current.clone());
+            }
+            current
+        }
+
+        let mut parents = BTreeMap::new();
+        for equation in &self.constraints {
+            if equation.term_count() != 2 {
+                continue;
+            }
+            let mut variables = equation.terms().filter_map(|monomial| {
+                let mut variables = monomial.variables();
+                let first = variables.next()?;
+                variables.next().is_none().then_some(first)
+            });
+            let (Some(left), Some(right)) = (variables.next(), variables.next()) else {
+                continue;
+            };
+            let left = root(&mut parents, left);
+            let right = root(&mut parents, right);
+            if left == right {
+                continue;
+            }
+            let left_bound = self.paths.contains(&left);
+            let right_bound = self.paths.contains(&right);
+            let (removed, kept) = match (left_bound, right_bound) {
+                (false, false) => continue,
+                (true, false) => (left, right),
+                (false, true) => (right, left),
+                (true, true) if left < right => (right, left),
+                (true, true) => (left, right),
+            };
+            parents.insert(removed, kept);
+        }
+        if parents.is_empty() {
+            return;
+        }
+        // Resolve every chain before applying a simultaneous substitution.
+        for variable in parents.keys().cloned().collect::<Vec<_>>() {
+            root(&mut parents, &variable);
+        }
+        for equation in &mut self.constraints {
+            *equation = equation.rename_variables(&parents);
+        }
+        self.constraints.retain(|equation| !equation.is_zero());
+        self.phase.rename_variables(&parents);
+        self.coefficient = self.coefficient.rename_variables(&parents);
+        self.paths
+            .retain(|variable| !parents.contains_key(variable));
+    }
+
+    /// Substitution preserves the conjunction without Gaussian elimination.
+    /// During path reduction, remove only constant/duplicate equations; defer
+    /// rebuilding the matrix to the final selector normalizer. Recomputing
+    /// RREF after each of hundreds of path pivots dominated large OWM cases.
+    /// Every bound variable occurring in an affine row remains a directly
+    /// available pivot even when the rows are not in echelon form.
+    fn clean_constraints(&mut self) -> ConstraintNormalization {
+        if self.constraints.iter().any(KernelBooleanPolynomial::is_one) {
+            return ConstraintNormalization::Contradiction;
+        }
+        self.constraints.retain(|row| !row.is_zero());
+        self.constraints.sort();
+        self.constraints.dedup();
+        ConstraintNormalization::Normalized
+    }
+
+    /// Simplifies the summand under known triangular equalities, retaining each
+    /// defining equation because its variables are free kernel coordinates.
+    /// Under `[v xor f=0]`, replacing v by f in every *other* constraint,
+    /// coefficient and phase is exact. It is not summation over v.
+    ///
+    /// Choose only the least variable in a row, occurring as a singleton and
+    /// nowhere else: its replacement uses strictly greater variables. This
+    /// includes nonlinear definitions, e.g. `x = y*z`, but not `x = x*y`.
+    /// Substitution may expose new eligible rows, so repeat to a fixed point. A
+    /// work limit is an inconclusive result, not a partially reduced proof.
+    fn normalize_selector(&mut self) -> ConstraintNormalization {
+        const MAX_ROUNDS: usize = 64;
+        for _ in 0..MAX_ROUNDS {
+            match normalize_constraint_span(&mut self.constraints) {
+                ConstraintNormalization::Normalized => {}
+                result => return result,
+            }
+            let before = self.constraints.clone();
+            for index in 0..before.len() {
+                // Earlier substitutions can change a later definition. Use
+                // the current equation, not a stale snapshot of its RHS.
+                let equation = self.constraints[index].clone();
+                let Some(variable) = equation.variables().into_iter().next() else {
+                    continue;
+                };
+                let atom = KernelMonomial::variable(variable.clone());
+                if !equation.has_term(&atom)
+                    || equation
+                        .terms()
+                        .any(|term| term != &atom && term.contains(&variable))
+                {
+                    continue;
+                }
+                let replacement =
+                    equation.xor(&KernelBooleanPolynomial::variable(variable.clone()));
+                if !self.substitution_within_budget(&variable, &replacement) {
+                    return ConstraintNormalization::BudgetExceeded;
+                }
+                for (other, row) in self.constraints.iter_mut().enumerate() {
+                    if other != index && row.terms().any(|term| term.contains(&variable)) {
+                        *row = row.substitute(&variable, &replacement);
+                    }
+                }
+                self.coefficient =
+                    normalize_scalar(self.coefficient.substitute(&variable, &replacement));
+                self.phase.substitute(&variable, &replacement);
+                if !self.within_budget() {
+                    return ConstraintNormalization::BudgetExceeded;
+                }
+            }
+            if self.constraints == before {
+                return ConstraintNormalization::Normalized;
+            }
+        }
+        ConstraintNormalization::BudgetExceeded
+    }
+
+    /// A bounded, read-only alternative search; every proposal uses the same
+    /// exact pivot condition and full substitution preflight as the fast path.
+    fn budget_safe_constraint_pivot(
+        &self,
+        probes: &mut usize,
+    ) -> Option<(KernelVariable, KernelBooleanPolynomial)> {
+        let mut candidates = self.constraint_pivots();
+        while *probes > 0 {
+            let (variable, equation) = candidates.next()?;
+            *probes -= 1;
+            let replacement = equation.xor(&KernelBooleanPolynomial::variable(variable.clone()));
+            if self.substitution_within_budget(variable, &replacement) {
+                return Some((variable.clone(), replacement));
+            }
+        }
+        None
+    }
+
+    fn constraint_pivots(
+        &self,
+    ) -> impl Iterator<Item = (&KernelVariable, &KernelBooleanPolynomial)> {
+        self.constraints.iter().flat_map(move |equation| {
+            // Only a singleton monomial can be a pivot. Visiting those
+            // directly avoids the old equations x all-paths Cartesian
+            // scan; construct the replacement only for the winner.
+            equation.terms().filter_map(move |atom| {
+                let mut variables = atom.variables();
+                let variable = variables.next()?;
+                if variables.next().is_some()
+                    || !self.paths.contains(variable)
+                    || equation
+                        .terms()
+                        .any(|term| term != atom && term.contains(variable))
+                {
+                    return None;
+                }
+                Some((variable, equation))
+            })
+        })
+    }
+
+    /// Checks the largest phase representation that a local rewrite can
+    /// create before changing the working term.
+    ///
+    /// Zeroing `variable` removes every phase monomial that contains it. Each
+    /// subsequent Boolean lift is bounded independently; collisions with the
+    /// surviving phase can only reduce the resulting map size. Besides
+    /// bounding the final phase, this bounds the temporary map constructed by
+    /// `KernelPhasePolynomial::add_boolean`.
+    fn phase_rewrite_within_budget<'a>(
+        &self,
+        variable: &KernelVariable,
+        additions: impl IntoIterator<
+            Item = (
+                &'a KernelBooleanPolynomial,
+                &'a crate::symbolic::PhaseCoefficient,
+            ),
+        >,
+    ) -> bool {
+        let mut projected_terms = self.phase.term_count() - self.phase.occurrence_count(variable);
+        for (polynomial, coefficient) in additions {
+            let Some(lifted_terms) =
+                lifted_boolean_term_bound(polynomial.term_count(), coefficient)
+            else {
+                return false;
+            };
+            let Some(projected) = projected_terms.checked_add(lifted_terms) else {
+                return false;
+            };
+            projected_terms = projected;
+            if projected_terms > MAX_PHASE_TERMS {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn remove_summed_path(&mut self, variable: &KernelVariable, factor: KernelScalar) {
+        self.paths.remove(variable);
+        self.coefficient = normalize_scalar(factor.multiply(self.coefficient.clone()));
+    }
+
+}
+
+#[cfg(test)]
+mod local_reducer_tests;
