@@ -4,6 +4,7 @@ use std::fmt;
 use std::sync::{Arc, OnceLock};
 
 mod graph;
+pub mod statistics;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Variable {
