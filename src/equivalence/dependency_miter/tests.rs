@@ -256,18 +256,26 @@ fn tiny_exact_inverse_pair_is_preferred_to_tolerant_singletons() {
 }
 
 #[test]
-fn ablation_preserves_miter_but_disables_exact_and_tolerant_gate_rewrites() {
+fn gate_ablation_declines_all_miter_modes_before_rewriting() {
     use crate::ablation::{self, Config, Group};
     for body in ["h q[0]; h q[0];", "p(0.00000000000000001) q[0];"] {
-        let (candidate, report) = ablation::run(Config::without([Group::GateRewrite]), || {
-            build(body, "", true)
-        });
-        assert!(candidate.statistics.before > 0);
-        assert_eq!(candidate.statistics.before, candidate.statistics.after);
-        assert!(candidate.is_exact());
-        assert_eq!(candidate.statistics.exact_rewrites, 0);
-        assert_eq!(candidate.statistics.approximate_single_gates, 0);
-        assert!(report.counts(Group::GateRewrite).skipped > 0);
-        assert_eq!(report.counts(Group::GateRewrite).admitted, 0);
+        let left = parse(body);
+        let right = parse("");
+        let config = EquivalenceConfig::positional(&left, &right).unwrap();
+        for mode in [Mode::Wire, Mode::Dag, Mode::DagScheduled] {
+            for tolerant in [false, true] {
+                let options = Options {
+                    mode,
+                    ..options(tolerant)
+                };
+                let (result, report) = ablation::run(Config::without([Group::GateRewrite]), || {
+                    candidate(&left, &right, &config, &options)
+                });
+                assert!(result.is_none(), "{mode:?}, tolerant={tolerant}");
+                assert_eq!(report.counts(Group::GateRewrite).skipped, 1);
+                assert_eq!(report.counts(Group::GateRewrite).admitted, 0);
+                assert!(candidate(&left, &right, &config, &options).is_some());
+            }
+        }
     }
 }

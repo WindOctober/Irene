@@ -8,9 +8,14 @@
 
 use std::{cell::RefCell, fmt, str::FromStr};
 
+/// Version 3 includes miter construction and its proofs in `gate-rewrite`.
+/// Version 2 disabled only gate rewriting and retained the miter routes.
+pub const SCHEMA_VERSION: u32 = 3;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(usize)]
 pub enum Group {
+    /// Circuit rewriting and the complete inverse-composition/miter proof route.
     GateRewrite,
     FeedbackSummary,
     ExpressionSimplify,
@@ -42,7 +47,7 @@ impl FromStr for Group {
     }
 }
 
-/// Four optimization switches; proof routes and basic elimination stay available.
+/// Four optimization switches; direct HPS/kernel proofs and basic elimination remain.
 /// Downstream passes may recover proofs lost by an upstream disabled pass.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Config {

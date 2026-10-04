@@ -39,11 +39,11 @@ fn default_scope_preserves_the_existing_pipeline() {
 }
 
 #[test]
-fn disabling_optimizations_keeps_unitary_proof_route() {
+fn disabling_optimizations_uses_original_hps_instead_of_unitary_trace() {
     let h = parse("qubit q; h q;");
     let (answer, report) = analyze(&h, &h, Group::ALL);
     assert_eq!(answer.verdict, Verdict::Equivalent);
-    assert_eq!(answer.evidence, Evidence::UnitaryTraceExact);
+    assert_eq!(answer.evidence, Evidence::ExactHps);
     assert!(report.counts(Group::GateRewrite).skipped > 0);
     let feedback = parse("qubit q; bit c; h q; c = measure q; if (c) { x q; } c = false;");
     let reset = parse("qubit q; bit c; reset q; c = false;");
@@ -53,6 +53,29 @@ fn disabling_optimizations_keeps_unitary_proof_route() {
         assert!(report.counts(group).skipped > 0, "{group:?}: {report}");
         assert_eq!(report.counts(group).admitted, 0);
     }
+}
+
+#[test]
+fn gate_ablation_bypasses_trace_but_retains_direct_eq_and_neq_proofs() {
+    let h = parse("qubit q; h q;");
+    let (normal, _) = analyze(&h, &h, []);
+    assert_eq!(normal.evidence, Evidence::UnitaryTraceExact);
+    let (direct, report) = analyze(&h, &h, [Group::GateRewrite]);
+    assert_eq!(direct.verdict, Verdict::Equivalent);
+    assert_eq!(direct.evidence, Evidence::ExactHps);
+    assert_eq!(report.counts(Group::GateRewrite).admitted, 0);
+    assert!(report.counts(Group::GateRewrite).skipped > 0);
+
+    let x = parse("qubit q; x q;");
+    let identity = parse("qubit q;");
+    let (direct, _) = analyze(&x, &identity, [Group::GateRewrite]);
+    assert_eq!(direct.verdict, Verdict::NotEquivalent);
+    assert!(!matches!(
+        direct.evidence,
+        Evidence::UnitaryTraceExact
+            | Evidence::UnitaryTraceMismatch { .. }
+            | Evidence::UnitaryTraceCyclotomicMismatch { .. }
+    ));
 }
 
 #[test]
