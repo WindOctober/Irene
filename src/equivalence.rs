@@ -18,6 +18,7 @@ mod aggregate;
 mod boolean_query;
 mod canonical;
 mod deterministic;
+mod graph_compare;
 mod input_recovery;
 mod interface;
 mod kernel;
@@ -78,6 +79,8 @@ pub enum Evidence {
     /// A path-free, unit-weight fragment has equal observable outputs and
     /// satisfies the applicable history and relative-phase obligations.
     DeterministicExact,
+    /// A fixed path bijection preserves all outputs and phase modulo one.
+    PathwiseGraph,
     /// Exact output-difference SMT query is SAT.
     OutputCounterexample,
     /// Exact relative-phase query is SAT after proving injectivity.
@@ -206,6 +209,9 @@ pub fn analyze(
         return Ok(analysis);
     }
     if let Some(result) = deterministic::compare(&prepared, (0, 0)) {
+        return result.map_err(InterfaceError::from);
+    }
+    if let Some(result) = graph_compare::compare(&prepared) {
         return result.map_err(InterfaceError::from);
     }
     Ok(Analysis {
