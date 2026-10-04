@@ -17,6 +17,7 @@ mod constraint_rows;
 mod constraints;
 mod exact_trig;
 mod exact_affine_pivot;
+mod exact_guard_pivot;
 mod factor_match;
 mod factor_normalize;
 mod factor_rectangle;
