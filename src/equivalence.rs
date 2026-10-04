@@ -21,6 +21,7 @@ mod input_recovery;
 mod kernel;
 mod phase_compare;
 mod smt;
+mod solver_query;
 mod tuning;
 mod unitary_rewrite;
 mod unitary_trace;
