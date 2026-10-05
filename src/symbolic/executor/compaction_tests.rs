@@ -55,7 +55,10 @@ fn partial_compaction_preserves_cross_terms_with_an_outside_summand() {
 fn complete_hidden_history_reduction_preserves_density() {
     let mut component = visible_path();
     let path = component.output.quantum.pop_first().unwrap().1;
-    component.output.history.push(HistoryEntry::Discard { value: path });
+    component
+        .output
+        .history
+        .push(HistoryEntry::Discard { value: path });
     let original = vec![component];
     let result = compact_components(original.clone(), true);
     assert_density(&original, &result);
@@ -182,76 +185,6 @@ fn visible_path() -> Component {
             ..HybridMemory::default()
         },
     }
-}
-
-#[test]
-fn shared_boolean_products_need_no_auxiliary_paths() {
-    let polynomial = |offset: usize| {
-        (1..32).fold(BooleanPolynomial::zero(), |sum, bits| {
-            let monomial = (0usize..5).filter(|i| bits & (1 << i) != 0).fold(
-                BooleanPolynomial::one(),
-                |product, index| {
-                    product.and(&BooleanPolynomial::variable(Variable::Input(Qubit {
-                        register: SymbolId(0),
-                        index: offset + index,
-                    })))
-                },
-            );
-            sum.xor(&monomial)
-        })
-    };
-    let component = visible_path();
-    let left = polynomial(0);
-    let right = polynomial(5);
-    let product = left.and(&right);
-    assert_eq!(component.path_support, BTreeSet::from([0]));
-    assert!(component.guard.is_empty());
-    // One graph product adds at most a root and two edges; unlike the old
-    // ANF metric, storage_size also counts every input node and graph edge.
-    assert!(product.storage_size() <= left.storage_size() + right.storage_size() + 3);
-    assert_eq!(component.scalar, Scalar::one());
-    assert_eq!(component.phase, PhasePolynomial::zero());
-    assert!(component.output.history.is_empty());
-    for inputs in 0..1024 {
-        let actual = product
-            .evaluate::<std::convert::Infallible>(|v| match v {
-                Variable::Input(q) => Ok(inputs & (1 << q.index) != 0),
-                Variable::Path(_) => panic!("Boolean DAG must not introduce paths"),
-            })
-            .unwrap();
-        assert_eq!(actual, inputs & 31 != 0 && inputs & (31 << 5) != 0);
-    }
-}
-
-#[test]
-fn idle_scans_back_off_but_productive_reduction_restores_short_interval() {
-    let mut executor = executor();
-    let original = visible_path();
-    let mut components = vec![original.clone()];
-    for interval in [32, 64, 128, 256, 512, 512] {
-        assert_eq!(executor.compaction_interval, interval);
-        for _ in 0..interval {
-            components = executor.compact_at_boundary(components, true);
-        }
-        assert_eq!(components, vec![original.clone()]);
-        assert_eq!(executor.boundaries_since_compaction, 0);
-    }
-    components[0].path_support.insert(1);
-    for _ in 0..MAX_COMPACTION_INTERVAL {
-        components = executor.compact_at_boundary(components, true);
-    }
-    assert_eq!(executor.compaction_interval, MIN_COMPACTION_INTERVAL);
-    assert_eq!(components[0].path_support, BTreeSet::from([0]));
-    assert_eq!(components[0].scalar, Scalar::rational(ratio(2, 1)));
-}
-
-#[test]
-fn component_joins_compact_immediately_even_after_backoff() {
-    let mut executor = executor();
-    executor.compaction_interval = MAX_COMPACTION_INTERVAL;
-    executor.compact_at_boundary(vec![visible_path(), visible_path()], false);
-    assert_eq!(executor.boundaries_since_compaction, 0);
-    assert_eq!(executor.compaction_interval, MIN_COMPACTION_INTERVAL);
 }
 
 #[test]

@@ -12,7 +12,7 @@ fn source(version: u8, body: &str) -> String {
 }
 
 fn parse(version: u8, body: &str) -> Program {
-    let text = source(version, body);
+    let text = source(version, &body);
     if version == 2 {
         openqasm2::parse_str(&text, "barriers.qasm").unwrap()
     } else {
@@ -83,8 +83,26 @@ fn barriers_preserve_coherence_and_feedback_channels() {
 #[test]
 fn barrier_operands_still_require_valid_quantum_references() {
     for version in [2, 3] {
-        for body in ["barrier missing;", "barrier q[2];", "barrier c;"] {
-            let text = source(version, body);
+        let invalid = ["barrier missing;", "barrier q[2];", "barrier c;"];
+        let mut bodies = Vec::new();
+        for body in invalid {
+            bodies.push(body.to_owned());
+            bodies.push(if version == 2 {
+                format!("if (c == 1) {body}")
+            } else {
+                format!("if (c[0]) {{ {body} }}")
+            });
+        }
+        bodies.push(
+            if version == 2 {
+                "if (missing == 1) barrier;"
+            } else {
+                "if (missing) { barrier; }"
+            }
+            .to_owned(),
+        );
+        for body in bodies {
+            let text = source(version, &body);
             let rejected = if version == 2 {
                 openqasm2::parse_str(&text, "invalid-barrier.qasm").is_err()
             } else {

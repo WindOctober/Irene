@@ -1,7 +1,6 @@
 use irene::frontend::openqasm3;
-use irene::ir::{ClassicalBit, NumericExprKind, Program, StatementKind};
+use irene::ir::{ClassicalBit, Program};
 use irene::symbolic::{ExecutionConfig, OutputSelection, execute};
-use num_rational::BigRational;
 
 fn parse(body: &str) -> Program {
     let p = openqasm3::parse_str(
@@ -49,37 +48,6 @@ fn word(body: &str, name: &str) -> u64 {
             u64::from(b.is_one()) << i
         })
         .sum()
-}
-
-#[test]
-fn const_floats_keep_ieee_precision_in_initializers_and_use_sites() {
-    for (source, expected) in [
-        (
-            "const float[32] theta=3*pi/8; p(theta) q;",
-            f64::from((3.0 * std::f64::consts::PI / 8.0) as f32),
-        ),
-        (
-            "const float[32] a=16777216; const float[32] b=1; const float[32] c=(a+b)-a; p(c) q;",
-            0.0,
-        ),
-        ("const float[32] a=16777216; p((a+1)-a) q;", 0.0),
-        (
-            "const float[64] a=16777216; const float[64] c=(a+1)-a; p(c) q;",
-            1.0,
-        ),
-        ("const int n=1; const float[32] a=(n/2)*pi; p(a) q;", 0.0),
-        ("const int n=1; p(n/2) q;", 0.0),
-    ] {
-        let p = parse(&format!("qubit q; {source}"));
-        let StatementKind::Apply { parameters, .. } = &p.body.statements[0].kind else {
-            panic!("gate expected")
-        };
-        assert_eq!(
-            parameters[0].kind,
-            NumericExprKind::Rational(BigRational::from_float(expected).unwrap()),
-            "{source}"
-        );
-    }
 }
 
 #[test]

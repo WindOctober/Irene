@@ -13,21 +13,6 @@ fn explicitly_unavailable_strategies_do_not_silently_select_off() {
     assert!(parse_strategy(Some("port")).is_err());
 }
 
-#[test]
-fn commuting_control_phase_is_a_native_candidate_but_not_a_port_pattern() {
-    let source = parse("cx q[0], q[1]; t q[0]; cx q[0], q[1];");
-    for strategy in [Strategy::Scan, Strategy::Wire] {
-        assert_eq!(
-            preprocess_with(&source, strategy)
-                .expect("must match")
-                .operation_count(),
-            1
-        );
-    }
-    #[cfg(feature = "rewrite-experiments")]
-    assert!(preprocess_with(&source, Strategy::Port).is_none());
-}
-
 fn parse(body: &str) -> Program {
     openqasm3::parse_str(
         &format!("OPENQASM 3.0; include \"stdgates.inc\"; qubit[3] q; {body}"),

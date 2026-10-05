@@ -150,8 +150,11 @@ fn no_dead_definitions_or_unbound_paths_reach_smt() {
     let dead = dag.select(bound, 1, 0).unwrap();
     assert!(dag.query([dead, 0, 0, 0], &empty()).is_none());
     let q = dag.query(ONE, &empty()).unwrap();
-    assert!(!q.script.contains("(ite"));
-    assert!(!q.script.contains("(_ BitVec 62)"));
+    // Dead bound-path nodes must not contaminate a complete constant query.
+    assert_eq!(
+        run_solver(Solver::Bitwuzla, &q.script).status,
+        SolverStatus::Sat
+    );
     let undefined = KernelScalar::Select {
         condition: KernelBooleanPolynomial::zero(),
         when_true: Box::new(KernelScalar::Inverse(Box::new(KernelScalar::Rational(

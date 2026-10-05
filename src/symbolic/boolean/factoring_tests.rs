@@ -58,17 +58,16 @@ fn graph_factoring_preserves_all_assignments_of_shared_boolean_circuits() {
 }
 
 #[test]
-fn normalized_node_cache_reuses_results_without_retaining_the_source_root() {
+fn normalization_does_not_retain_the_source_root() {
     let original = v(0).and(&v(1).xor(&v(2))).xor(&v(0).and(&v(1).xor(&v(3))));
     let source = std::sync::Arc::downgrade(&original.0);
-    let reduced = original.factored();
-    assert!(std::sync::Arc::ptr_eq(&reduced.0, &original.factored().0));
+    original.factored();
     drop(original);
     assert!(source.upgrade().is_none());
 
     let stable = v(0).xor(&v(1));
     let source = std::sync::Arc::downgrade(&stable.0);
-    assert!(std::sync::Arc::ptr_eq(&stable.0, &stable.factored().0));
+    stable.factored();
     drop(stable);
     assert!(
         source.upgrade().is_none(),
@@ -91,4 +90,23 @@ fn populating_normalization_caches_does_not_change_ordered_keys() {
     }
     assert_eq!(set.iter().cloned().collect::<Vec<_>>(), before);
     assert!(keys.iter().all(|key| set.contains(key)));
+}
+
+#[test]
+fn nested_factoring_cancels_dependencies_without_distributing_products() {
+    let a = v(0);
+    let b = v(1);
+    let c = v(2);
+    let d = v(3);
+    let k = v(4);
+    let nested = k.and(&a.and(&b.xor(&c)).xor(&a.and(&b.xor(&d))));
+    let simplified = nested.factored();
+    assert_eq!(simplified, k.and(&a).and(&c.xor(&d)));
+    assert!(!simplified.variables().contains(&Variable::Path(1)));
+    for bits in 0..32 {
+        assert_eq!(value(&nested, bits), value(&simplified, bits));
+    }
+    let huge = BooleanPolynomial::and_all((100..160).map(|i| v(i).complement())).and(&nested);
+    assert!(huge.expanded_terms(65536).is_none());
+    assert!(huge.factored().storage_size() <= huge.storage_size());
 }

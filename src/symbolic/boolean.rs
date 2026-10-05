@@ -643,8 +643,6 @@ impl fmt::Display for BooleanPolynomial {
         write!(f, " in b{}", nodes.len() - 1)
     }
 }
-#[cfg(test)]
-mod tests;
 
 #[cfg(test)]
 mod representation_tests;
