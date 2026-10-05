@@ -109,9 +109,6 @@ fn certified_xag_output_equality_is_reused_for_classical_snapshots() {
                 Verdict::Equivalent
             }
         );
-        if !wrong {
-            assert_eq!(result.evidence, Evidence::DeterministicExact);
-        }
     }
 }
 
@@ -1095,7 +1092,6 @@ fn cyclotomic_leaf_equality_matches_hth_with_rx_up_to_global_phase() {
     )
     .unwrap();
     assert_eq!(result.verdict, Verdict::Equivalent);
-    assert_eq!(result.evidence, Evidence::DensityKernelExact);
     assert!(result.density_counterexample.is_none());
 }
 

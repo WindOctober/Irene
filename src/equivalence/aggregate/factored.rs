@@ -592,9 +592,6 @@ fn factor_binomials(
 }
 
 #[cfg(test)]
-use super::factor_relation::add_phase;
-
-#[cfg(test)]
 use super::factor_normalize::normalize as normalize_factor;
 
 #[cfg(test)]

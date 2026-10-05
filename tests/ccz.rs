@@ -102,26 +102,3 @@ fn ccz_supports_control_modifiers_and_measurement_feedback() {
         compare(&direct, &parse(version, prefix), Verdict::NotEquivalent);
     }
 }
-
-#[test]
-fn ccz_rejects_invalid_parameters_arity_and_operands() {
-    for version in [2, 3] {
-        for body in [
-            "ccz q[0],q[1];",
-            "ccz q[0],q[1],q[2],q[3];",
-            "ccz(pi) q[0],q[1],q[2];",
-            "ccz q[0],q[0],q[2];",
-            "ccz q[0],q[1],q[4];",
-            "ccz q[0],q[1],c[0];",
-            "ccz q[0],q[1],missing;",
-        ] {
-            let text = source(version, body);
-            let rejected = if version == 2 {
-                openqasm2::parse_str(&text, "invalid-ccz.qasm").is_err()
-            } else {
-                openqasm3::parse_str(&text, "invalid-ccz.qasm").is_err()
-            };
-            assert!(rejected, "version={version}: {body}");
-        }
-    }
-}

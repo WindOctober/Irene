@@ -314,3 +314,43 @@ fn extension_arity_and_broadcast_are_validated() {
         .is_err()
     );
 }
+
+#[test]
+fn gate_names_and_arity_remain_version_scoped() {
+    assert!(openqasm2::parse_str("OPENQASM 2.0; qreg q[2]; rzz(1) q[0],q[1];", "test").is_err());
+    for body in [
+        "cu(1,2,3) q[0],q[1];",
+        "cu(1,2,3,4) q[0],q[0];",
+        "csx q[0],q[1];",
+        "rzz(1) q[0],q[1];",
+    ] {
+        assert!(
+            openqasm3::parse_str(
+                &format!("OPENQASM 3.0; include \"stdgates.inc\"; qubit[2] q; {body}"),
+                "test"
+            )
+            .is_err()
+        );
+    }
+}
+
+#[test]
+fn cu_broadcast_and_source_extension_override() {
+    let p = openqasm3::parse_str(
+        "OPENQASM 3.0; include \"stdgates.inc\"; qubit[2] a; qubit[2] b; cu(0.1,0.2,0.3,0.4) a,b;",
+        "test",
+    )
+    .unwrap();
+    common::unitary::assert_action(&p, |state| {
+        for i in 0..2 {
+            common::unitary::apply(state, &[i], i + 2, common::unitary::u(0.1, 0.2, 0.3, 0.4));
+        }
+    });
+    assert!(openqasm3::parse_str("OPENQASM 3.0; include \"stdgates.inc\"; qubit[2] a; qubit[3] b; cu(0.1,0.2,0.3,0.4) a,b;","test").is_err());
+    let p = q2(2, "gate rzz(t) a,b { x b; } rzz(0.2) q[0],q[1];");
+    check(&p, 2, |i| {
+        let mut v = vec![(0., 0.); 4];
+        v[i ^ 2] = (1., 0.);
+        v
+    });
+}

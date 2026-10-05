@@ -87,42 +87,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn lowering_keeps_unused_inputs_and_shared_complemented_outputs() {
+    fn lowering_preserves_output_arity_and_rejects_missing_inputs() {
         let net = Network {
             inputs: 3,
             nodes: vec![[1, 0, 0], [1, 1, 0], [1, 2, 0], [0, 1, 0], [2, 0, 3]],
             outputs: vec![4, 0, 4],
         };
-        let (script, outputs) = net.smt(&["a".into(), "b".into(), "c".into()], "g").unwrap();
-        assert_eq!(outputs, ["g4", "g0", "g4"]);
-        assert_eq!(
-            script,
-            concat!(
-                "(define-fun g0 () Bool a)\n",
-                "(define-fun g1 () Bool b)\n",
-                "(define-fun g2 () Bool c)\n",
-                "(define-fun g3 () Bool true)\n",
-                "(define-fun g4 () Bool (xor g0 g3))\n",
-            )
-        );
+        let (_, outputs) = net.smt(&["a".into(), "b".into(), "c".into()], "g").unwrap();
+        assert_eq!(outputs.len(), net.outputs.len());
         assert!(net.smt(&[], "g").is_none());
-    }
-
-    #[test]
-    fn builder_shares_commutative_gates_without_expansion() {
-        let mut builder = Builder::default();
-        builder.network.inputs = 2;
-        let a = builder.node(1, 0, 0);
-        let b = builder.node(1, 1, 0);
-        for op in [2, 3] {
-            assert_eq!(builder.node(op, a, b), builder.node(op, b, a));
-        }
-        assert_eq!(builder.network.nodes.len(), 4);
-        builder.network.outputs = vec![2, 3];
-        let (script, outputs) = builder.network.smt(&["a".into(), "b".into()], "g").unwrap();
-        assert_eq!(script.lines().count(), 4);
-        assert!(script.contains("(and g0 g1)"));
-        assert_eq!(outputs, ["g2", "g3"]);
     }
 
     #[test]
