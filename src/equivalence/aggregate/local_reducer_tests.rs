@@ -1,6 +1,6 @@
+use super::super::kernel::DensityKernel;
 use super::super::kernel::KernelClassicalOutput;
 use super::*;
-use super::super::kernel::DensityKernel;
 
 fn kernel(terms: Vec<KernelTerm>) -> DensityKernel {
     DensityKernel {
@@ -43,22 +43,9 @@ fn sqrt_ratio(numerator: i64, denominator: i64) -> KernelScalar {
     ))))
 }
 
-fn multiply(left: KernelScalar, right: KernelScalar) -> KernelScalar {
-    KernelScalar::Mul(Box::new(left), Box::new(right))
-}
-
 fn variable(variable: KernelVariable) -> KernelBooleanPolynomial {
     KernelBooleanPolynomial::variable(variable)
 }
-
-fn affine(variables: impl IntoIterator<Item = KernelVariable>) -> KernelBooleanPolynomial {
-    variables
-        .into_iter()
-        .fold(KernelBooleanPolynomial::zero(), |value, variable| {
-            value.xor(&KernelBooleanPolynomial::variable(variable))
-        })
-}
-
 
 #[test]
 fn free_indices_are_never_accepted_as_bound_paths() {
@@ -116,8 +103,11 @@ fn one_shared_classical_index_enforces_both_dephasing_deltas() {
     right.classical_output_count = 1;
     assert!(!local_forms_match(&left, &right));
 
-    let Reduction::Exact(exact) = reduce_term(&left.terms[0]) else { panic!("expected exact local result"); };
-    let variables = exact.constraints
+    let Reduction::Exact(exact) = reduce_term(&left.terms[0]) else {
+        panic!("expected exact local result");
+    };
+    let variables = exact
+        .constraints
         .iter()
         .flat_map(KernelBooleanPolynomial::variables)
         .collect::<BTreeSet<_>>();
@@ -474,32 +464,53 @@ fn unresolved_sum_and_resource_refusal_are_distinct_from_zero() {
     let mut source = term(1);
     let v = KernelVariable::PathKet { term: 0, path: 0 };
     source.ket_paths.insert(v.clone());
-    source.phase.ket.add_boolean(&variable(v.clone()),
-        crate::symbolic::PhaseCoefficient::rational(ratio(1, 3)));
-    let Reduction::Sum(remaining) = reduce_term(&source) else { panic!("expected retained sum"); };
+    source.phase.ket.add_boolean(
+        &variable(v.clone()),
+        crate::symbolic::PhaseCoefficient::rational(ratio(1, 3)),
+    );
+    let Reduction::Sum(remaining) = reduce_term(&source) else {
+        panic!("expected retained sum");
+    };
     assert!(remaining.paths.contains(&v));
     assert_eq!(remaining.phase, working_term(&source).phase);
 
     let mut oversized = working_term(&source);
     oversized.constraints = vec![KernelBooleanPolynomial::zero(); MAX_CONSTRAINTS + 1];
     let mut checkpoint = None;
-    assert!(matches!(reduce_working_term_with_checkpoint(oversized, Some(&mut checkpoint)), Reduction::Residual));
+    assert!(matches!(
+        reduce_working_term_with_checkpoint(oversized, Some(&mut checkpoint)),
+        Reduction::Residual
+    ));
     assert!(checkpoint.is_none());
 }
 
 #[test]
 fn parsed_hadamard_kernel_reduces_without_summing_free_coordinates() {
-    use crate::equivalence::{EquivalenceConfig, prepare_comparison, kernel_for};
+    use crate::equivalence::{EquivalenceConfig, kernel_for, prepare_comparison};
     let program = crate::frontend::openqasm3::parse_str(
-        "OPENQASM 3.0; include \"stdgates.inc\"; qubit q; h q;", "local-reducer.qasm",
-    ).unwrap();
+        "OPENQASM 3.0; include \"stdgates.inc\"; qubit q; h q;",
+        "local-reducer.qasm",
+    )
+    .unwrap();
     let config = EquivalenceConfig::positional(&program, &program).unwrap();
     let prepared = prepare_comparison(&program, &program, &config).unwrap();
     let kernel = kernel_for(&prepared.left).unwrap();
     assert_eq!(kernel.terms.len(), 1);
-    let Reduction::Exact(exact) = reduce_term(&kernel.terms[0]) else { panic!("H kernel should reduce"); };
+    let Reduction::Exact(exact) = reduce_term(&kernel.terms[0]) else {
+        panic!("H kernel should reduce");
+    };
     assert_eq!(exact.coefficient, KernelScalar::Rational(ratio(1, 2)));
     assert!(exact.phase.variables().iter().all(|v| !v.is_bound_path()));
-    assert!(exact.phase.variables().contains(&KernelVariable::InputKet(0)));
-    assert!(exact.phase.variables().contains(&KernelVariable::QuantumOutputBra(0)));
+    assert!(
+        exact
+            .phase
+            .variables()
+            .contains(&KernelVariable::InputKet(0))
+    );
+    assert!(
+        exact
+            .phase
+            .variables()
+            .contains(&KernelVariable::QuantumOutputBra(0))
+    );
 }

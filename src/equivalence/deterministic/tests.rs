@@ -23,6 +23,26 @@ fn phase(p: &mut PreparedComparison) {
 }
 
 fn run(p: &PreparedComparison, answers: &[PortfolioConsensus]) -> Option<Analysis> {
+    let uncached = run_with_snapshots(p, answers, None);
+    if p.left.hps.components.len() == 1 && p.right.hps.components.len() == 1 {
+        let cached = run_with_snapshots(
+            p,
+            answers,
+            Some((complete_snapshot(&p.left), complete_snapshot(&p.right))),
+        );
+        assert_eq!(
+            cached, uncached,
+            "snapshot reuse must preserve all proof obligations"
+        );
+    }
+    uncached
+}
+
+fn run_with_snapshots(
+    p: &PreparedComparison,
+    answers: &[PortfolioConsensus],
+    snapshots: Option<(HybridPathSum, HybridPathSum)>,
+) -> Option<Analysis> {
     let queue = RefCell::new(VecDeque::from(answers.to_vec()));
     let answer = || {
         Ok(PortfolioResult {
@@ -33,7 +53,7 @@ fn run(p: &PreparedComparison, answers: &[PortfolioConsensus]) -> Option<Analysi
             results: vec![],
         })
     };
-    let result = compare_with(p, (0, 0), |_, _| answer(), |_| answer());
+    let result = compare_with(p, (0, 0), snapshots, |_, _| answer(), |_| answer());
     assert!(queue.borrow().is_empty(), "missing required solver call");
     result.map(Result::unwrap)
 }
@@ -155,6 +175,7 @@ fn solver_conflict_propagates_as_error() {
     let result = compare_with(
         &p,
         (0, 0),
+        None,
         |_, _| Err(error.clone()),
         |_| panic!("unexpected injectivity query"),
     );
@@ -166,12 +187,12 @@ fn solver_conflict_propagates_as_error() {
 fn real_solver_checks_parsed_output_and_phase_differences() {
     let mut p = fixture();
     phase(&mut p);
-    let a = compare(&p, (0, 0)).unwrap().unwrap();
+    let a = compare(&p, (0, 0), None).unwrap().unwrap();
     assert_eq!(a.evidence, Evidence::PhaseCounterexample);
     assert!(a.counterexample.unwrap().bra_inputs.is_some());
     let mut p = fixture();
     p.right.terminals[0].outputs[0].value = BooleanPolynomial::zero();
-    let a = compare(&p, (0, 0)).unwrap().unwrap();
+    let a = compare(&p, (0, 0), None).unwrap().unwrap();
     assert_eq!(a.evidence, Evidence::OutputCounterexample);
     assert!(a.counterexample.is_some());
 }

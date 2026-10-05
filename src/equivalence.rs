@@ -5,8 +5,8 @@
 //! coefficient aggregation, with SMT for admitted complete expressions.
 //! Unsupported encodings and incomplete proofs return `Unknown`, not NEQ.
 
-use bitgauss::BitMatrix;
 use aggregate::{AggregateComparison, compare_kernels};
+use bitgauss::BitMatrix;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
@@ -22,10 +22,12 @@ use canonical::{ExactMatch, exact_match};
 mod aggregate;
 mod boolean_query;
 mod canonical;
+pub mod dependency_miter;
 mod deterministic;
 mod graph_compare;
 mod input_recovery;
 mod interface;
+pub mod interval_hps;
 mod kernel;
 mod model_witness;
 mod phase_compare;
@@ -34,8 +36,6 @@ mod solver_query;
 mod tuning;
 mod unitary_rewrite;
 mod unitary_trace;
-pub mod interval_hps;
-pub mod dependency_miter;
 
 pub use smt::{
     PortfolioConsensus, PortfolioResult, SOLVER_TIMEOUT, Solver, SolverDisagreement, SolverResult,
@@ -277,24 +277,28 @@ fn analyze_inner(
     // `complete_snapshot` canonicalizes the self-pairing constraints that
     // remain for a single component, so applying it component-by-component
     // would erase precisely that cross-component information.
-    if prepared.left.hps.components.len() == 1 && prepared.right.hps.components.len() == 1 {
-        let left_snapshot = complete_snapshot(&prepared.left);
-        let right_snapshot = complete_snapshot(&prepared.right);
-        let exact = exact_match(&left_snapshot, &right_snapshot);
-        if matches!(exact, ExactMatch::Match { .. }) {
-            return Ok(Analysis::new(
-                Verdict::Equivalent,
-                Evidence::ExactHps,
-                kernel_terms,
-            ));
-        }
-    }
+    let snapshots =
+        if prepared.left.hps.components.len() == 1 && prepared.right.hps.components.len() == 1 {
+            let left_snapshot = complete_snapshot(&prepared.left);
+            let right_snapshot = complete_snapshot(&prepared.right);
+            let exact = exact_match(&left_snapshot, &right_snapshot);
+            if matches!(exact, ExactMatch::Match { .. }) {
+                return Ok(Analysis::new(
+                    Verdict::Equivalent,
+                    Evidence::ExactHps,
+                    kernel_terms,
+                ));
+            }
+            Some((left_snapshot, right_snapshot))
+        } else {
+            None
+        };
 
     if let Some(analysis) = compare_affine_output_support(&prepared, kernel_terms) {
         return Ok(analysis);
     }
 
-    if let Some(analysis) = compare_deterministic(&prepared, kernel_terms) {
+    if let Some(analysis) = deterministic::compare(&prepared, kernel_terms, snapshots) {
         return analysis.map_err(InterfaceError::from);
     }
 
@@ -515,7 +519,7 @@ fn output_support_witness(
     }
 
     let offset = xor_vectors(&left.offset, &right.offset);
-    if !column_span_contains(left.width, &left.path_columns, &offset) {
+    if !column_span_contains(left.width, &left.path_columns, left.rank, &offset) {
         return Some(vec![false; input_count]);
     }
 
@@ -531,7 +535,7 @@ fn output_support_witness(
             left.input_columns.get(&input).unwrap_or(&zero),
             right.input_columns.get(&input).unwrap_or(&zero),
         );
-        if !column_span_contains(left.width, &left.path_columns, &difference) {
+        if !column_span_contains(left.width, &left.path_columns, left.rank, &difference) {
             let mut witness = vec![false; input_count];
             witness[input.index] = true;
             return Some(witness);
@@ -558,8 +562,7 @@ fn xor_vectors(left: &[bool], right: &[bool]) -> Vec<bool> {
         .collect()
 }
 
-fn column_span_contains(width: usize, columns: &[Vec<bool>], value: &[bool]) -> bool {
-    let rank = column_rank(width, columns);
+fn column_span_contains(width: usize, columns: &[Vec<bool>], rank: usize, value: &[bool]) -> bool {
     let mut extended = columns.to_vec();
     extended.push(value.to_vec());
     column_rank(width, &extended) == rank
@@ -590,25 +593,6 @@ fn scalar_is_definitely_nonzero(scalar: &Scalar) -> bool {
         } => scalar_is_definitely_nonzero(when_true) && scalar_is_definitely_nonzero(when_false),
         Scalar::Sin(_) | Scalar::Cos(_) | Scalar::Add(_, _) => false,
     }
-}
-
-/// Snapshot normalization drops only a SINGLE summand's global phase and
-/// canonicalizes its self-paired history constraints. Doing so independently
-/// on multiple summands could erase observable relative phases/coherence.
-fn exact_hps_certificate(prepared: &PreparedComparison) -> bool {
-    if prepared.left.hps.components.len() != 1
-        || prepared.right.hps.components.len() != 1
-    {
-        return false;
-    }
-    // Terminal observations live outside hps: comparing hps alone would omit
-    // outputs. The same path bijection must align every field of both snapshots.
-    let left = complete_snapshot(&prepared.left);
-    let right = complete_snapshot(&prepared.right);
-    matches!(
-        canonical::exact_match(&left, &right),
-        canonical::ExactMatch::Match { .. }
-    )
 }
 
 /// Completes the exact fast-path snapshot with canonical visible outputs.
@@ -693,10 +677,3 @@ mod support_tests;
 
 #[cfg(test)]
 mod kernel_adapter_tests;
-
-fn compare_deterministic(
-    prepared: &PreparedComparison,
-    kernel_terms: (usize, usize),
-) -> Option<Result<Analysis, SolverDisagreement>> {
-    deterministic::compare(prepared, kernel_terms)
-}

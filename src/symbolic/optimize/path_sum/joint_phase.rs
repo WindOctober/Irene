@@ -53,23 +53,9 @@ fn analyze(c: &Component, y: &Variable) -> Option<PhaseProfile> {
     }
     if simple {
         let constant = PhaseCoefficient::rational(constant).as_rational()?;
-        if constant == integer(0) {
-            return Some(PhaseProfile::Fourier(parity));
-        }
-        if constant == ratio(1, 2) {
-            return Some(PhaseProfile::Fourier(parity.complement()));
-        }
-        if constant == ratio(1, 4) {
-            return Some(PhaseProfile::Omega {
-                parity,
-                sign: OmegaSign::Positive,
-            });
-        }
-        if constant == ratio(3, 4) {
-            return Some(PhaseProfile::Omega {
-                parity,
-                sign: OmegaSign::Negative,
-            });
+        let profile = PhaseProfile::classify(true, constant, parity, BooleanPolynomial::complement);
+        if !matches!(profile, PhaseProfile::Unsupported) {
+            return Some(profile);
         }
     }
     let mut width = 2;

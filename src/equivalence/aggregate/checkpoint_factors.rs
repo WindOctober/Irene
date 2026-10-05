@@ -1,8 +1,8 @@
 //! Complete component checkpoints without reconstructing an oversized monolith.
 use super::scalar::{integer, scalar_conditions_within_budget};
 use super::{
-    KernelBooleanPolynomial, KernelMonomial, KernelPhasePolynomial, KernelScalar, KernelVariable,
-    WorkingTerm, pair_period, vacuous,
+    KernelMonomial, KernelPhasePolynomial, KernelScalar, KernelVariable, WorkingTerm, pair_period,
+    vacuous,
 };
 use num_bigint::BigInt;
 use num_rational::BigRational;

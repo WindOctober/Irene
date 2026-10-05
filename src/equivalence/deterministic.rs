@@ -11,8 +11,15 @@ use super::*;
 pub(super) fn compare(
     prepared: &PreparedComparison,
     kernel_terms: (usize, usize),
+    snapshots: Option<(HybridPathSum, HybridPathSum)>,
 ) -> Option<Result<Analysis, SolverDisagreement>> {
-    compare_with(prepared, kernel_terms, run_miter, run_graph_query)
+    compare_with(
+        prepared,
+        kernel_terms,
+        snapshots,
+        run_miter,
+        run_graph_query,
+    )
 }
 
 // This is an implementation shortcut, not the paper's HPS isomorphism rule.
@@ -20,6 +27,7 @@ pub(super) fn compare(
 fn compare_with(
     prepared: &PreparedComparison,
     kernel_terms: (usize, usize),
+    snapshots: Option<(HybridPathSum, HybridPathSum)>,
     mut run_miter: impl FnMut(&str, &[String]) -> Result<PortfolioResult, SolverDisagreement>,
     mut run_graph_query: impl FnMut(&str) -> Result<PortfolioResult, SolverDisagreement>,
 ) -> Option<Result<Analysis, SolverDisagreement>> {
@@ -106,8 +114,14 @@ fn compare_with(
         // For a path-free basis transformer followed only by classical Z
         // observations, phase is unobservable.  Histories still matter: erase
         // only phase and require the complete canonical snapshots to match.
-        let mut left_snapshot = complete_snapshot(&prepared.left);
-        let mut right_snapshot = complete_snapshot(&prepared.right);
+        // Reuse the complete snapshots already built by the structural proof.
+        // Tests may call this rule directly without that preceding stage.
+        let (mut left_snapshot, mut right_snapshot) = snapshots.unwrap_or_else(|| {
+            (
+                complete_snapshot(&prepared.left),
+                complete_snapshot(&prepared.right),
+            )
+        });
         left_snapshot.components[0].phase = PhasePolynomial::zero();
         right_snapshot.components[0].phase = PhasePolynomial::zero();
         // Output equality was proved above, not merely guessed from syntax.

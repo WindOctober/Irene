@@ -46,9 +46,6 @@ type Cyclo = [BigRational; 4];
 fn zero() -> Cyclo {
     std::array::from_fn(|_| integer(0))
 }
-fn one() -> Cyclo {
-    [integer(1), integer(0), integer(0), integer(0)]
-}
 fn multiply(a: Cyclo, b: Cyclo) -> Cyclo {
     let mut out = zero();
     for i in 0..4 {
