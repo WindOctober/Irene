@@ -98,6 +98,43 @@ fn discovery_strategies_share_rules_but_not_their_crossing_scope() {
 }
 
 #[test]
+fn local_basis_changes_preserve_angles_and_controlled_operator_phase() {
+    let mut modes = strategies();
+    modes.push(Strategy::Adjacent);
+    for (gate, reduced_gate, wires, sign) in [
+        ("rx", "rz", "q[1]", ""),
+        ("ry", "ry", "q[1]", "-"),
+        ("crx", "crz", "q[0],q[1]", ""),
+        ("cry", "cry", "q[0],q[1]", "-"),
+    ] {
+        for angle in ["pi/4", "-pi/2", "2*pi", "1.5707963267948966"] {
+            let source = parse(&format!("h q[1]; {gate}({angle}) {wires}; h q[1];"));
+            let expected = parse(&format!("{reduced_gate}({sign}({angle})) {wires};"));
+            for &mode in &modes {
+                let reduced = preprocess_with(&source, mode).unwrap();
+                assert_eq!(reduced, expected, "{mode:?}: {gate} {angle}");
+                if angle != "1.5707963267948966" {
+                    assert_eq!(matrix(&source), matrix(&reduced), "{gate} {angle}");
+                }
+                let mut ids = BTreeSet::new();
+                reduced.visit_ast_ids(|id| assert!(ids.insert(id)));
+            }
+        }
+    }
+    // A difficult angle on the SAME wire does not veto a neighboring region.
+    let source =
+        parse("rx(0.123) q[1]; h q[1]; rx(pi/2) q[1]; h q[1]; rz(0.5709439576515822) q[1];");
+    let reduced = preprocess_with(&source, Strategy::Adjacent).unwrap();
+    assert_eq!(
+        reduced,
+        parse("rx(0.123) q[1]; rz(pi/2) q[1]; rz(0.5709439576515822) q[1];")
+    );
+    // A basis change on the control is not the controlled-target identity.
+    let wrong_target = parse("h q[0]; crx(pi/2) q[0],q[1]; h q[0];");
+    assert!(preprocess_with(&wrong_target, Strategy::Adjacent).is_none());
+}
+
+#[test]
 fn native_hadamards_reject_near_angles_operator_signs_and_other_wires() {
     for body in [
         "s q[0]; rx(1.5707963267948966) q[0]; s q[0];",

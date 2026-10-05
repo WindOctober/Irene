@@ -144,8 +144,8 @@ pub(super) fn certificate(
 
 /// Exact basis conjugations after full-unitary validation. Parameters are
 /// transferred unchanged, including the controlled rotation's relative phase.
-/// Admission is restricted to the existing reducer's bounded dyadic domain;
-/// unsupported numeric atoms remain on the original general-channel route.
+/// Decide admission per rotation, not per circuit. Unsupported rotations and
+/// other gates stay unchanged; the caller checks the remaining backend domain.
 fn phase_only_rotations(mut circuit: Program) -> Option<Program> {
     let needs_lowering = circuit.body.statements.iter().any(|s| {
         matches!(
@@ -159,33 +159,29 @@ fn phase_only_rotations(mut circuit: Program) -> Option<Program> {
     if !needs_lowering {
         return Some(circuit);
     }
-    // This extension is for dyadic phase circuits as a whole, not just one
-    // dyadic rotation embedded in unsupported transcendental phase atoms.
-    // The pre-existing H/monomial admission above is unchanged.
-    for statement in &circuit.body.statements {
-        let StatementKind::Apply { parameters, .. } = &statement.kind else {
-            return None;
-        };
-        for parameter in parameters {
-            let turns =
-                PhaseCoefficient::angle(parameter.clone(), BigRational::from_integer(1.into()))
-                    .as_rational()?;
-            let denominator = u64::try_from(turns.denom()).ok()?;
-            // Same 12-bit optional local phase domain as joint_phase.
-            if !denominator.is_power_of_two() || denominator > 4096 {
-                return None;
-            }
-        }
-    }
     let mut next_id = 0;
     circuit.visit_ast_ids(|id| next_id = next_id.max(id.index() + 1));
     let mut ids = AstIdGenerator::starting_at(next_id);
     let mut out = Vec::new();
     for statement in std::mem::take(&mut circuit.body.statements) {
-        let StatementKind::Apply { gate, qubits, .. } = &statement.kind else {
+        let StatementKind::Apply {
+            gate,
+            qubits,
+            parameters,
+        } = &statement.kind
+        else {
             return None;
         };
-        if !matches!(gate, Gate::Rx | Gate::Ry | Gate::Crx | Gate::Cry) {
+        // Keep the same bounded dyadic expansion policy, but only inspect this
+        // gate. A decimal angle elsewhere must not veto an exact local change.
+        let supported = matches!(gate, Gate::Rx | Gate::Ry | Gate::Crx | Gate::Cry)
+            && parameters.iter().all(|parameter| {
+                PhaseCoefficient::angle(parameter.clone(), BigRational::from_integer(1.into()))
+                    .as_rational()
+                    .and_then(|turns| u64::try_from(turns.denom()).ok())
+                    .is_some_and(|d| d.is_power_of_two() && d <= 4096)
+            });
+        if !supported {
             out.push(statement);
             continue;
         }
@@ -314,7 +310,7 @@ mod tests {
         assert!(!proves(&a, &a, &c));
     }
     #[test]
-    fn trace_refuses_nonunitary_and_nondyadic_rotations_on_either_side() {
+    fn unsupported_or_unequal_circuits_are_not_proved_equivalent() {
         let a = parse("h q[0];");
         for body in [
             "h q[0]; reset q[0];",
@@ -328,6 +324,52 @@ mod tests {
             assert!(!proves(&a, &b, &config(&a, &b)));
             assert!(!proves(&b, &a, &config(&b, &a)));
         }
+    }
+
+    #[test]
+    fn phase_lowering_is_local_and_preserves_unsupported_angles() {
+        let source = parse(
+            "rz(0.5709439576515822) q[0]; rx(pi/2) q[0]; ry(pi/4) q[1]; rx(1.5707963267948966) q[0]; ry(pi/3) q[1]; crx(pi/8192) q[0],q[1];",
+        );
+        let lowered = phase_only_rotations(source).unwrap();
+        let expected = parse(
+            "rz(0.5709439576515822) q[0]; h q[0]; rz(pi/2) q[0]; h q[0]; sdg q[1]; h q[1]; rz(pi/4) q[1]; h q[1]; s q[1]; rx(1.5707963267948966) q[0]; ry(pi/3) q[1]; crx(pi/8192) q[0],q[1];",
+        );
+        assert_eq!(lowered, expected);
+        let mut ids = std::collections::BTreeSet::new();
+        lowered.visit_ast_ids(|id| assert!(ids.insert(id)));
+        // Local success does not imply that trace can handle the residual Rx.
+        let identity = parse("");
+        assert_eq!(
+            certificate(&lowered, &identity, &config(&lowered, &identity)),
+            None
+        );
+    }
+
+    #[test]
+    fn mixed_angle_trace_succeeds_when_residual_phases_cancel_exactly() {
+        // The decimal Rz gates are separated in the miter, so adjacent
+        // preprocessing cannot remove them before local Rx lowering.
+        let a = parse("rx(pi/2) q[0]; rz(0.5709439576515822) q[1];");
+        let b = parse("rz(0.5709439576515822) q[1]; h q[0]; rz(pi/2) q[0]; h q[0];");
+        assert!(proves(&a, &b, &config(&a, &b)));
+        assert!(proves(&b, &a, &config(&b, &a)));
+    }
+
+    #[test]
+    fn mixed_angles_keep_local_reductions_on_the_general_channel_route() {
+        let a =
+            parse("rx(0.123) q[0]; h q[0]; rx(pi/2) q[0]; h q[0]; rz(0.5709439576515822) q[0];");
+        let b = parse("rx(0.123) q[0]; rz(pi/2) q[0]; rz(0.5709439576515822) q[0];");
+        let mut c = config(&a, &b);
+        // Observe only one wire: force fallback instead of a unitary trace proof.
+        c.input_pairs.pop();
+        c.output_pairs.pop();
+        assert_eq!(certificate(&a, &b, &c), None);
+        assert_eq!(
+            super::super::analyze(&a, &b, &c).unwrap().verdict,
+            super::super::Verdict::Equivalent
+        );
     }
 
     #[test]
