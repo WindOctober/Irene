@@ -11,13 +11,15 @@ use crate::symbolic::{PhaseCoefficient, numeric_domains};
 use num_rational::BigRational;
 
 pub(super) mod dependency;
+mod rules;
 
 #[cfg(feature = "rewrite-experiments")]
 mod port;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Strategy {
-    Off,
+    /// Only adjacent gates; no commutation search.
+    Adjacent,
     Scan,
     Wire,
     #[cfg(feature = "rewrite-experiments")]
@@ -26,7 +28,8 @@ pub(super) enum Strategy {
 
 fn parse_strategy(value: Option<&str>) -> Result<Strategy, String> {
     match value {
-        None | Some("off") => Ok(Strategy::Off),
+        // Legacy "off" disables nonlocal search, not exact local rules.
+        None | Some("adjacent") | Some("off") => Ok(Strategy::Adjacent),
         Some("scan") => Ok(Strategy::Scan),
         Some("wire") => Ok(Strategy::Wire),
         #[cfg(feature = "rewrite-experiments")]
@@ -156,73 +159,6 @@ fn commutes(a: &Op, b: &Op) -> bool {
     false
 }
 
-/// Outer Option: a valid rule instance. Inner None: exact identity.
-fn fuse(a: &Op, b: &Op, ids: &mut AstIdGenerator) -> Option<Option<Op>> {
-    if a.family() != b.family() || a.wires != b.wires {
-        return None;
-    }
-    if let (Some(x), Some(y)) = (&a.angle, &b.angle) {
-        let mut sum = x.clone();
-        sum.add_assign(y.clone());
-        let turns = sum.as_rational()?;
-        if turns == rational(0, 1) {
-            return Some(None);
-        }
-        let gate = a.family();
-        let period = if matches!(gate, Gate::P | Gate::Cp) {
-            2
-        } else {
-            4
-        };
-        // No general expression-tree growth: emit a single exact multiple of pi.
-        let factor = ids.node(NumericExprKind::Rational(turns * rational(period, 1)));
-        let pi = ids.node(NumericExprKind::Constant(NumericConstant::Pi));
-        let angle = ids.node(NumericExprKind::Mul(Box::new(factor), Box::new(pi)));
-        return Some(Some(Op::from(ids.node(StatementKind::Apply {
-            gate,
-            parameters: vec![angle],
-            qubits: a.wires.clone(),
-        }))));
-    }
-    matches!(
-        a.gate,
-        Gate::H
-            | Gate::X
-            | Gate::Y
-            | Gate::Cx
-            | Gate::Cy
-            | Gate::Cz
-            | Gate::Ccx
-            | Gate::Ccz
-            | Gate::Swap
-    )
-    .then_some(None)
-}
-
-fn conjugate(h: &Op, middle: &Op, other: &Op, ids: &mut AstIdGenerator) -> Option<Op> {
-    if h.gate != Gate::H
-        || other.gate != Gate::H
-        || h.wires != other.wires
-        || h.wires.last() != middle.wires.last()
-    {
-        return None;
-    }
-    let gate = match middle.gate {
-        Gate::X => Gate::Z,
-        Gate::Z => Gate::X,
-        Gate::Cx => Gate::Cz,
-        Gate::Cz => Gate::Cx,
-        Gate::Ccx => Gate::Ccz,
-        Gate::Ccz => Gate::Ccx,
-        _ => return None,
-    };
-    Some(Op::from(ids.node(StatementKind::Apply {
-        gate,
-        parameters: vec![],
-        qubits: middle.wires.clone(),
-    })))
-}
-
 type WireIndex = BTreeMap<Qubit, Vec<usize>>;
 
 fn predecessors(i: usize, current: &Op, index: &WireIndex, strategy: Strategy) -> Vec<usize> {
@@ -247,8 +183,66 @@ fn spend(work: &mut usize) -> bool {
     true
 }
 
-/// Validate a discovered pair/triple against current gates AND all crossed
-/// gates. Candidate indices alone never justify a rewrite.
+/// Rule matching is independent of discovery and crossing validation.
+fn exact_candidate(
+    slots: &[Option<Op>],
+    selected: &[usize],
+    ids: &mut AstIdGenerator,
+) -> Option<(usize, Option<Op>)> {
+    if !matches!(selected.len(), 2 | 3) || !selected.windows(2).all(|w| w[0] < w[1]) {
+        return None;
+    }
+    let ops = selected
+        .iter()
+        .map(|&i| slots.get(i)?.as_ref())
+        .collect::<Option<Vec<_>>>()?;
+    let rewrite = rules::exact(&ops, ids)?;
+    Some((selected[rewrite.anchor], rewrite.operation))
+}
+
+/// Visit existing local triples before pairs can fuse away their boundaries.
+/// These are only scheduling hints; the shared matcher still checks each rule.
+fn preferred_candidates(slots: &[Option<Op>]) -> Vec<usize> {
+    slots
+        .windows(3)
+        .enumerate()
+        .filter_map(|(i, window)| {
+            let (Some(a), Some(middle), Some(b)) = (&window[0], &window[1], &window[2]) else {
+                return None;
+            };
+            rules::TRIPLES
+                .contains(&(a.family(), middle.family(), b.family()))
+                .then_some(i + 2)
+        })
+        .collect()
+}
+
+/// Move both endpoints towards the replacement anchor only across gates that
+/// commute exactly with BOTH. Discovery supplies all possibly crossed gates;
+/// disjoint wires may be omitted. This check is shared with the live DAG.
+fn crossings_legal(
+    slots: &[Option<Op>],
+    selected: &[usize],
+    crossed: impl IntoIterator<Item = usize>,
+    work: &mut usize,
+) -> bool {
+    let (Some(a), Some(b)) = (
+        slots[selected[0]].as_ref(),
+        slots[*selected.last().unwrap()].as_ref(),
+    ) else {
+        return false;
+    };
+    a.wires == b.wires
+        && crossed
+            .into_iter()
+            .filter(|i| !selected.contains(i))
+            .all(|i| {
+                slots[i]
+                    .as_ref()
+                    .is_none_or(|op| spend(work) && commutes(a, op) && commutes(b, op))
+            })
+}
+
 fn apply_candidate(
     slots: &mut [Option<Op>],
     selected: &[usize],
@@ -256,57 +250,25 @@ fn apply_candidate(
     ids: &mut AstIdGenerator,
     work: &mut usize,
 ) -> bool {
-    if !matches!(selected.len(), 2 | 3) || !selected.windows(2).all(|w| w[0] < w[1]) {
+    let Some((kept, replacement)) = exact_candidate(slots, selected, ids) else {
         return false;
-    }
+    };
     let (first, last) = (selected[0], *selected.last().unwrap());
-    let Some(a) = slots[first].as_ref() else {
-        return false;
-    };
-    let Some(b) = slots[last].as_ref() else {
-        return false;
-    };
-    if a.wires != b.wires {
-        return false;
-    }
-    // Every possibly non-disjoint crossing is indexed; omitted gates act on
-    // disjoint tensor factors. Do not truncate this proof check to LOOKBACK.
     let mut crossed = BTreeSet::new();
-    for q in &a.wires {
+    for q in &slots[first].as_ref().unwrap().wires {
         if let Some(entries) = index.get(q) {
             let start = entries.partition_point(|i| *i <= first);
             let end = entries.partition_point(|i| *i < last);
             crossed.extend(entries[start..end].iter().copied());
         }
     }
-    for j in crossed {
-        if selected.contains(&j) {
-            continue;
-        }
-        if let Some(c) = &slots[j] {
-            if !spend(work) || !commutes(a, c) || !commutes(b, c) {
-                return false;
-            }
-        }
+    if !crossings_legal(slots, selected, crossed, work) {
+        return false;
     }
-    if selected.len() == 2 {
-        let Some(replacement) = fuse(a, b, ids) else {
-            return false;
-        };
-        slots[first] = replacement;
-        slots[last] = None;
-    } else {
-        let mid = selected[1];
-        let Some(middle) = slots[mid].as_ref() else {
-            return false;
-        };
-        let Some(replacement) = conjugate(a, middle, b, ids) else {
-            return false;
-        };
-        slots[first] = None;
-        slots[mid] = Some(replacement);
-        slots[last] = None;
+    for &i in selected {
+        slots[i] = None;
     }
+    slots[kept] = replacement;
     true
 }
 
@@ -363,11 +325,23 @@ fn sweep(
     work: &mut usize,
 ) -> bool {
     let mut changed = false;
-    for i in 0..slots.len() {
+    // Track live positions so adjacent search never crosses a live intervening
+    // operation and does not repeatedly walk long runs of deleted slots.
+    let mut live: BTreeSet<_> = slots
+        .iter()
+        .enumerate()
+        .filter_map(|(i, op)| op.as_ref().map(|_| i))
+        .collect();
+    let preferred = preferred_candidates(slots);
+    for i in preferred.into_iter().chain(0..slots.len()) {
         let Some(current) = slots[i].as_ref() else {
             continue;
         };
-        let previous = predecessors(i, current, index, strategy);
+        let previous = if strategy == Strategy::Adjacent {
+            live.range(..i).rev().take(2).copied().collect()
+        } else {
+            predecessors(i, current, index, strategy)
+        };
         let mut middle = None;
         for j in previous {
             if !spend(work) {
@@ -383,15 +357,20 @@ fn sweep(
             };
             let crossing = commutes(a, b);
             if apply_candidate(slots, &selected, index, ids, work) {
+                for &k in &selected {
+                    if slots[k].is_none() {
+                        live.remove(&k);
+                    }
+                }
                 changed = true;
                 break;
             }
-            if !crossing {
+            if strategy == Strategy::Adjacent || !crossing {
                 if middle.is_some() {
                     break;
                 }
                 middle = Some(j);
-                if slots[i].as_ref().is_none_or(|o| o.gate != Gate::H) {
+                if slots[i].as_ref().is_none_or(|o| !rules::can_end_triple(o)) {
                     break;
                 }
             }
@@ -427,10 +406,7 @@ pub(super) fn preprocess(source: &Program) -> Option<Program> {
 
 pub(super) fn preprocess_with(source: &Program, strategy: Strategy) -> Option<Program> {
     let start = std::time::Instant::now();
-    if strategy == Strategy::Off
-        || unitary::validate(source).is_err()
-        || numeric_domains(source).is_err()
-    {
+    if unitary::validate(source).is_err() || numeric_domains(source).is_err() {
         return None;
     }
     let mut candidate = source.clone();

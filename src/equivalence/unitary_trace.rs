@@ -78,9 +78,7 @@ pub(super) fn certificate(
     let circuit = super::unitary_rewrite::preprocess(&circuit).unwrap_or(circuit);
     let circuit = phase_only_rotations(circuit)?;
     let circuit = super::unitary_rewrite::preprocess(&circuit).unwrap_or(circuit);
-    if circuit.body.statements.is_empty()
-        && super::unitary_rewrite::strategy().ok()? != super::unitary_rewrite::Strategy::Off
-    {
+    if circuit.body.statements.is_empty() {
         return Some(TraceNorm::Rational(BigRational::from_integer(1.into())));
     }
     // H plus monomial gates avoids path-dependent trigonometric scalars.

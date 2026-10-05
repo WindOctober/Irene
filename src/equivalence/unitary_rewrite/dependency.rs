@@ -10,6 +10,7 @@ mod interval;
 pub struct Statistics {
     pub before: usize,
     pub after: usize,
+    /// Sum of H-count decreases per rewrite; H creation does not subtract from it.
     pub removed_h: usize,
     pub exact_rewrites: usize,
     pub exact_identity_gates: usize,
@@ -127,6 +128,8 @@ pub(in crate::equivalence) fn reduce(
     }
     let started = std::time::Instant::now();
     let before = source.body.statements.len();
+    let mut ids = AstIdGenerator::starting_at(source.ast_id_bound());
+    let mut budget = MAX_WORK;
     let mut slots: Vec<_> = source
         .body
         .statements
@@ -157,12 +160,10 @@ pub(in crate::equivalence) fn reduce(
         diamond_error: rational(0, 1),
         ..Default::default()
     };
-    let h_before = slots.iter().flatten().filter(|o| o.gate == Gate::H).count();
-    let mut ids = AstIdGenerator::starting_at(source.ast_id_bound());
     let mut pending: BTreeSet<_> = (0..slots.len()).collect();
-    let mut budget = MAX_WORK;
+    let mut preferred = preferred_candidates(&slots).into_iter();
     loop {
-        while let Some(i) = pending.pop_first() {
+        while let Some(i) = preferred.next().or_else(|| pending.pop_first()) {
             if !spend(&mut budget) {
                 break;
             }
@@ -225,39 +226,34 @@ pub(in crate::equivalence) fn reduce(
                 } else {
                     vec![j, i]
                 };
-                let mut replacement = None;
+                let mut replacement = exact_candidate(&slots, &selected, &mut ids);
                 let mut error = rational(0, 1);
                 let same = a.wires == b.wires;
-                if same && selected.len() == 2 {
-                    replacement = fuse(a, b, &mut ids).map(|r| (j, r));
-                    if !matches!(replacement, Some((_, None)))
-                        && per_pair > rational(0, 1)
-                        && (costly(a, order) || costly(b, order))
-                        && let Some(e) = interval::pair_error(a, b)
-                        && e <= per_pair
-                        && &stats.diamond_error + &e <= limit
-                    {
-                        replacement = Some((j, None));
-                        error = e;
-                    }
-                } else if same && let Some(k) = middle {
-                    replacement =
-                        conjugate(a, slots[k].as_ref()?, b, &mut ids).map(|r| (k, Some(r)));
+                if same
+                    && selected.len() == 2
+                    && !matches!(replacement, Some((_, None)))
+                    && per_pair > rational(0, 1)
+                    && (costly(a, order) || costly(b, order))
+                    && let Some(e) = interval::pair_error(a, b)
+                    && e <= per_pair
+                    && &stats.diamond_error + &e <= limit
+                {
+                    replacement = Some((j, None));
+                    error = e;
                 }
                 if let Some((kept, op)) = replacement {
                     let mut crossed = BTreeSet::new();
                     for q in &a.wires {
                         crossed.extend(wires[q].range((Excluded(j), Excluded(i))).copied());
                     }
-                    let legal = crossed
-                        .into_iter()
-                        .filter(|k| !selected.contains(k))
-                        .all(|k| {
-                            spend(&mut budget)
-                                && commutes(a, slots[k].as_ref().unwrap())
-                                && commutes(b, slots[k].as_ref().unwrap())
-                        });
+                    let legal = crossings_legal(&slots, &selected, crossed, &mut budget);
                     if legal {
+                        let old_h = selected
+                            .iter()
+                            .filter(|&&k| slots[k].as_ref().unwrap().gate == Gate::H)
+                            .count();
+                        let new_h = usize::from(op.as_ref().is_some_and(|o| o.gate == Gate::H));
+                        stats.removed_h += old_h.saturating_sub(new_h);
                         replace_selected(
                             &selected,
                             op.map(|op| (kept, op)),
@@ -275,7 +271,7 @@ pub(in crate::equivalence) fn reduce(
                     }
                 }
                 if !crossing {
-                    if middle.is_some() || current.gate != Gate::H {
+                    if middle.is_some() || !rules::can_end_triple(&current) {
                         break;
                     }
                     middle = Some(j);
@@ -316,7 +312,6 @@ pub(in crate::equivalence) fn reduce(
     }
     let live: Vec<_> = slots.into_iter().flatten().collect();
     stats.after = live.len();
-    stats.removed_h = h_before - live.iter().filter(|o| o.gate == Gate::H).count();
     stats.work = MAX_WORK - budget;
     let statements = if schedule {
         topological(live)?
