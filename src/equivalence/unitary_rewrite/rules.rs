@@ -30,6 +30,10 @@ pub(super) const TRIPLES: &[(Gate, Gate, Gate)] = &[
     (Gate::H, Gate::Cz, Gate::H),
     (Gate::H, Gate::Ccx, Gate::H),
     (Gate::H, Gate::Ccz, Gate::H),
+    (Gate::H, Gate::Rx, Gate::H),
+    (Gate::H, Gate::Ry, Gate::H),
+    (Gate::H, Gate::Crx, Gate::H),
+    (Gate::H, Gate::Cry, Gate::H),
     (Gate::P, Gate::Rx, Gate::P),
 ];
 
@@ -153,11 +157,27 @@ fn conjugate(h: &Op, middle: &Op, other: &Op, ids: &mut AstIdGenerator) -> Optio
         Gate::Cz => Gate::Cx,
         Gate::Ccx => Gate::Ccz,
         Gate::Ccz => Gate::Ccx,
+        Gate::Rx => Gate::Rz,
+        Gate::Crx => Gate::Crz,
+        Gate::Ry | Gate::Cry => middle.gate,
         _ => return None,
+    };
+    let StatementKind::Apply { parameters, .. } = &middle.statement.kind else {
+        unreachable!()
+    };
+    // H conjugates X <-> Z and Y -> -Y. These are operator identities for
+    // ANY valid angle, not a claim that a decimal angle is Clifford. Controlled
+    // variants change only the target basis and keep their relative phase.
+    // Orient X rotations towards Z, not backwards: H Rz H -> Rx would undo
+    // the trace backend's phase-only lowering immediately after expansion.
+    let parameters = if matches!(middle.gate, Gate::Ry | Gate::Cry) {
+        vec![ids.node(NumericExprKind::Neg(Box::new(parameters[0].clone())))]
+    } else {
+        parameters.clone()
     };
     Some(Op::from(ids.node(StatementKind::Apply {
         gate,
-        parameters: vec![],
+        parameters,
         qubits: middle.wires.clone(),
     })))
 }

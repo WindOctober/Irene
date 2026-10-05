@@ -98,6 +98,21 @@ fn shared_rules_follow_live_dependencies_and_keep_h_statistics_valid() {
 }
 
 #[test]
+fn mixed_angles_do_not_block_local_basis_reduction() {
+    for (gate, diagonal, wires) in [("rx", "rz", "q[1]"), ("crx", "crz", "q[0],q[1]")] {
+        let left = format!("h q[1]; {gate}(pi/2) {wires}; h q[1]; rz(0.5709439576515822) q[1];");
+        let right = format!("{diagonal}(pi/2) {wires}; rz(0.5709439576515822) q[1];");
+        let c = build(&left, &right, false);
+        assert_eq!(c.statistics.after, 0);
+        assert!(c.is_exact());
+        assert_eq!(
+            c.statistics.diamond_error,
+            BigRational::from_integer(0.into())
+        );
+    }
+}
+
+#[test]
 fn nested_inverse_cascade_reaches_fixed_point() {
     let body = "h q[0]; cx q[0],q[1]; t q[1]; ccx q[0],q[1],q[2];".repeat(100);
     let c = build(&body, &body, false);

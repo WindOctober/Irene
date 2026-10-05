@@ -54,6 +54,15 @@ matching uses the rotation's 4pi period, never rounds decimal angles, and does
 not require unrelated circuit angles to be dyadic. Approximate dependency-miter
 removals remain separate and retain their explicit diamond-error ledger.
 
+Local basis reductions such as `H; Rx(theta); H -> Rz(theta)` (including
+controlled-target variants) preserve the original angle and do not require a
+whole-circuit Clifford/dyadic domain. They also benefit the general-channel
+fallback. Trace-specific Rx/Ry expansion checks the bounded dyadic domain per
+rotation, leaving unsupported angles unchanged. Backend admission is checked
+after local processing; a remaining unsupported gate can still make trace
+decline, but does not disable the shared local reductions. Diagonal rotations
+are not rewritten back into mixing rotations, avoiding a lowering/rewrite cycle.
+
 ## Frontend and interface
 
 - [Frontend](../iqir/src/frontend): names, scopes, types, constants, gate modifiers and source expansion.
