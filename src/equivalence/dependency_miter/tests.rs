@@ -22,6 +22,82 @@ fn build(a: &str, b: &str, approx: bool) -> Candidate {
     candidate(&a, &b, &config, &options(approx)).unwrap()
 }
 #[test]
+fn native_hadamards_cancel_in_both_miter_orientations() {
+    // Make the longer side vary so that the triple also occurs under inversion.
+    for (left, right) in [
+        ("s q[0]; rx(pi/2) q[0]; s q[0];", "h q[0];"),
+        (
+            "s q[0]; rx(pi/2) q[0]; s q[0];",
+            "h q[0]; x q[1]; x q[1]; x q[1]; x q[1];",
+        ),
+    ] {
+        let a = parse(left);
+        let b = parse(right);
+        let config = EquivalenceConfig::positional(&a, &b).unwrap();
+        for mode in [Mode::Wire, Mode::Dag, Mode::DagScheduled] {
+            let c = candidate(
+                &a,
+                &b,
+                &config,
+                &Options {
+                    mode,
+                    ..options(false)
+                },
+            )
+            .unwrap();
+            assert!(c.circuit.body.statements.is_empty(), "{mode:?}");
+            assert!(c.is_exact());
+            assert_eq!(
+                c.statistics.before,
+                a.operation_count() + b.operation_count()
+            );
+            assert_eq!(c.statistics.after, 0);
+            let mut ids = std::collections::BTreeSet::new();
+            c.circuit.visit_ast_ids(|id| assert!(ids.insert(id)));
+        }
+    }
+}
+
+#[test]
+fn shared_rules_follow_live_dependencies_and_keep_h_statistics_valid() {
+    let c = build(
+        "s q[0]; s q[0]; rx(pi/2) q[0]; s q[0]; h q[0]; sdg q[0];",
+        "",
+        false,
+    );
+    assert_eq!(c.statistics.after, 0);
+    assert!(c.is_exact());
+    let c = build("s q[0]; rx(pi/2) q[0]; s q[0];", "", false);
+    assert_eq!(c.statistics.after, 1);
+    assert_eq!(c.statistics.removed_h, 0);
+    let c = build(
+        "t q[0]; t q[0]; x q[1]; rx(pi/2) q[0]; s q[0];",
+        "x q[1]; h q[0];",
+        false,
+    );
+    assert_eq!(c.statistics.after, 0);
+    assert_eq!(c.statistics.removed_h, 2);
+    assert!(c.is_exact());
+    let c = build(
+        "s q[0]; cx q[1],q[0]; rx(pi/2) q[0]; s q[0];",
+        "cx q[1],q[0]; h q[0];",
+        false,
+    );
+    assert!(c.statistics.after > 0);
+    assert_eq!(
+        crate::equivalence::unitary_rewrite::tests::matrix(&c.circuit),
+        crate::equivalence::unitary_rewrite::tests::matrix(
+            &crate::ir::unitary::miter(
+                &parse("s q[0]; cx q[1],q[0]; rx(pi/2) q[0]; s q[0];"),
+                &parse("cx q[1],q[0]; h q[0];")
+            )
+            .unwrap()
+            .0
+        )
+    );
+}
+
+#[test]
 fn nested_inverse_cascade_reaches_fixed_point() {
     let body = "h q[0]; cx q[0],q[1]; t q[1]; ccx q[0],q[1],q[2];".repeat(100);
     let c = build(&body, &body, false);

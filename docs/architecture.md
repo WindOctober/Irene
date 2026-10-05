@@ -38,6 +38,22 @@ OpenQASM 2 / 3 -> Program IR + input/output interface
 Proof routes stop on sufficient evidence; a failed EQ shortcut does not establish NEQ.
 Parsing and interface errors are reported separately from Unknown.
 
+Before HPS execution, validated unitary programs use a shared
+[exact rule set](../src/equivalence/unitary_rewrite/rules.rs): pair fusion and
+cancellation, H conjugations, and `S; Rx(pi/2); S -> H` (also its adjoint).
+The default `adjacent` strategy checks only neighboring live gates. `scan`,
+`wire`, dependency-miter, and optional port matching discover wider candidates
+but share the same rule matcher and exact crossing checks. The legacy `off`
+setting means adjacent-only, with nonlocal search disabled.
+The native scan/wire/DAG schedulers prioritize existing local triple shapes
+before pair fusion can hide them; this is shared scheduling, not a separate
+normalization pass for each identity.
+
+Rules preserve full operator phase and numeric domains. Native Hadamard
+matching uses the rotation's 4pi period, never rounds decimal angles, and does
+not require unrelated circuit angles to be dyadic. Approximate dependency-miter
+removals remain separate and retain their explicit diamond-error ledger.
+
 ## Frontend and interface
 
 - [Frontend](../iqir/src/frontend): names, scopes, types, constants, gate modifiers and source expansion.

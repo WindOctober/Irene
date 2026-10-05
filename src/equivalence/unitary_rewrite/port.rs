@@ -10,25 +10,7 @@ fn matcher() -> &'static Matcher {
     static MATCHER: std::sync::OnceLock<Matcher> = std::sync::OnceLock::new();
     MATCHER.get_or_init(|| {
         let mut patterns = Vec::new();
-        for gate in [
-            Gate::H,
-            Gate::X,
-            Gate::Y,
-            Gate::P,
-            Gate::Rx,
-            Gate::Ry,
-            Gate::Rz,
-            Gate::Cx,
-            Gate::Cy,
-            Gate::Cz,
-            Gate::Swap,
-            Gate::Cp,
-            Gate::Crx,
-            Gate::Cry,
-            Gate::Crz,
-            Gate::Ccx,
-            Gate::Ccz,
-        ] {
+        for &gate in rules::PAIRS {
             let n = unitary::gate_shape(gate).0;
             let mut graph = PortGraph::new();
             let a = graph.add_node(n, n);
@@ -41,7 +23,7 @@ fn matcher() -> &'static Matcher {
             weights[b] = gate as u8;
             patterns.push(WeightedPattern::from_weighted_portgraph(&graph, weights));
         }
-        for gate in [Gate::X, Gate::Z, Gate::Cx, Gate::Cz, Gate::Ccx, Gate::Ccz] {
+        for &(first, gate, last) in rules::TRIPLES {
             let n = unitary::gate_shape(gate).0;
             let mut graph = PortGraph::new();
             let a = graph.add_node(1, 1);
@@ -50,9 +32,9 @@ fn matcher() -> &'static Matcher {
             graph.link_nodes(a, 0, b, n - 1).unwrap();
             graph.link_nodes(b, n - 1, c, 0).unwrap();
             let mut weights = UnmanagedDenseMap::new();
-            weights[a] = Gate::H as u8;
-            weights[b] = if gate == Gate::Z { Gate::P } else { gate } as u8;
-            weights[c] = Gate::H as u8;
+            weights[a] = first as u8;
+            weights[b] = gate as u8;
+            weights[c] = last as u8;
             patterns.push(WeightedPattern::from_weighted_portgraph(&graph, weights));
         }
         ManyMatcher::from_patterns(patterns)

@@ -2,8 +2,10 @@ use super::*;
 use crate::frontend::openqasm3;
 
 #[test]
-fn explicitly_unavailable_strategies_do_not_silently_select_off() {
-    assert_eq!(parse_strategy(None), Ok(Strategy::Off));
+fn explicitly_unavailable_strategies_do_not_silently_select_a_default() {
+    assert_eq!(parse_strategy(None), Ok(Strategy::Adjacent));
+    assert_eq!(parse_strategy(Some("off")), Ok(Strategy::Adjacent));
+    assert_eq!(parse_strategy(Some("adjacent")), Ok(Strategy::Adjacent));
     assert_eq!(parse_strategy(Some("wire")), Ok(Strategy::Wire));
     assert!(parse_strategy(Some("wrie")).is_err());
     assert!(parse_strategy(Some("")).is_err());
@@ -27,6 +29,96 @@ fn strategies() -> Vec<Strategy> {
         #[cfg(feature = "rewrite-experiments")]
         Strategy::Port,
     ]
+}
+
+#[test]
+fn native_hadamards_preserve_the_full_operator_including_inverse_and_period() {
+    let mut modes = strategies();
+    modes.push(Strategy::Adjacent);
+    for body in [
+        "s q[0]; rx(pi/2) q[0]; s q[0];",
+        "sdg q[0]; rx(-pi/2) q[0]; sdg q[0];",
+        "s q[0]; rx(9*pi/2) q[0]; s q[0];",
+        "sdg q[0]; rx(7*pi/2) q[0]; sdg q[0];",
+    ] {
+        let source = parse(body);
+        for &mode in &modes {
+            let reduced = preprocess_with(&source, mode).unwrap();
+            assert_eq!(reduced, parse("h q[0];"), "{mode:?}: {body}");
+            assert_eq!(matrix(&source), matrix(&reduced), "{mode:?}: {body}");
+            let mut ids = BTreeSet::new();
+            reduced.visit_ast_ids(|id| assert!(ids.insert(id)));
+        }
+    }
+}
+
+#[test]
+fn native_hadamards_do_not_require_a_whole_circuit_dyadic_domain() {
+    let source = parse("rz(0.5709439576515822) q[0]; s q[1]; rx(pi/2) q[1]; s q[1];");
+    let reduced = preprocess_with(&source, Strategy::Adjacent).unwrap();
+    assert_eq!(reduced, parse("rz(0.5709439576515822) q[0]; h q[1];"));
+    // Default adjacency uses the same rules, including ordinary cancellation.
+    assert_eq!(
+        preprocess_with(&parse("h q[0]; h q[0];"), Strategy::Adjacent).unwrap(),
+        parse("")
+    );
+}
+
+#[test]
+fn discovery_strategies_share_rules_but_not_their_crossing_scope() {
+    let source = parse("s q[0]; x q[1]; rx(pi/2) q[0]; z q[1]; s q[0];");
+    assert!(preprocess_with(&source, Strategy::Adjacent).is_none());
+    for strategy in strategies() {
+        let reduced = preprocess_with(&source, strategy).unwrap();
+        assert_eq!(reduced.operation_count(), 3);
+        assert_eq!(matrix(&source), matrix(&reduced));
+        for body in [
+            "s q[0]; rx(pi/2) q[0]; x q[0]; s q[0];",
+            "s q[0]; cx q[1],q[0]; rx(pi/2) q[0]; s q[0];",
+        ] {
+            let blocked = parse(body);
+            assert!(
+                preprocess_with(&blocked, strategy).is_none(),
+                "{strategy:?}: {body}"
+            );
+        }
+    }
+    // Pair fusion exposes a triple; neither rule needs its own traversal.
+    let cascade = parse("t q[0]; t q[0]; rx(pi/2) q[0]; s q[0]; h q[0];");
+    let reduced = preprocess_with(&cascade, Strategy::Adjacent).unwrap();
+    assert_eq!(reduced.operation_count(), 0);
+    assert_eq!(matrix(&cascade), matrix(&reduced));
+    // Preserve an existing triple before its leading S fuses with the prefix.
+    let competing = parse("s q[0]; s q[0]; rx(pi/2) q[0]; s q[0]; h q[0]; sdg q[0];");
+    for strategy in [Strategy::Adjacent, Strategy::Scan, Strategy::Wire] {
+        let reduced = preprocess_with(&competing, strategy).unwrap();
+        assert_eq!(reduced.operation_count(), 0, "{strategy:?}");
+        assert_eq!(matrix(&competing), matrix(&reduced));
+    }
+}
+
+#[test]
+fn native_hadamards_reject_near_angles_operator_signs_and_other_wires() {
+    for body in [
+        "s q[0]; rx(1.5707963267948966) q[0]; s q[0];",
+        "s q[0]; rx(pi/2 + 1e-20) q[0]; s q[0];",
+        "s q[0]; rx(5*pi/2) q[0]; s q[0];",
+        "sdg q[0]; rx(3*pi/2) q[0]; sdg q[0];",
+        "s q[0]; rx(pi/2) q[0]; sdg q[0];",
+        "s q[0]; rx(pi/2) q[1]; s q[0];",
+        "s q[0]; crx(pi/2) q[1],q[0]; s q[0];",
+        "s q[0]; rx(pi/2) q[0]; x q[1]; s q[0];",
+    ] {
+        assert!(
+            preprocess_with(&parse(body), Strategy::Adjacent).is_none(),
+            "{body}"
+        );
+    }
+    // S Rx(5pi/2) S is -H: a channel-equivalence test would miss this sign.
+    assert_ne!(
+        matrix(&parse("s q[0]; rx(5*pi/2) q[0]; s q[0];")),
+        matrix(&parse("h q[0];"))
+    );
 }
 
 // Independent exact dense operator evaluation in Q(zeta_16), zeta^8=-1.
