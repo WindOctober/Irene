@@ -40,14 +40,29 @@ Parsing and interface errors are reported separately from Unknown.
 
 Before HPS execution, validated unitary programs use a shared
 [exact rule set](../src/equivalence/unitary_rewrite/rules.rs): pair fusion and
-cancellation, H conjugations, and `S; Rx(pi/2); S -> H` (also its adjoint).
+cancellation, H conjugations, `S; Rx(pi/2); S -> H` (also its adjoint),
+and `CX(a,b); CX(b,a); CX(a,b) -> SWAP(a,b)`.
 The default `adjacent` strategy checks only neighboring live gates. `scan`,
 `wire`, dependency-miter, and optional port matching discover wider candidates
 but share the same rule matcher and exact crossing checks. The legacy `off`
 setting means adjacent-only, with nonlocal search disabled.
-The native scan/wire/DAG schedulers prioritize existing local triple shapes
-before pair fusion can hide them; this is shared scheduling, not a separate
-normalization pass for each identity.
+The native scan/wire/DAG schedulers prioritize actual local triple matches
+(including wires and angles) before pair fusion can hide them. They apply the
+selected triple itself, not a competing pair at its endpoint; this is shared
+scheduling, not a separate normalization pass for each identity.
+
+The three-CX/SWAP identity is handled by the shared local rule matcher, including
+dependency-miter reduction. There is no global wire-map propagation: SWAP gates
+are not moved to the end of the circuit and later gates are not relabeled.
+Global routing and common-prefix/suffix cancellation remain experimental and
+are not enabled in the main version.
+
+For a full-unitary exact trace certificate with rational squared modulus r,
+`interval_hps::exact_trace_distance_lower` exposes the conservative rational
+diamond-distance lower bound `2*(1-r)` (0 <= r <= 1). Consumers can reuse this
+without recomputing the trace, but must subtract any preprocessing error.
+The external experiment worker reports unified EQ/NEQ labels with separate
+proof metadata; the library's `analyze` verdicts remain exact.
 
 Rules preserve full operator phase and numeric domains. Native Hadamard
 matching uses the rotation's 4pi period, never rounds decimal angles, and does
@@ -191,9 +206,46 @@ configurable through `IRENE_TUNE_SOLVER_SECONDS` and independent of any outer ti
 ### Numerical HPS certificates
 
 [interval_hps.rs](../src/equivalence/interval_hps.rs) checks full-unitary identity
-using 256-bit directed MPFR intervals. Boolean guards remain exact; all bound paths
+using directed MPFR intervals. Boolean guards remain exact; all bound paths
 and symbolic inputs contribute to the normalized operator trace. Supported constant
 sin/cos coefficients and linear pi/radian phases need not be cyclotomic.
+
+Symbolic identity, contraction strategy, and numerical evaluation are separate:
+
+- IQIR numeric expressions and HPS scalar/phase expressions retain their exact
+  semantics. Interval endpoints never replace source expressions or identify them.
+- [operator.rs](../src/equivalence/operator.rs) lowers local blocks with the ordinary
+  HPS executor and visits every coherent input/path contribution. Both the exact
+  and interval physical-wire backends consume this same semantics.
+- [numeric.rs](../src/equivalence/numeric.rs) owns directed real/complex arithmetic,
+  shared by approximate gate cancellation, structural HPS evaluation and the
+  physical-wire frontier. An enclosure context chooses precision, not meaning.
+- The exact backend retains coefficient polynomials; the structured backend
+  retains its predicate DAG; the interval frontier uses dense complex enclosures.
+  These internal data structures are deliberately not forced into one type.
+
+Before building the global HPS, full-unitary candidates of at most ten qubits
+can contract their complete operator on the physical wires. All input columns
+survive; this is not basis-state sampling. The interval frontier admits at most
+1.5 billion projected cell/block steps and uses a 180 s cooperative time budget.
+Contiguous blocks contain at most 64 gates and one mixing gate; their sparse transitions come from
+the shared HPS lowering, so monomial runs update the operator once per block,
+without gate reordering or a second gate-matrix semantics. Its precision is
+256 plus the number of mixing gates, capped at 4096 bits, to counter entrywise
+interval widening. Exceeding a budget or failing to enclose a useful result
+does not certify a verdict. Inconclusive bounds are refined with the existing
+structural route, and independently certified bounds may be intersected.
+`identity_bound_with_tolerance` exposes this refinement target; the compatibility
+entry point uses 1e-12. Reports identify method and precision.
+
+The exact frontier also admits ten qubits and up to 64 million projected table
+steps (previously six qubits/one million steps); its separate coefficient-work
+budget remains in force. Admitted exact frontiers are attempted before whole-HPS
+construction and are not repeated after a budget refusal.
+
+Both interval contractions feed the same complete-trace distance certificate
+code. Exact `analyze` still accepts only exact evidence; interval certificates
+are consumed by callers that explicitly request distance/tolerance reasoning.
 
 The arithmetic DAG retains XAG predicates rather than truth tables. It traverses
 scalar products iteratively, aligns identical/complementary Select conditions,
@@ -201,7 +253,7 @@ folds constants and extracts common products. Path elimination uses both symboli
 cofactors. Half-turn phases split via `(-1)^(f XOR g) = (-1)^f * (-1)^g`;
 AND subgraphs are not expanded into ANF. Equal interval enclosures do not establish
 expression equality. Structural growth remains resource-limited; diagnostics count
-allocated DAG nodes.
+allocated DAG nodes. This route retains its 256-bit default precision.
 
 For dimension d and normalized trace t, the channel diamond-distance bounds are:
 
@@ -214,6 +266,17 @@ The upper bound uses an interval lower bound on |t|. The lower bound comes from
 a normalized maximally entangled input, using the upper endpoint of |t|² and
 downward-rounded arithmetic. If the enclosure permits |t|=1, the lower bound is zero.
 These bounds include the full summed amplitude and ignore global phase.
+
+For tolerance-oriented callers, use local circuit reduction first, then the
+certified interval bounds, and invoke expensive exact analysis only if the
+enclosure straddles the tolerance. A strictly positive lower bound proves exact
+non-equality but exceeds tolerance only when it is greater than the tolerance.
+Keep these two verdicts separate. The `analyze` API and ordinary CLI remain
+exact-only; orchestration of tolerance queries is the caller's responsibility.
+
+Boolean-to-arithmetic phase lifting retains wide XORs as exact selectors rather
+than enumerating their exponentially many products. Small lifts are bounded
+before allocation; half-turn XOR phases can be added directly modulo one.
 
 Add certified preprocessing error to the upper bound; subtract it from the lower
 bound and clamp at zero with `corrected_lower_bound`:

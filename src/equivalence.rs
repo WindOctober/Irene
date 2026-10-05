@@ -30,6 +30,8 @@ mod interface;
 pub mod interval_hps;
 mod kernel;
 mod model_witness;
+mod numeric;
+mod operator;
 mod phase_compare;
 mod smt;
 mod solver_query;

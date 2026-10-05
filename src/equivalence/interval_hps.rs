@@ -1,7 +1,7 @@
 //! Structural HPS coefficient simplification with certified numerical leaves.
 //!
-//! No whole-function truth tables are constructed. Boolean expressions stay
-//! shared while scalar coefficients and common factors are simplified. Every
+//! Small physical-wire frontiers contract the complete operator first; wider
+//! programs retain shared Boolean expressions and structural elimination. Every
 //! path and input remains accounted for in the normalized trace. Boolean
 //! guards/selectors stay exact; MPFR endpoints enclose all scalar/phase values.
 //! For a d-dimensional unitary V and t=Tr(V)/d, choose its global phase so that
@@ -11,200 +11,30 @@
 //! A normalized maximally entangled input also gives a lower bound:
 //! 2 sqrt(1-|t|^2). A strictly positive, error-corrected lower bound proves NEQ.
 //! These are separate certificates; the exact `analyze` route is unchanged.
-use crate::ir::{NumericConstant, NumericExpr, NumericExprKind, Program, unitary};
+use crate::ir::{NumericExpr, Program, unitary};
 use crate::symbolic::{
     BooleanPolynomial, ExecutionConfig, OutputSelection, Scalar, Variable, execute,
     normalized_trace_component,
 };
+#[cfg(test)]
 use num_bigint::BigInt;
 use num_rational::BigRational;
-use rug::{
-    Float, Integer,
-    float::{Constant, Round},
-};
+use rug::{Float, Integer, float::Round};
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};
 
-const PREC: u32 = 256;
+use super::numeric::{Complex, Interval, PREC, float_rational, number};
+mod frontier;
 mod structured;
-
-#[derive(Clone, Debug)]
-struct Interval {
-    lo: Float,
-    hi: Float,
-}
-impl Interval {
-    fn n(n: i32) -> Self {
-        Self {
-            lo: Float::with_val(PREC, n),
-            hi: Float::with_val(PREC, n),
-        }
-    }
-    fn rational(r: &BigRational) -> Option<Self> {
-        if r.numer().bits() > 16384 || r.denom().bits() > 16384 {
-            return None;
-        }
-        let cv = |n: &BigInt| -> Option<Self> {
-            let n = Integer::from_str_radix(&n.to_string(), 10).ok()?;
-            Some(Self {
-                lo: Float::with_val_round(PREC, &n, Round::Down).0,
-                hi: Float::with_val_round(PREC, &n, Round::Up).0,
-            })
-        };
-        cv(r.numer())?.div(&cv(r.denom())?)
-    }
-    fn pi() -> Self {
-        Self {
-            lo: Float::with_val_round(PREC, Constant::Pi, Round::Down).0,
-            hi: Float::with_val_round(PREC, Constant::Pi, Round::Up).0,
-        }
-    }
-    fn add(&self, b: &Self) -> Self {
-        Self {
-            lo: Float::with_val_round(PREC, &self.lo + &b.lo, Round::Down).0,
-            hi: Float::with_val_round(PREC, &self.hi + &b.hi, Round::Up).0,
-        }
-    }
-    fn neg(&self) -> Self {
-        Self {
-            lo: -self.hi.clone(),
-            hi: -self.lo.clone(),
-        }
-    }
-    fn mul(&self, b: &Self) -> Self {
-        let mut lo = Float::with_val(PREC, f64::INFINITY);
-        let mut hi = -lo.clone();
-        for a in [&self.lo, &self.hi] {
-            for b in [&b.lo, &b.hi] {
-                let l = Float::with_val_round(PREC, a * b, Round::Down).0;
-                let h = Float::with_val_round(PREC, a * b, Round::Up).0;
-                if l < lo {
-                    lo = l;
-                }
-                if h > hi {
-                    hi = h;
-                }
-            }
-        }
-        Self { lo, hi }
-    }
-    fn div(&self, b: &Self) -> Option<Self> {
-        if b.lo <= 0 && b.hi >= 0 {
-            return None;
-        }
-        let one = Float::with_val(PREC, 1);
-        Some(self.mul(&Self {
-            lo: Float::with_val_round(PREC, &one / &b.hi, Round::Down).0,
-            hi: Float::with_val_round(PREC, &one / &b.lo, Round::Up).0,
-        }))
-    }
-    fn sqrt(&self) -> Option<Self> {
-        if self.lo < 0 {
-            return None;
-        }
-        let mut lo = self.lo.clone();
-        lo.sqrt_round(Round::Down);
-        let mut hi = self.hi.clone();
-        hi.sqrt_round(Round::Up);
-        Some(Self { lo, hi })
-    }
-    fn square(&self) -> Self {
-        let mut r = self.mul(self);
-        if self.lo <= 0 && self.hi >= 0 {
-            r.lo = Float::with_val(PREC, 0);
-        }
-        r
-    }
-    fn trig(&self, sine: bool) -> Self {
-        // sin/cos are globally 1-Lipschitz. Correctly rounded values at the
-        // lower endpoint plus the interval width also enclose interior extrema.
-        let mut lo = self.lo.clone();
-        let mut hi = self.lo.clone();
-        if sine {
-            lo.sin_round(Round::Down);
-            hi.sin_round(Round::Up);
-        } else {
-            lo.cos_round(Round::Down);
-            hi.cos_round(Round::Up);
-        }
-        let width = Float::with_val_round(PREC, &self.hi - &self.lo, Round::Up).0;
-        lo = Float::with_val_round(PREC, lo - &width, Round::Down).0;
-        hi = Float::with_val_round(PREC, hi + &width, Round::Up).0;
-        if lo < -1 {
-            lo = Float::with_val(PREC, -1);
-        }
-        if hi > 1 {
-            hi = Float::with_val(PREC, 1);
-        }
-        Self { lo, hi }
-    }
-    fn finite(self) -> Option<Self> {
-        (self.lo.is_finite() && self.hi.is_finite() && self.lo <= self.hi).then_some(self)
-    }
-}
-fn number(e: &NumericExpr, depth: usize) -> Option<Interval> {
-    if depth > 256 {
-        return None;
-    }
-    let r = match &e.kind {
-        NumericExprKind::Rational(r) => Interval::rational(r)?,
-        NumericExprKind::Constant(NumericConstant::Pi) => Interval::pi(),
-        NumericExprKind::Constant(NumericConstant::Tau) => Interval::pi().mul(&Interval::n(2)),
-        NumericExprKind::Neg(a) => number(a, depth + 1)?.neg(),
-        NumericExprKind::Add(a, b) => number(a, depth + 1)?.add(&number(b, depth + 1)?),
-        NumericExprKind::Sub(a, b) => number(a, depth + 1)?.add(&number(b, depth + 1)?.neg()),
-        NumericExprKind::Mul(a, b) => number(a, depth + 1)?.mul(&number(b, depth + 1)?),
-        NumericExprKind::Div(a, b) => number(a, depth + 1)?.div(&number(b, depth + 1)?)?,
-        _ => return None,
-    };
-    r.finite()
-}
-#[derive(Clone)]
-struct Complex {
-    re: Interval,
-    im: Interval,
-}
-impl Complex {
-    fn real(re: Interval) -> Self {
-        Self {
-            re,
-            im: Interval::n(0),
-        }
-    }
-    fn n(n: i32) -> Self {
-        Self::real(Interval::n(n))
-    }
-    fn add(&self, b: &Self) -> Self {
-        Self {
-            re: self.re.add(&b.re),
-            im: self.im.add(&b.im),
-        }
-    }
-    fn mul(&self, b: &Self) -> Self {
-        Self {
-            re: self.re.mul(&b.re).add(&self.im.mul(&b.im).neg()),
-            im: self.re.mul(&b.im).add(&self.im.mul(&b.re)),
-        }
-    }
-}
-fn float_rational(v: &Float) -> Option<BigRational> {
-    let (n, e) = v.to_integer_exp()?;
-    if e.unsigned_abs() > 16384 {
-        return None;
-    }
-    let n = BigInt::parse_bytes(n.to_string().as_bytes(), 10)?;
-    Some(if e >= 0 {
-        BigRational::from_integer(n << (e as usize))
-    } else {
-        BigRational::new(n, BigInt::from(1) << ((-e) as usize))
-    })
-}
 
 /// Certified distance enclosure for a complete static unitary versus identity.
 /// `bound` alone is never a NEQ witness. A positive `lower_bound` is, provided
 /// any error incurred before this check has been subtracted first.
 #[derive(Debug)]
 pub struct Report {
+    /// Contraction strategy, independent of the certified coefficient domain.
+    pub method: &'static str,
+    pub precision: u32,
     pub bound: Option<BigRational>,
     pub lower_bound: Option<BigRational>,
     pub reason: &'static str,
@@ -232,29 +62,128 @@ impl Report {
 /// a global phase has overlap modulus one and must not yield a NEQ certificate.
 fn trace_distance_lower(trace: &Complex) -> Option<BigRational> {
     let norm_squared = trace.re.square().add(&trace.im.square()).finite()?;
-    let mut gap = Float::with_val_round(
-        PREC,
-        Float::with_val(PREC, 1) - &norm_squared.hi,
-        Round::Down,
-    )
-    .0;
+    let one = Float::with_val(PREC, 1);
+    let mut gap = Float::with_val_round(PREC, &one - &norm_squared.hi, Round::Down).0;
     if gap <= 0 {
         return Some(BigRational::from_integer(0.into()));
     }
     gap.sqrt_round(Round::Down);
-    let lower = Float::with_val_round(PREC, gap * 2, Round::Down).0;
+    let lower = Float::with_val_round(PREC, &gap * 2, Round::Down).0;
     float_rational(&lower)
+}
+
+/// Common certificate extraction for both structural and physical-wire sums.
+fn trace_bounds(trace: &Complex, n: usize) -> Option<(BigRational, BigRational)> {
+    let norm = trace.re.square().add(&trace.im.square()).sqrt()?.finite()?;
+    if norm.lo > 1 {
+        return None;
+    }
+    let lower = trace_distance_lower(trace)?;
+    let one = Float::with_val(PREC, 1);
+    let gap = Float::with_val_round(PREC, &one - &norm.lo, Round::Up).0;
+    let scale = Float::with_val(PREC, Integer::from(1) << (n + 3));
+    let mut upper = Float::with_val_round(PREC, &gap * &scale, Round::Up).0;
+    upper.sqrt_round(Round::Up);
+    if !upper.is_finite() {
+        return None;
+    }
+    if upper > 2 {
+        upper = Float::with_val(PREC, 2);
+    }
+    Some((float_rational(&upper)?, lower))
+}
+
+/// A cheap exact rational distance certificate from an already proved
+/// r = |Tr(V)/d|^2. For 0 <= r <= 1, diamond distance >= 2 sqrt(1-r)
+/// which is at least 2(1-r). No new HPS contraction or numerical rounding is needed.
+/// This deliberately weaker rational bound is strictly positive for every
+/// rational trace mismatch. Callers must subtract any preprocessing error.
+pub fn exact_trace_distance_lower(norm_squared: &BigRational) -> Option<BigRational> {
+    let zero = BigRational::from_integer(0.into());
+    let one = BigRational::from_integer(1.into());
+    if norm_squared < &zero || norm_squared > &one {
+        return None;
+    }
+    Some((one - norm_squared) * BigRational::from_integer(2.into()))
 }
 /// Checks a complete static unitary against identity, for all coherent inputs.
 /// Measurements, reset, classical observation and runtime numeric inputs refuse.
 pub fn identity_bound(program: &Program) -> Report {
-    structured::identity_bound(program)
+    identity_bound_with_tolerance(
+        program,
+        &BigRational::new(1.into(), 1_000_000_000_000i64.into()),
+    )
+}
+
+/// The target guides refinement only; every returned bound remains certified.
+/// A wide frontier enclosure must not suppress the existing structural route.
+pub fn identity_bound_with_tolerance(program: &Program, target: &BigRational) -> Report {
+    let first = frontier::identity_bound(program);
+    if let Some(report) = &first
+        && (report.bound.as_ref().is_some_and(|u| u <= target)
+            || report.lower_bound.as_ref().is_some_and(|l| l > target))
+    {
+        return first.unwrap();
+    }
+    let mut report = structured::identity_bound(program);
+    if let Some(first) = first {
+        report.method = "frontier+structured";
+        report.precision = report.precision.max(first.precision);
+        report.bound = match (first.bound, report.bound) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
+        report.lower_bound = match (first.lower_bound, report.lower_bound) {
+            (Some(a), Some(b)) => Some(a.max(b)),
+            (a, b) => a.or(b),
+        };
+        report.work += first.work;
+        report.nodes = report.nodes.max(first.nodes);
+    }
+    report
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::frontend::openqasm3;
+    #[test]
+    fn exact_trace_distance_lower_is_positive_only_for_valid_mismatches() {
+        let r = |n: i64, d: i64| BigRational::new(n.into(), d.into());
+        for (norm, lower) in [
+            (r(0i64, 1i64), r(2, 1)),
+            (r(1, 16), r(15, 8)),
+            (r(1, 4), r(3, 2)),
+            (r(1, 1), r(0, 1)),
+        ] {
+            let bound = exact_trace_distance_lower(&norm).unwrap();
+            assert_eq!(bound, lower);
+            // Squaring checks the lower enclosure against 2 sqrt(1-r).
+            assert!(&bound * &bound <= r(4, 1) * (r(1, 1) - norm));
+        }
+        assert!(exact_trace_distance_lower(&r(-1, 1)).is_none());
+        assert!(exact_trace_distance_lower(&r(2, 1)).is_none());
+    }
+    #[test]
+    fn distance_certificates_enclose_exact_rationals_across_precisions() {
+        let one = BigRational::from_integer(1.into());
+        for precision in [256, 513, 1024] {
+            let domain = super::super::numeric::Enclosure { precision };
+            for r in [
+                BigRational::new(1.into(), 3.into()),
+                &one - BigRational::new(1.into(), BigInt::from(3) << 60usize),
+                &one - BigRational::new(1.into(), BigInt::from(7) << 300usize),
+                one.clone(),
+            ] {
+                let trace = Complex::real(domain.scalar(&Scalar::rational(r.clone())).unwrap());
+                let (upper, lower) = trace_bounds(&trace, 2).unwrap();
+                assert!(&lower * &lower <= (&one - &r * &r) * BigInt::from(4));
+                let expected =
+                    ((&one - r) * BigInt::from(32)).min(BigRational::from_integer(4.into()));
+                assert!(&upper * &upper >= expected);
+            }
+        }
+    }
     fn run(body: &str) -> Report {
         let p = openqasm3::parse_str(
             &format!("OPENQASM 3.0; include \"stdgates.inc\"; qubit[2] q; {body}"),
@@ -292,9 +221,9 @@ mod tests {
         ] {
             let r = run(body);
             assert_eq!(
-                r.lower_bound.unwrap(),
-                BigRational::from_integer(0.into()),
-                "{body}"
+                r.lower_bound.as_ref(),
+                Some(&BigRational::from_integer(0.into())),
+                "{body}: {r:?}"
             );
         }
     }

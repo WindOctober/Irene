@@ -202,7 +202,7 @@ fn exact_candidate(
 
 /// Visit existing local triples before pairs can fuse away their boundaries.
 /// These are only scheduling hints; the shared matcher still checks each rule.
-fn preferred_candidates(slots: &[Option<Op>]) -> Vec<usize> {
+fn preferred_candidates(slots: &[Option<Op>]) -> Vec<[usize; 3]> {
     slots
         .windows(3)
         .enumerate()
@@ -210,9 +210,10 @@ fn preferred_candidates(slots: &[Option<Op>]) -> Vec<usize> {
             let (Some(a), Some(middle), Some(b)) = (&window[0], &window[1], &window[2]) else {
                 return None;
             };
-            rules::TRIPLES
-                .contains(&(a.family(), middle.family(), b.family()))
-                .then_some(i + 2)
+            // Probe the actual rule, including wires and angles. Scratch AST
+            // nodes are discarded; the accepted rewrite allocates fresh IDs.
+            rules::exact(&[a, middle, b], &mut AstIdGenerator::starting_at(0))
+                .map(|_| [i, i + 1, i + 2])
         })
         .collect()
 }
@@ -325,6 +326,12 @@ fn sweep(
     work: &mut usize,
 ) -> bool {
     let mut changed = false;
+    for selected in preferred_candidates(slots) {
+        if !spend(work) {
+            return changed;
+        }
+        changed |= apply_candidate(slots, &selected, index, ids, work);
+    }
     // Track live positions so adjacent search never crosses a live intervening
     // operation and does not repeatedly walk long runs of deleted slots.
     let mut live: BTreeSet<_> = slots
@@ -332,8 +339,7 @@ fn sweep(
         .enumerate()
         .filter_map(|(i, op)| op.as_ref().map(|_| i))
         .collect();
-    let preferred = preferred_candidates(slots);
-    for i in preferred.into_iter().chain(0..slots.len()) {
+    for i in 0..slots.len() {
         let Some(current) = slots[i].as_ref() else {
             continue;
         };

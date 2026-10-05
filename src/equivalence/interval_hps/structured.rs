@@ -369,33 +369,7 @@ impl Dag {
         if let Some(id) = self.phases.get(a) {
             return Some(*id);
         }
-        let (turns, radians) = a.constant_turns_radians()?;
-        let quarters = &turns * BigInt::from(4);
-        let value = if radians == BigRational::from_integer(0.into()) && quarters.is_integer() {
-            let k: u8 = quarters.to_integer().try_into().ok()?;
-            match k % 4 {
-                0 => Complex::n(1),
-                1 => Complex {
-                    re: Interval::n(0),
-                    im: Interval::n(1),
-                },
-                2 => Complex::n(-1),
-                _ => Complex {
-                    re: Interval::n(0),
-                    im: Interval::n(-1),
-                },
-            }
-        } else {
-            let angle = Interval::rational(&turns)?
-                .mul(&Interval::pi())
-                .mul(&Interval::n(2))
-                .add(&Interval::rational(&radians)?)
-                .finite()?;
-            Complex {
-                re: angle.trig(false),
-                im: angle.trig(true),
-            }
-        };
+        let value = crate::equivalence::numeric::phase(a)?;
         let id = self.constant(value)?;
         self.phases.insert(a.clone(), id);
         Some(id)
@@ -569,25 +543,14 @@ pub(super) fn identity_bound(program: &Program) -> Report {
         reason = "residual symbolic amplitude";
         let trace = dag.value(result)?;
         reason = "numerical enclosure";
-        let norm = trace.re.square().add(&trace.im.square()).sqrt()?.finite()?;
-        if norm.lo > 1 {
-            return None;
-        }
-        lower_bound = Some(trace_distance_lower(&trace)?);
-        let gap = Float::with_val_round(PREC, Float::with_val(PREC, 1) - &norm.lo, Round::Up).0;
-        let scale = Float::with_val(PREC, Integer::from(1) << (n + 3));
-        let mut upper = Float::with_val_round(PREC, gap * scale, Round::Up).0;
-        upper.sqrt_round(Round::Up);
-        if !upper.is_finite() {
-            return None;
-        }
-        if upper > 2 {
-            upper = Float::with_val(PREC, 2);
-        }
+        let (upper, lower) = trace_bounds(&trace, n)?;
+        lower_bound = Some(lower);
         reason = "bounded";
-        float_rational(&upper)
+        Some(upper)
     })();
     Report {
+        method: "structured",
+        precision: PREC,
         bound: answer,
         lower_bound,
         reason,

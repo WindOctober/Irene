@@ -161,9 +161,31 @@ pub(in crate::equivalence) fn reduce(
         ..Default::default()
     };
     let mut pending: BTreeSet<_> = (0..slots.len()).collect();
-    let mut preferred = preferred_candidates(&slots).into_iter();
+    // Apply the selected local TRIPLE itself, never use its endpoint to
+    // prioritize an unrelated pair that competes with later conjugations.
+    for selected in preferred_candidates(&slots) {
+        if !spend(&mut budget) {
+            break;
+        }
+        if let Some((kept, op)) = exact_candidate(&slots, &selected, &mut ids) {
+            let old_h = selected
+                .iter()
+                .filter(|&&k| slots[k].as_ref().unwrap().gate == Gate::H)
+                .count();
+            let new_h = usize::from(op.as_ref().is_some_and(|o| o.gate == Gate::H));
+            stats.removed_h += old_h.saturating_sub(new_h);
+            replace_selected(
+                &selected,
+                op.map(|op| (kept, op)),
+                &mut slots,
+                &mut wires,
+                &mut pending,
+            );
+            stats.exact_rewrites += 1;
+        }
+    }
     loop {
-        while let Some(i) = preferred.next().or_else(|| pending.pop_first()) {
+        while let Some(i) = pending.pop_first() {
             if !spend(&mut budget) {
                 break;
             }

@@ -149,7 +149,7 @@ fn frontier_refuses_unsupported_coefficients_nonunitary_and_budgets() {
     ] {
         assert_eq!(norm(&parse(2, gates)), None, "{gates}");
     }
-    assert_eq!(norm(&parse(7, "h q[0];")), None);
+    assert_eq!(norm(&parse(11, "h q[0];")), None);
     let mut e = encoder();
     e.work = 0;
     assert!(matrix(&parse(2, "h q[0];"), &mut e).is_none());
@@ -157,6 +157,13 @@ fn frontier_refuses_unsupported_coefficients_nonunitary_and_budgets() {
         norm(&parse(6, &"h q[0];".repeat(MAX_TABLE_STEPS / 4096 + 1))),
         None
     );
+}
+
+#[test]
+fn exact_frontier_admits_ten_coherent_wires() {
+    // Full-input trace: a Z on the last wire has zero trace, including all
+    // nine spectators. This is not an initialized-state or sampled check.
+    assert_eq!(norm(&parse(10, "z q[9];")), Some(vec![]));
 }
 
 #[test]
@@ -173,7 +180,7 @@ fn frontier_preference_counts_actual_blocks_without_relaxing_admission() {
     assert_eq!(norm(&circuit), Some(vec![(0, integer(1))]));
     let over = parse(6, &"t q[0];".repeat(MAX_TABLE_STEPS / 4096 + 1));
     assert!(!preferred(&over, usize::MAX));
-    assert!(!preferred(&parse(7, "h q[0];"), usize::MAX));
+    assert!(!preferred(&parse(11, "h q[0];"), usize::MAX));
     assert!(!preferred(&parse(2, "reset q[0];"), usize::MAX));
 }
 

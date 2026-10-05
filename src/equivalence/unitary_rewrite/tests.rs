@@ -2,6 +2,29 @@ use super::*;
 use crate::frontend::openqasm3;
 
 #[test]
+fn unrelated_gate_families_do_not_prioritize_a_different_wire() {
+    let p = parse("h q[0]; sdg q[1]; h q[2];");
+    let slots: Vec<_> = p
+        .body
+        .statements
+        .iter()
+        .cloned()
+        .map(|s| Some(Op::from(s)))
+        .collect();
+    assert!(preferred_candidates(&slots).is_empty());
+    // Even matching wires are insufficient if the angle is not the rule's.
+    let p = parse("s q[0]; rx(0.123) q[0]; s q[0];");
+    let slots: Vec<_> = p
+        .body
+        .statements
+        .iter()
+        .cloned()
+        .map(|s| Some(Op::from(s)))
+        .collect();
+    assert!(preferred_candidates(&slots).is_empty());
+}
+
+#[test]
 fn explicitly_unavailable_strategies_do_not_silently_select_a_default() {
     assert_eq!(parse_strategy(None), Ok(Strategy::Adjacent));
     assert_eq!(parse_strategy(Some("off")), Ok(Strategy::Adjacent));
@@ -21,6 +44,66 @@ fn parse(body: &str) -> Program {
         "rewrite-test",
     )
     .unwrap()
+}
+
+#[test]
+fn swap_identity_preserves_operators_without_relabeling_later_gates() {
+    for body in [
+        "cx q[0],q[1]; cx q[1],q[0]; cx q[0],q[1]; h q[0]; swap q[0],q[1];",
+        "h q[0]; swap q[0],q[1]; h q[1];",
+        "swap q[0],q[1]; swap q[1],q[2];",
+        "swap q[0],q[2]; crx(pi/2) q[0],q[1]; t q[2]; ccx q[2],q[1],q[0];",
+        // Not a SWAP: the middle CX has the same direction.
+        "cx q[0],q[1]; cx q[0],q[1]; cx q[0],q[1];",
+    ] {
+        let original = parse(body);
+        for strategy in strategies().into_iter().chain([Strategy::Adjacent]) {
+            let reduced = preprocess_with(&original, strategy).unwrap_or_else(|| original.clone());
+            assert_eq!(matrix(&original), matrix(&reduced), "{strategy:?}: {body}");
+            assert!(reduced.operation_count() <= original.operation_count());
+            let mut ids = BTreeSet::new();
+            reduced.visit_ast_ids(|id| assert!(ids.insert(id)));
+        }
+    }
+    let triple = parse("cx q[0],q[1]; cx q[1],q[0]; cx q[0],q[1];");
+    for strategy in strategies().into_iter().chain([Strategy::Adjacent]) {
+        let reduced = preprocess_with(&triple, strategy).unwrap();
+        assert_eq!(reduced, parse("swap q[0],q[1];"));
+    }
+    // Collapse the triple in place; do not move the SWAP or relabel the Rz.
+    let decimal = parse("cx q[0],q[1]; cx q[1],q[0]; cx q[0],q[1]; rz(0.5709439576515822) q[0];");
+    assert_eq!(
+        preprocess_with(&decimal, Strategy::Adjacent).unwrap(),
+        parse("swap q[0],q[1]; rz(0.5709439576515822) q[0];")
+    );
+}
+
+#[test]
+fn swap_identity_matches_independent_exact_matrices_on_mixed_circuits() {
+    let choices = [
+        "h q[0];",
+        "s q[1];",
+        "t q[2];",
+        "rx(pi/2) q[0];",
+        "cx q[2],q[0];",
+        "cz q[1],q[2];",
+        "swap q[0],q[2];",
+        "swap q[1],q[2];",
+        "crz(pi/4) q[0],q[2];",
+        "cx q[0],q[1]; cx q[1],q[0]; cx q[0],q[1];",
+    ];
+    for seed in 0..32u64 {
+        let mut n = seed + 1;
+        let mut body = String::new();
+        for _ in 0..16 {
+            n = n.wrapping_mul(6364136223846793005).wrapping_add(1);
+            body.push_str(choices[(n >> 32) as usize % choices.len()]);
+        }
+        let original = parse(&body);
+        let reduced =
+            preprocess_with(&original, Strategy::Wire).unwrap_or_else(|| original.clone());
+        assert_eq!(matrix(&original), matrix(&reduced), "seed={seed}");
+    }
 }
 fn strategies() -> Vec<Strategy> {
     vec![
