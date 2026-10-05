@@ -155,7 +155,7 @@ impl Lowerer {
     pub(super) fn pi_multiple(&mut self, numerator: i128, denominator: i128) -> NumericExpr {
         let pi = self
             .ids
-            .node(NumericExprKind::Constant(crate::ir::NumericConstant::Pi));
+            .node(NumericExprKind::Constant(crate::NumericConstant::Pi));
         let ratio = self.ids.node(NumericExprKind::Rational(BigRational::new(
             numerator.into(),
             denominator.into(),

@@ -82,21 +82,21 @@ struct NodePlan {
 
 impl SlicePlan {
     fn retain(&mut self, id: AstId) {
-        self.entries[id.0].retained = true;
+        self.entries[id.index()].retained = true;
     }
 
     fn set_discard(&mut self, id: AstId, discard: DiscardSet) {
         if !discard.is_empty() {
-            self.entries[id.0].discard = Some(discard);
+            self.entries[id.index()].discard = Some(discard);
         }
     }
 
     pub(crate) fn retains(&self, id: AstId) -> bool {
-        self.entries[id.0].retained
+        self.entries[id.index()].retained
     }
 
     pub(crate) fn discard_set(&self, id: AstId) -> Option<&DiscardSet> {
-        self.entries[id.0].discard.as_ref()
+        self.entries[id.index()].discard.as_ref()
     }
 }
 
@@ -187,8 +187,8 @@ fn analyze_block(block: &Block, mut live: LiveSet, plan: &mut SlicePlan) -> Bloc
                         classical: Vec::new(),
                     };
                     live.quantum.extend(qubits.iter().cloned());
-                    plan.retain(statement.ast_id);
-                    plan.set_discard(statement.ast_id, after);
+                    plan.retain(statement.ast_id());
+                    plan.set_discard(statement.ast_id(), after);
                     retained = true;
                 }
             }
@@ -197,7 +197,7 @@ fn analyze_block(block: &Block, mut live: LiveSet, plan: &mut SlicePlan) -> Bloc
                 // Example: in `h q; reset q` with q selected, reset remains but
                 // the preceding H is outside the output's dependency cone.
                 if live.quantum.remove(qubit) {
-                    plan.retain(statement.ast_id);
+                    plan.retain(statement.ast_id());
                     retained = true;
                 }
             }
@@ -210,9 +210,9 @@ fn analyze_block(block: &Block, mut live: LiveSet, plan: &mut SlicePlan) -> Bloc
                 let target_is_live = live.classical.remove(target);
                 if qubit_is_live || target_is_live {
                     live.quantum.insert(qubit.clone());
-                    plan.retain(statement.ast_id);
+                    plan.retain(statement.ast_id());
                     plan.set_discard(
-                        statement.ast_id,
+                        statement.ast_id(),
                         DiscardSet {
                             quantum: (!qubit_is_live)
                                 .then(|| qubit.clone())
@@ -231,8 +231,8 @@ fn analyze_block(block: &Block, mut live: LiveSet, plan: &mut SlicePlan) -> Bloc
                 let after = live.clone();
                 if live.classical.remove(target) {
                     collect_classical_reads(value, &mut live.classical);
-                    plan.retain(statement.ast_id);
-                    plan.set_discard(statement.ast_id, DiscardSet::between(&live, &after));
+                    plan.retain(statement.ast_id());
+                    plan.set_discard(statement.ast_id(), DiscardSet::between(&live, &after));
                     retained = true;
                 }
             }
@@ -267,15 +267,15 @@ fn analyze_block(block: &Block, mut live: LiveSet, plan: &mut SlicePlan) -> Bloc
                     };
                     collect_classical_reads(condition, &mut before.classical);
                     plan.set_discard(
-                        then_branch.ast_id,
+                        then_branch.ast_id(),
                         DiscardSet::between(&before, &then_analysis.live),
                     );
                     plan.set_discard(
-                        else_branch.ast_id,
+                        else_branch.ast_id(),
                         DiscardSet::between(&before, &else_analysis.live),
                     );
-                    plan.set_discard(statement.ast_id, DiscardSet::between(&before, &after));
-                    plan.retain(statement.ast_id);
+                    plan.set_discard(statement.ast_id(), DiscardSet::between(&before, &after));
+                    plan.retain(statement.ast_id());
                     live = before;
                     retained = true;
                 }
@@ -283,7 +283,7 @@ fn analyze_block(block: &Block, mut live: LiveSet, plan: &mut SlicePlan) -> Bloc
             StatementKind::Scope(body) => {
                 let analysis = analyze_block(body, live.clone(), plan);
                 if analysis.retained {
-                    plan.retain(statement.ast_id);
+                    plan.retain(statement.ast_id());
                     live = analysis.live;
                     retained = true;
                 }

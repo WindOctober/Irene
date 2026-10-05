@@ -1,3 +1,8 @@
+[workspace]
+members = [".", "iqir"]
+default-members = [".", "iqir"]
+resolver = "3"
+
 [package]
 name = "irene"
 version = "0.1.0"
@@ -8,11 +13,15 @@ description = "An equivalence checker for hybrid quantum programs"
 [lib]
 path = "src/lib.rs"
 
+[[bin]]
+name = "irene"
+path = "src/main.rs"
+
 [features]
 rewrite-experiments = ["dep:portmatching", "dep:portgraph"]
 
 [dependencies]
-bigdecimal = "0.4"
+iqir = { path = "iqir", version = "0.1.0" }
 bitgauss = "0.4.3"
 clap = { version = "4.5", features = ["derive"] }
 libc = "0.2"
@@ -21,8 +30,5 @@ num-rational = "0.4"
 petgraph = "0.8"
 portmatching = { version = "0.3.3", optional = true }
 portgraph = { version = "0.8", optional = true }
-oq3_lexer = { git = "https://github.com/WindOctober/openqasm3_parser.git", branch = "dev" }
-oq3_source_file = { git = "https://github.com/WindOctober/openqasm3_parser.git", branch = "dev" }
-oq3_syntax = { git = "https://github.com/WindOctober/openqasm3_parser.git", branch = "dev" }
 rug = { version = "1.30", default-features = false, features = ["float", "integer", "std"] }
 thiserror = "2.0"

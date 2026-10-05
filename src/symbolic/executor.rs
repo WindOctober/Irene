@@ -403,7 +403,7 @@ impl Executor {
         // Example: in `if c { cx a, out } else { skip }`, with only `out`
         // selected, `a` is live before the `if` but is discarded at the entry
         // of the else block.
-        if let Some(discard) = plan.discard_set(block.ast_id) {
+        if let Some(discard) = plan.discard_set(block.ast_id()) {
             for component in &mut components {
                 discard.apply(component);
             }
@@ -437,7 +437,7 @@ impl Executor {
             if index < summarized_until {
                 continue;
             }
-            if !plan.retains(statement.ast_id) {
+            if !plan.retains(statement.ast_id()) {
                 continue;
             }
             if self.summarize_regions
@@ -473,7 +473,7 @@ impl Executor {
             // value can influence the selected outputs. For example, after
             // `cx a, out`, `a` can be traced out when no later live statement
             // reads it, while its effect on `out` remains represented.
-            let discard = plan.discard_set(statement.ast_id);
+            let discard = plan.discard_set(statement.ast_id());
             if let Some(discard) = discard {
                 for component in &mut components {
                     discard.apply(component);
@@ -591,7 +591,7 @@ impl Executor {
         plan: &SlicePlan,
     ) {
         for statement in &block.statements {
-            if !plan.retains(statement.ast_id) {
+            if !plan.retains(statement.ast_id()) {
                 continue;
             }
             match &statement.kind {
@@ -1058,7 +1058,7 @@ fn compact_components(
 fn is_predicable_block(block: &Block, plan: &SlicePlan) -> bool {
     block.classical_registers.is_empty()
         && block.statements.iter().all(|statement| {
-            if !plan.retains(statement.ast_id) {
+            if !plan.retains(statement.ast_id()) {
                 return true;
             }
             match &statement.kind {

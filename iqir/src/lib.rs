@@ -1,3 +1,12 @@
+//! Irene Quantum IR (IQIR).
+//!
+//! This crate owns the gate-level IR, OpenQASM import support, and pure unitary
+//! transformations. It does not depend on IreneQ or an SMT solver.
+//! Construct nodes with [AstIdGenerator]; identities are not semantic content.
+//!
+//! The extracted representation retains its existing OpenQASM metadata and
+//! supported operations. Extraction does not broaden its semantic domain.
+
 use std::cmp::Ordering;
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -5,6 +14,7 @@ use std::ops::{Deref, DerefMut};
 
 use num_rational::BigRational;
 
+pub mod frontend;
 pub mod unitary;
 
 /// Program-local identity shared by every owned IR node.
@@ -29,6 +39,11 @@ pub struct AstNode<T> {
 }
 
 impl<T> AstNode<T> {
+    /// Identity for indexing program-local analysis tables.
+    pub fn ast_id(&self) -> AstId {
+        self.ast_id
+    }
+
     pub(crate) fn new(ast_id: AstId, kind: T) -> Self {
         Self { ast_id, kind }
     }
@@ -76,14 +91,14 @@ impl<T: Hash> Hash for AstNode<T> {
 
 /// Monotone allocator for the unified program-local AST-ID namespace.
 #[derive(Debug, Default, Clone)]
-pub(crate) struct AstIdGenerator {
+pub struct AstIdGenerator {
     next: usize,
 }
 
 impl AstIdGenerator {
     /// Copies a numeric expression with fresh identities for every node.
     /// Ordinary Clone preserves IDs and is unsuitable for gate expansion.
-    pub(crate) fn clone_numeric_expr(&mut self, expression: &NumericExpr) -> NumericExpr {
+    pub fn clone_numeric_expr(&mut self, expression: &NumericExpr) -> NumericExpr {
         let mut child = |e: &NumericExpr| Box::new(self.clone_numeric_expr(e));
         let kind = match &expression.kind {
             NumericExprKind::Neg(a) => NumericExprKind::Neg(child(a)),
@@ -98,12 +113,14 @@ impl AstIdGenerator {
         self.node(kind)
     }
 
-    pub(crate) fn starting_at(next: usize) -> Self {
+    /// Starts a new allocation range. When extending a program, pass its
+    /// [Program::ast_id_bound] and use a single allocator for all new nodes.
+    pub fn starting_at(next: usize) -> Self {
         Self { next }
     }
 
     /// Allocates one node in the shared namespace.
-    pub(crate) fn node<T>(&mut self, kind: T) -> AstNode<T> {
+    pub fn node<T>(&mut self, kind: T) -> AstNode<T> {
         let node = AstNode::new(AstId(self.next), kind);
         self.next += 1;
         node

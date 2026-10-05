@@ -11,7 +11,7 @@ use oq3_syntax::ast::{
 };
 use thiserror::Error;
 
-use crate::ir::{
+use crate::{
     AstIdGenerator, Block, BlockData, ClassicalBit, ClassicalExpr, ClassicalExprKind, Gate,
     NumericExpr, NumericExprKind, NumericInput, NumericInputData, NumericType, OpenQasmVersion,
     Program, ProgramData, Qubit, Register, RegisterData, Statement, StatementKind, SymbolId,
@@ -123,7 +123,7 @@ struct Lowerer {
     quantum_registers: Vec<Register>,
     classical_registers: Vec<Register>,
     subroutines: Vec<SubroutineTemplate>,
-    quantum_arguments: HashMap<crate::ir::SymbolId, QuantumOperand>,
+    quantum_arguments: HashMap<crate::SymbolId, QuantumOperand>,
     active_subroutines: BTreeSet<usize>,
     static_iterations_left: usize,
     static_statements_left: usize,

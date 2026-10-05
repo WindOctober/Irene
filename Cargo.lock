@@ -367,18 +367,28 @@ dependencies = [
 ]
 
 [[package]]
-name = "irene"
+name = "iqir"
 version = "0.1.0"
 dependencies = [
  "bigdecimal",
- "bitgauss",
- "clap",
- "libc",
- "num-bigint",
  "num-rational",
  "oq3_lexer",
  "oq3_source_file",
  "oq3_syntax",
+ "rug",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "irene"
+version = "0.1.0"
+dependencies = [
+ "bitgauss",
+ "clap",
+ "iqir",
+ "libc",
+ "num-bigint",
+ "num-rational",
  "petgraph 0.8.3",
  "portgraph",
  "portmatching",
