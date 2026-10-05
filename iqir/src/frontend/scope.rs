@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::ir::{NumericConstant, NumericType, SymbolId};
+use crate::{NumericConstant, NumericType, SymbolId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ScopeKind {

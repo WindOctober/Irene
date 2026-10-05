@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 
 use num_rational::BigRational;
 
-use crate::ir::{
+use crate::{
     AstIdGenerator, AstNode, Gate, NumericConstant, NumericExpr, NumericExprKind, NumericType,
     StatementKind,
 };
@@ -43,7 +43,7 @@ fn static_uint_ranges_preserve_order_slices_and_iteration_local_storage() {
     )
     .unwrap();
     assert_eq!(program.quantum_registers[0].width, 6);
-    fn gates(block: &crate::ir::Block, output: &mut Vec<usize>) {
+    fn gates(block: &crate::Block, output: &mut Vec<usize>) {
         for statement in &block.statements {
             match &statement.kind {
                 StatementKind::Scope(block) => gates(block, output),

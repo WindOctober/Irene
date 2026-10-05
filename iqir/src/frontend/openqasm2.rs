@@ -15,7 +15,7 @@ use oq3_syntax::ast::{self, Expr, GateOperand, HasArgList, HasTextNode, IndexKin
 use oq3_syntax::{AstNode as _, SyntaxKind};
 use thiserror::Error;
 
-use crate::ir::{
+use crate::{
     AstIdGenerator, BlockData, ClassicalBit, ClassicalExpr, ClassicalExprKind, Gate, NumericExpr,
     NumericExprKind, OpenQasmVersion, Program, ProgramData, Qubit, RegisterData, Statement,
     StatementKind,
@@ -384,8 +384,8 @@ impl GateDefinition {
 struct Lowerer {
     ids: AstIdGenerator,
     scopes: ScopeStack,
-    quantum_registers: Vec<crate::ir::Register>,
-    classical_registers: Vec<crate::ir::Register>,
+    quantum_registers: Vec<crate::Register>,
+    classical_registers: Vec<crate::Register>,
     qelib1_loaded: bool,
     custom_gates: BTreeMap<String, Rc<CustomGate>>,
     extension_gates: BTreeSet<String>,
@@ -475,7 +475,7 @@ impl Lowerer {
     fn lower_top_level(
         &mut self,
         statement: Stmt,
-        body: &mut crate::ir::Block,
+        body: &mut crate::Block,
     ) -> Result<(), FrontendError> {
         match statement {
             Stmt::Include(include) => self.lower_include(include),
@@ -523,7 +523,7 @@ impl Lowerer {
     fn lower_declaration(
         &mut self,
         declaration: ast::OldStyleDeclarationStatement,
-        body: &mut crate::ir::Block,
+        body: &mut crate::Block,
     ) -> Result<(), FrontendError> {
         let parameter = declaration
             .old_typed_param()
@@ -1047,7 +1047,7 @@ impl Lowerer {
     fn pi_over_two(&mut self) -> NumericExpr {
         let pi = self
             .ids
-            .node(NumericExprKind::Constant(crate::ir::NumericConstant::Pi));
+            .node(NumericExprKind::Constant(crate::NumericConstant::Pi));
         self.half(pi)
     }
 
@@ -1174,7 +1174,7 @@ impl Lowerer {
                 validate_identifier(&name)?;
                 let binding = self.scopes.lookup(&name).map_err(scope_error)?;
                 match binding.kind {
-                    BindingKind::Constant(crate::ir::NumericConstant::Pi) => {
+                    BindingKind::Constant(crate::NumericConstant::Pi) => {
                         Ok(ConstantValue::pi())
                     }
                     BindingKind::Constant(_) => Err(FrontendError::Unsupported {

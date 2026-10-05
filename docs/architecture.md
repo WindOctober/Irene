@@ -1,5 +1,16 @@
 # Architecture
 
+## Crate boundary
+
+The root `irene` package depends on the standalone `iqir` workspace member.
+IQIR owns OpenQASM 2/3 importing, program representation, and pure unitary
+transformations. The root Irene crate owns symbolic execution, proof strategies, and solver
+integration; its equivalence-verification component is called IreneQ.
+The `irene::ir` re-export is the same API and types as `iqir`.
+The `irene::frontend` re-export preserves the existing parser API. Independent
+clients can use `iqir::frontend::parse_str` or `parse_file` to obtain a
+`iqir::Program` without depending on Irene.
+
 ## Verification flow
 
 Entry point: `equivalence::analyze(left, right, &interface)`.
@@ -29,8 +40,8 @@ Parsing and interface errors are reported separately from Unknown.
 
 ## Frontend and interface
 
-- [Frontend](../src/frontend): names, scopes, types, constants, gate modifiers and source expansion.
-- [Program IR](../src/ir.rs): gates, measurement, reset, classical expressions and control flow.
+- [Frontend](../iqir/src/frontend): names, scopes, types, constants, gate modifiers and source expansion.
+- [Program IR](../iqir/src/lib.rs): gates, measurement, reset, classical expressions and control flow.
 - [Interface](../src/equivalence/interface.rs): paired inputs, initialized ancillas and observable outputs.
 
 `EquivalenceConfig::positional` constructs declaration-order input/output pairs.

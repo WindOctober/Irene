@@ -16,8 +16,8 @@
 //! the resulting standard gates ARE textbook Rx/Ry; do not add it again.
 //! Track any source phase explicitly and conjugate it when taking the inverse;
 //! it is ignorable only for full-channel comparison, not under quantum control.
-//! References: https://openqasm.com/language/gates.html#built-in-gates
-//! https://github.com/openqasm/openqasm/blob/OpenQASM2.x/examples/qelib1.inc
+//! References: <https://openqasm.com/language/gates.html#built-in-gates>
+//! <https://github.com/openqasm/openqasm/blob/OpenQASM2.x/examples/qelib1.inc>
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -40,7 +40,8 @@ pub enum UnitaryMiterError {
     InvalidOperands,
 }
 
-pub(crate) fn gate_shape(gate: Gate) -> (usize, usize) {
+/// Returns the required (qubit count, parameter count) for an IR gate.
+pub fn gate_shape(gate: Gate) -> (usize, usize) {
     match gate {
         Gate::H | Gate::X | Gate::Y | Gate::Z | Gate::S | Gate::Sdg | Gate::T | Gate::Tdg => (1, 0),
         Gate::Cx | Gate::Cy | Gate::Cz | Gate::Swap => (2, 0),

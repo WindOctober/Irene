@@ -8,7 +8,7 @@ use irene::symbolic::representation_stats;
 use irene::utils::load_openqasm_source;
 
 #[derive(Debug, Parser)]
-#[command(version, about)]
+#[command(name = "irene", version, about)]
 struct Cli {
     /// Left-hand OpenQASM program.
     left: PathBuf,

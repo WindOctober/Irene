@@ -1,0 +1,15 @@
+[package]
+name = "iqir"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+description = "Irene Quantum IR: shared representation of hybrid quantum programs"
+
+[dependencies]
+bigdecimal = "0.4"
+num-rational = "0.4"
+oq3_lexer = { git = "https://github.com/WindOctober/openqasm3_parser.git", branch = "dev" }
+oq3_source_file = { git = "https://github.com/WindOctober/openqasm3_parser.git", branch = "dev" }
+oq3_syntax = { git = "https://github.com/WindOctober/openqasm3_parser.git", branch = "dev" }
+rug = { version = "1.30", default-features = false, features = ["float", "integer", "std"] }
+thiserror = "2.0"

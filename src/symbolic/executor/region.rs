@@ -50,7 +50,7 @@ impl Boundary {
     }
 
     fn statement(&mut self, statement: &Statement, plan: &SlicePlan, nested: bool) -> bool {
-        if !plan.retains(statement.ast_id) {
+        if !plan.retains(statement.ast_id()) {
             return true;
         }
         self.operations += 1;
@@ -84,7 +84,7 @@ impl Boundary {
                     if !branch.classical_registers.is_empty() {
                         return false;
                     }
-                    self.discards(plan.discard_set(branch.ast_id), false);
+                    self.discards(plan.discard_set(branch.ast_id()), false);
                     for child in &branch.statements {
                         if !self.statement(child, plan, true) {
                             return false;
@@ -97,7 +97,7 @@ impl Boundary {
             // is guessed for an unsupported control/data-flow interface.
             _ => return false,
         }
-        self.discards(plan.discard_set(statement.ast_id), !nested);
+        self.discards(plan.discard_set(statement.ast_id()), !nested);
         self.operations <= MAX_STATEMENTS && self.quantum.len() <= MAX_WIRES
     }
 

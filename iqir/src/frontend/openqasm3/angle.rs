@@ -2,7 +2,7 @@
 //! Keep classical arithmetic modulo 2^n, then lower rotations as a product
 //! of commuting, classically guarded exact rotations. No outcome enumeration.
 use super::*;
-use crate::ir::NumericConstant;
+use crate::NumericConstant;
 use rug::{
     Float, Integer,
     float::{Constant, Round},

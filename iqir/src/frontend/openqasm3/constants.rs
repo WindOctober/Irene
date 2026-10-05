@@ -1,7 +1,7 @@
 //! Typed compile-time constants. In particular, a float constant stores an
 //! IEEE value, not the exact real expression that initialized it.
 use super::*;
-use crate::ir::NumericConstant;
+use crate::NumericConstant;
 
 impl Lowerer {
     pub(super) fn has_float_binding(&self, expr: &Expr) -> Result<bool, FrontendError> {

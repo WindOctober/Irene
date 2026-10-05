@@ -384,12 +384,12 @@ fn fresh_path_overflow_abandons_summary_without_mutating_executor() {
         &[],
     );
     executor.next_path = usize::MAX;
-    let id_bound = executor.ids.clone().node(()).ast_id;
+    let id_bound = executor.ids.clone().node(()).ast_id();
     assert!(
         executor
             .summarize_region(&[prefix], &program.body.statements, &plan)
             .is_none()
     );
     assert_eq!(executor.next_path, usize::MAX);
-    assert_eq!(executor.ids.clone().node(()).ast_id, id_bound);
+    assert_eq!(executor.ids.clone().node(()).ast_id(), id_bound);
 }
