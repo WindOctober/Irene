@@ -643,6 +643,37 @@ impl KernelPhasePolynomial {
             self.add_selector(polynomial.clone(), coefficient);
             return;
         }
+        // XOR is small as a Boolean graph but its arithmetic lift can have
+        // 2^n-1 monomials. Bound allocation BEFORE lifting, retaining the exact
+        // selector on refusal. Half-turn phases lift additively modulo one.
+        if coefficient.as_rational() == Some(BigRational::new(1.into(), 2.into())) {
+            for term in polynomial.terms() {
+                self.add_term(term.clone(), coefficient.clone());
+            }
+            return;
+        }
+        // For c with denominator 2^k, products of more than k XOR terms
+        // have integral phase and vanish. Preserve these cheap Clifford/
+        // dyadic lifts instead of rejecting every wide parity uniformly.
+        let n = polynomial.term_count();
+        let degree = coefficient
+            .as_rational()
+            .and_then(|r| u64::try_from(r.denom()).ok())
+            .filter(|d| d.is_power_of_two())
+            .map_or(n, |d| (d.trailing_zeros() as usize).min(n));
+        let mut combinations = 1usize;
+        let mut projected = 0usize;
+        for r in 1..=degree {
+            combinations = combinations.saturating_mul(n - r + 1) / r;
+            projected = projected.saturating_add(combinations);
+            if projected > 4096 {
+                break;
+            }
+        }
+        if projected > 4096 {
+            self.add_selector(polynomial.clone(), coefficient);
+            return;
+        }
         let mut lifted = Self::default();
         for term in polynomial.terms() {
             let products = lifted

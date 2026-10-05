@@ -35,6 +35,7 @@ pub(super) const TRIPLES: &[(Gate, Gate, Gate)] = &[
     (Gate::H, Gate::Crx, Gate::H),
     (Gate::H, Gate::Cry, Gate::H),
     (Gate::P, Gate::Rx, Gate::P),
+    (Gate::Cx, Gate::Cx, Gate::Cx),
 ];
 
 pub(super) fn can_end_triple(op: &Op) -> bool {
@@ -58,12 +59,33 @@ pub(super) fn exact(ops: &[&Op], ids: &mut AstIdGenerator) -> Option<Rewrite> {
             Some(Rewrite {
                 anchor: 1,
                 operation: Some(
-                    conjugate(a, middle, b, ids).or_else(|| native_h(a, middle, b, ids))?,
+                    conjugate(a, middle, b, ids)
+                        .or_else(|| native_h(a, middle, b, ids))
+                        .or_else(|| swap(a, middle, b, ids))?,
                 ),
             })
         }
         _ => None,
     }
+}
+
+/// CX(a,b); CX(b,a); CX(a,b) = SWAP(a,b), with no phase correction.
+/// Replace in place; this rule does not propagate a wire permutation.
+fn swap(a: &Op, middle: &Op, b: &Op, ids: &mut AstIdGenerator) -> Option<Op> {
+    if a.gate != Gate::Cx
+        || middle.gate != Gate::Cx
+        || b.gate != Gate::Cx
+        || a.wires != b.wires
+        || a.wires[0] != middle.wires[1]
+        || a.wires[1] != middle.wires[0]
+    {
+        return None;
+    }
+    Some(Op::from(ids.node(StatementKind::Apply {
+        gate: Gate::Swap,
+        parameters: vec![],
+        qubits: a.wires.clone(),
+    })))
 }
 
 /// S Rx(pi/2) S = H and its adjoint, including P-form S gates introduced by

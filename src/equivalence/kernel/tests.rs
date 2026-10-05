@@ -4,6 +4,46 @@ use crate::symbolic::{Component, HybridMemory, PhaseCoefficient, PhasePolynomial
 use num_bigint::BigInt;
 
 #[test]
+fn wide_parity_phase_stays_bounded_and_exact() {
+    let parity = (0..24).fold(KernelBooleanPolynomial::zero(), |p, i| {
+        p.xor(&KernelBooleanPolynomial::variable(
+            KernelVariable::InputKet(i),
+        ))
+    });
+    for denominator in [4, 8, 1000] {
+        let coefficient = BigRational::new(1.into(), denominator.into());
+        let mut phase = KernelPhasePolynomial::default();
+        phase.add_boolean(&parity, PhaseCoefficient::rational(coefficient.clone()));
+        assert!(
+            phase.term_count() <= 4096,
+            "must not allocate 2^24 arithmetic terms"
+        );
+        for ones in 0..=24 {
+            let mut restricted = phase.clone();
+            for i in 0..24 {
+                restricted.substitute(
+                    &KernelVariable::InputKet(i),
+                    &KernelBooleanPolynomial::from(i < ones),
+                );
+            }
+            let mut sum = PhaseCoefficient::default();
+            for (p, c) in restricted.selectors() {
+                assert!(p.is_one());
+                sum.add_assign(c);
+            }
+            assert_eq!(
+                sum.as_rational().unwrap(),
+                if ones % 2 == 1 {
+                    coefficient.clone()
+                } else {
+                    BigRational::from_integer(0.into())
+                }
+            );
+        }
+    }
+}
+
+#[test]
 fn graph_namespaces_round_trip_without_coupling_binders_or_free_indices() {
     let mut variables = vec![
         KernelVariable::InputKet(0),

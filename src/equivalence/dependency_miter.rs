@@ -75,8 +75,9 @@ pub fn candidate(
     } else {
         (right, left)
     };
+    let started = std::time::Instant::now();
     let (circuit, identity) = unitary::miter(forward, inverse).ok()?;
-    let (circuit, statistics) = if options.mode == Mode::Wire {
+    let (circuit, mut statistics) = if options.mode == Mode::Wire {
         let before = circuit.operation_count();
         let next = super::unitary_rewrite::preprocess_with(
             &circuit,
@@ -101,6 +102,7 @@ pub fn candidate(
             options.mode == Mode::DagScheduled,
         )?
     };
+    statistics.elapsed_us = started.elapsed().as_micros();
     Some(Candidate {
         circuit,
         identity,

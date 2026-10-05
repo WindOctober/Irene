@@ -4,10 +4,11 @@
 //! probabilistic/candidate proof is introduced here.
 use super::*;
 use crate::ir::{Gate, Program, Statement, StatementKind};
-use crate::symbolic::{BooleanPolynomial, ExecutionConfig, OutputSelection, Variable, execute};
 
-const MAX_CELLS: usize = 4096;
-const MAX_TABLE_STEPS: usize = 1_000_000;
+const MAX_CELLS: usize = 1 << 20; // Complete operator on at most ten qubits.
+const MAX_TABLE_STEPS: usize = 64_000_000;
+const MAX_LIVE_ATOMS: usize = 2_000_000;
+const MAX_PRODUCT_CACHE: usize = 100_000;
 
 fn table_cost(circuit: &Program) -> Option<(usize, usize, usize)> {
     let width = crate::equivalence::qubits(circuit).len();
@@ -65,13 +66,7 @@ pub(super) fn norm(circuit: &Program) -> Option<Vec<(u64, BigRational)>> {
 }
 
 fn blocks(circuit: &Program) -> Option<Vec<&[Statement]>> {
-    // Summarize ordinary contiguous execution, up to one branching H per
-    // block. Monomial gate runs then update the matrix once instead of once
-    // per gate. No gates are reordered or recognized as a special circuit.
-    let mut blocks = Vec::new();
-    let mut start = 0;
-    let mut has_h = false;
-    for (i, statement) in circuit.body.statements.iter().enumerate() {
+    for statement in &circuit.body.statements {
         let StatementKind::Apply { gate, .. } = statement.kind else {
             return None;
         };
@@ -98,17 +93,8 @@ fn blocks(circuit: &Program) -> Option<Vec<&[Statement]>> {
         ) {
             return None;
         }
-        if i - start >= 64 || (has_h && gate == Gate::H) {
-            blocks.push(&circuit.body.statements[start..i]);
-            start = i;
-            has_h = false;
-        }
-        has_h |= gate == Gate::H;
     }
-    if start < circuit.body.statements.len() {
-        blocks.push(&circuit.body.statements[start..]);
-    }
-    Some(blocks)
+    crate::equivalence::operator::blocks(circuit)
 }
 
 fn matrix(circuit: &Program, encoder: &mut Encoder) -> Option<(usize, Vec<Polynomial>)> {
@@ -145,6 +131,7 @@ fn matrix(circuit: &Program, encoder: &mut Encoder) -> Option<(usize, Vec<Polyno
         common = encoder.multiply(common, factor)?;
         let mask = positions.iter().fold(0usize, |m, p| m | (1usize << p));
         let mut next = vec![Vec::new(); cells];
+        let mut live_atoms = 0usize;
         // A complete operator often repeats coefficients across columns (in
         // particular through spectators). Reuse exact algebraic values, never
         // confuse distinct columns or infer equality from numerical samples.
@@ -167,11 +154,19 @@ fn matrix(circuit: &Program, encoder: &mut Encoder) -> Option<(usize, Vec<Polyno
                     }
                     let key = (coefficient.clone(), value.clone());
                     if !products.contains_key(&key) {
+                        if products.len() >= MAX_PRODUCT_CACHE {
+                            return None;
+                        }
                         products
                             .insert(key.clone(), encoder.multiply(key.0.clone(), key.1.clone())?);
                     }
                     let target = &mut next[output * dimension + column];
+                    live_atoms -= target.len();
                     *target = encoder.add_closed(std::mem::take(target), products[&key].clone())?;
+                    live_atoms += target.len();
+                    if live_atoms > MAX_LIVE_ATOMS {
+                        return None;
+                    }
                 }
             }
         }
@@ -210,41 +205,7 @@ fn local_block(
     qubits: &[crate::ir::Qubit],
     encoder: &mut Encoder,
 ) -> Option<(Vec<Vec<(usize, Polynomial)>>, Polynomial)> {
-    if qubits.is_empty() || qubits.len() > 6 {
-        return None;
-    }
-    // Isolate only gate operands. Spectators remain in the global matrix, not
-    // initialized or discarded by this local executor call.
-    let mut local = circuit.clone();
-    let mut register = local.quantum_registers.first()?.clone();
-    register.width = qubits.len();
-    let operands: Vec<_> = (0..qubits.len())
-        .map(|index| crate::ir::Qubit {
-            register: register.id,
-            index,
-        })
-        .collect();
-    local.quantum_registers = vec![register];
-    local.classical_registers.clear();
-    local.body.classical_registers.clear();
-    local.body.statements = statements.to_vec();
-    for statement in &mut local.body.statements {
-        let StatementKind::Apply {
-            qubits: targets, ..
-        } = &mut statement.kind
-        else {
-            return None;
-        };
-        for q in targets {
-            *q = operands[qubits.iter().position(|original| original == q)?].clone();
-        }
-    }
-    let mut hps = execute(
-        &local,
-        &ExecutionConfig::all_symbolic(),
-        &OutputSelection::new(operands.clone(), []),
-    )
-    .ok()?;
+    let (mut hps, operands) = crate::equivalence::operator::local_hps(circuit, statements, qubits)?;
     let mut factor = encoder.literal(integer(1), 0, false)?;
     if let Some(first) = hps.components.first()
         && hps.components.iter().all(|c| c.scalar == first.scalar)
@@ -270,83 +231,25 @@ fn local_block(
         }
     }
     let dimension = 1usize << operands.len();
+    let mut rows = vec![vec![Vec::new(); dimension]; dimension];
+    crate::equivalence::operator::visit_amplitudes(&hps, &operands, |input, output, closed| {
+        encoder.charge(1)?;
+        let (paths, constraints, coefficient, phase) =
+            crate::equivalence::kernel::closed_scalar_parts(closed)?;
+        rows[input][output].extend(encoder.term(&WorkingTerm {
+            paths,
+            constraints,
+            coefficient,
+            phase,
+        })?);
+        Some(())
+    })?;
     let mut result = vec![Vec::new(); dimension];
-    for (input, transitions) in result.iter_mut().enumerate() {
-        let mut row = vec![Vec::new(); dimension];
-        for component in &hps.components {
-            if !component.output.classical.is_empty()
-                || !component.output.history.is_empty()
-                || component.output.quantum.len() != operands.len()
-                || component.path_support.len() > 8
-            {
-                return None;
-            }
-            for paths in 0..(1usize << component.path_support.len()) {
-                encoder.charge(1)?;
-                let bindings: BTreeMap<_, _> = operands
-                    .iter()
-                    .enumerate()
-                    .map(|(i, q)| (Variable::Input(q.clone()), input & (1 << i) != 0))
-                    .chain(
-                        component
-                            .path_support
-                            .iter()
-                            .enumerate()
-                            .map(|(i, p)| (Variable::Path(*p), paths & (1 << i) != 0)),
-                    )
-                    .collect();
-                let evaluate =
-                    |p: &BooleanPolynomial| p.evaluate(|v| bindings.get(v).copied().ok_or(())).ok();
-                let guards: Vec<_> = component
-                    .guard
-                    .iter()
-                    .map(evaluate)
-                    .collect::<Option<_>>()?;
-                if guards.into_iter().any(|g| g) {
-                    continue;
-                }
-                let mut output = 0;
-                for (i, q) in operands.iter().enumerate() {
-                    if evaluate(component.output.quantum.get(q)?)? {
-                        output |= 1 << i;
-                    }
-                }
-                let mut closed = component.clone();
-                closed.output.quantum.clear();
-                closed.guard.clear();
-                closed.path_support.clear();
-                let replacement = |v: &Variable| {
-                    bindings
-                        .get(v)
-                        .map(|b| {
-                            if *b {
-                                BooleanPolynomial::one()
-                            } else {
-                                BooleanPolynomial::zero()
-                            }
-                        })
-                        .unwrap_or_else(|| BooleanPolynomial::variable(v.clone()))
-                };
-                closed.phase.map_variables(replacement);
-                for v in bindings.keys() {
-                    closed.scalar = closed.scalar.substitute(v, &replacement(v));
-                }
-                // Any unknown dependency, including in scalar conditions,
-                // refuses lowering rather than receiving a default value.
-                let (paths, constraints, coefficient, phase) =
-                    crate::equivalence::kernel::closed_scalar_parts(&closed)?;
-                row[output].extend(encoder.term(&WorkingTerm {
-                    paths,
-                    constraints,
-                    coefficient,
-                    phase,
-                })?);
-            }
-        }
+    for (input, row) in rows.into_iter().enumerate() {
         for (output, value) in row.into_iter().enumerate() {
             let value = encoder.compact(value)?;
             if !value.is_empty() {
-                transitions.push((output, value));
+                result[input].push((output, value));
             }
         }
     }

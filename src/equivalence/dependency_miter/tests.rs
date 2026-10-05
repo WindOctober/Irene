@@ -21,6 +21,27 @@ fn build(a: &str, b: &str, approx: bool) -> Candidate {
     let config = EquivalenceConfig::positional(&a, &b).unwrap();
     candidate(&a, &b, &config, &options(approx)).unwrap()
 }
+
+#[test]
+fn swap_identity_is_exact_on_both_miter_sides_without_propagating_wires() {
+    let triple = "cx q[0],q[1]; cx q[1],q[0]; cx q[0],q[1];";
+    for (a, b) in [(triple, "swap q[0],q[1];"), ("swap q[0],q[1];", triple)] {
+        let c = build(a, b, false);
+        assert!(c.is_exact());
+        assert_eq!(c.statistics.before, 4);
+        assert_eq!(c.statistics.after, 0);
+    }
+    let c = build("h q[0]; swap q[0],q[1]; h q[1];", "", false);
+    assert_eq!(c.statistics.after, 3);
+    assert_eq!(
+        super::super::unitary_rewrite::tests::matrix(&c.circuit),
+        super::super::unitary_rewrite::tests::matrix(&parse("swap q[0],q[1];"))
+    );
+    // No common-boundary pass: it would remove the two exterior H gates
+    // using trace cyclicity. Their conjugation must remain an operator here.
+    let c = build("h q[0]; t q[0];", "h q[0];", false);
+    assert_eq!(c.statistics.after, 3);
+}
 #[test]
 fn native_hadamards_cancel_in_both_miter_orientations() {
     // Make the longer side vary so that the triple also occurs under inversion.

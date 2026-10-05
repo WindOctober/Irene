@@ -98,6 +98,13 @@ pub(super) fn certificate(
     if !has_h && !was_mixing {
         return None;
     }
+    // Physical width is known before global HPS construction. Try the bounded
+    // complete operator route here; do not first materialize every path merely
+    // to discover that a small frontier was cheaper. Refusal keeps HPS fallback.
+    let frontier_attempted = super::aggregate::prefer_frontier_trace(&circuit, usize::MAX);
+    if frontier_attempted && let Some(terms) = super::aggregate::frontier_trace_norm(&circuit) {
+        return closed_norm(terms);
+    }
     let outputs = OutputSelection::new(super::qubits(&circuit), []);
     let trace_started = std::time::Instant::now();
     let Ok(mut hps) = execute(&circuit, &ExecutionConfig::all_symbolic(), &outputs) else {
@@ -123,7 +130,9 @@ pub(super) fn certificate(
     {
         norm
     } else {
-        let terms = if super::aggregate::prefer_frontier_trace(&circuit, c.path_support.len()) {
+        let terms = if frontier_attempted {
+            super::aggregate::closed_trace_norm(&c)
+        } else if super::aggregate::prefer_frontier_trace(&circuit, c.path_support.len()) {
             super::aggregate::frontier_trace_norm(&circuit)
                 .or_else(|| super::aggregate::closed_trace_norm(&c))
         } else {
@@ -140,6 +149,16 @@ pub(super) fn certificate(
     // as a proof. Only the exactly computed rational is returned.
     (norm >= BigRational::from_integer(0.into()) && norm <= BigRational::from_integer(1.into()))
         .then_some(TraceNorm::Rational(norm))
+}
+
+fn closed_norm(terms: Vec<(u64, BigRational)>) -> Option<TraceNorm> {
+    let r = match terms.as_slice() {
+        [] => BigRational::from_integer(0.into()),
+        [(0, r)] => r.clone(),
+        _ => return Some(TraceNorm::Cyclotomic(terms)),
+    };
+    (r >= BigRational::from_integer(0.into()) && r <= BigRational::from_integer(1.into()))
+        .then_some(TraceNorm::Rational(r))
 }
 
 /// Exact basis conjugations after full-unitary validation. Parameters are
