@@ -26,10 +26,8 @@ mod history_tests;
 #[cfg(test)]
 mod history_phase_tests;
 
-// TODO: Unify the duplicated vacuous/Fourier/Omega rule logic with
-// equivalence::aggregate (including its graph reducer). Share the algebraic
-// rules while retaining layer-specific applicability checks and adapters for
-// Component and WorkingTerm; history elimination remains HPS-specific.
+// Algebraic profiles are shared with the density-kernel reducer; applicability
+// and history handling remain specific to this HPS layer.
 /// A closed-form rule available to the path-sum reducer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PathRule {
@@ -128,10 +126,7 @@ impl PathRule {
                 component
                     .phase
                     .substitute(variable, &BooleanPolynomial::zero());
-                let (constant, coefficient) = match sign {
-                    OmegaSign::Positive => (ratio(1, 8), ratio(-1, 4)),
-                    OmegaSign::Negative => (ratio(-1, 8), ratio(1, 4)),
-                };
+                let (constant, coefficient) = sign.phase_coefficients();
                 component.phase.add_boolean(
                     &BooleanPolynomial::one(),
                     PhaseCoefficient::rational(constant),
@@ -235,22 +230,8 @@ fn cancel_half_turn_history_phases(component: &mut Component) {
         .shorten_half_turns(history.iter().cloned().chain(pairs));
 }
 
-/// The complete supported dependence of a phase on one path variable.
-enum PhaseProfile {
-    Absent,
-    Fourier(BooleanPolynomial),
-    Omega {
-        parity: BooleanPolynomial,
-        sign: OmegaSign,
-    },
-    Unsupported,
-}
-
-#[derive(Clone, Copy)]
-enum OmegaSign {
-    Positive,
-    Negative,
-}
+use crate::symbolic::path_rules::OmegaSign;
+type PhaseProfile = crate::symbolic::path_rules::PhaseProfile<BooleanPolynomial>;
 
 /// Classifies `phase = phase_without_y + y * coefficient` without expanding
 /// any other variable. Non-constant terms must have coefficient one half so
@@ -282,26 +263,7 @@ fn phase_profile(component: &Component, variable: &Variable) -> PhaseProfile {
     }
     constant = PhaseCoefficient::rational(constant).as_rational().unwrap();
 
-    if !present {
-        return PhaseProfile::Absent;
-    }
-    if constant == integer(0) {
-        PhaseProfile::Fourier(parity)
-    } else if constant == ratio(1, 2) {
-        PhaseProfile::Fourier(parity.complement())
-    } else if constant == ratio(1, 4) {
-        PhaseProfile::Omega {
-            parity,
-            sign: OmegaSign::Positive,
-        }
-    } else if constant == ratio(3, 4) {
-        PhaseProfile::Omega {
-            parity,
-            sign: OmegaSign::Negative,
-        }
-    } else {
-        PhaseProfile::Unsupported
-    }
+    PhaseProfile::classify(present, constant, parity, BooleanPolynomial::complement)
 }
 
 /// Rejects dependencies that cannot be eliminated by any local rule.

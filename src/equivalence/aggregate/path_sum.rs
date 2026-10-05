@@ -6,19 +6,8 @@ use super::{
 use crate::symbolic::PhaseCoefficient;
 use num_rational::BigRational;
 
-// TODO: Consolidate phase classification and vacuous/Fourier/Omega updates with
-// symbolic::optimize::path_sum. These layers currently duplicate the same
-// algebraic rules; retain Kernel-specific dependency checks and representation
-// adapters when extracting a shared implementation, including graph reduction.
-pub(super) enum PhaseProfile {
-    Absent,
-    Fourier(KernelBooleanPolynomial),
-    Omega {
-        parity: KernelBooleanPolynomial,
-        positive: bool,
-    },
-    Unsupported,
-}
+// Share the algebra with HPS reduction, but retain kernel dependency checks.
+pub(super) type PhaseProfile = crate::symbolic::path_rules::PhaseProfile<KernelBooleanPolynomial>;
 
 /// Classifies `phase = phase_without_v + v * coefficient` for exact local sums.
 fn phase_profile(phase: &KernelPhasePolynomial, variable: &KernelVariable) -> PhaseProfile {
@@ -40,25 +29,12 @@ fn phase_profile(phase: &KernelPhasePolynomial, variable: &KernelVariable) -> Ph
         }
     }
     let parity = KernelBooleanPolynomial::from_monomials(parity_terms);
-    if !present {
-        PhaseProfile::Absent
-    } else if constant == integer(0) {
-        PhaseProfile::Fourier(parity)
-    } else if constant == ratio(1, 2) {
-        PhaseProfile::Fourier(parity.complement())
-    } else if constant == ratio(1, 4) {
-        PhaseProfile::Omega {
-            parity,
-            positive: true,
-        }
-    } else if constant == ratio(3, 4) {
-        PhaseProfile::Omega {
-            parity,
-            positive: false,
-        }
-    } else {
-        PhaseProfile::Unsupported
-    }
+    PhaseProfile::classify(
+        present,
+        constant,
+        parity,
+        KernelBooleanPolynomial::complement,
+    )
 }
 
 impl WorkingTerm {
@@ -124,14 +100,10 @@ impl PhaseProfile {
     pub(super) fn omega_additions(
         &self,
     ) -> Option<[(KernelBooleanPolynomial, PhaseCoefficient); 2]> {
-        let Self::Omega { parity, positive } = self else {
+        let Self::Omega { parity, sign } = self else {
             return None;
         };
-        let (constant, coefficient) = if *positive {
-            (ratio(1, 8), ratio(-1, 4))
-        } else {
-            (ratio(-1, 8), ratio(1, 4))
-        };
+        let (constant, coefficient) = sign.phase_coefficients();
         Some([
             (
                 KernelBooleanPolynomial::one(),

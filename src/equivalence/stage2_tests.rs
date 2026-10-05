@@ -259,3 +259,17 @@ fn multi_component_and_unbound_paths_cannot_use_this_rule() {
         "unbound paths cannot be a certificate"
     );
 }
+// Test adapter for the structural certificate; production constructs these
+// snapshots once and also passes them to the deterministic proof.
+fn exact_hps_certificate(prepared: &PreparedComparison) -> bool {
+    if prepared.left.hps.components.len() != 1 || prepared.right.hps.components.len() != 1 {
+        return false;
+    }
+    matches!(
+        exact_match(
+            &complete_snapshot(&prepared.left),
+            &complete_snapshot(&prepared.right)
+        ),
+        ExactMatch::Match { .. }
+    )
+}

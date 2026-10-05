@@ -49,9 +49,10 @@ mod scalar;
 mod shannon;
 mod small_sum;
 
-use collection::{
-    ExactAggregate, ExactEntry, ExactTerm, accumulate_exact_term, aggregate_difference,
-};
+#[cfg(test)]
+use collection::ExactEntry;
+use collection::{ExactAggregate, ExactTerm, accumulate_exact_term, aggregate_difference};
+#[cfg(test)]
 use free_split::{remove_common_phase, restrict_aggregate};
 use scalar::{normalize_scalar, scalar_conditions_within_budget, scalar_within_budget};
 mod phase_basis;

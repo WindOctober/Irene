@@ -345,3 +345,4 @@ fn graph_only_fields_and_unowned_paths_refuse_the_entire_plan() {
     bad.paths.insert(KernelVariable::InputKet(8));
     assert!(components(&bad, &mut allowance()).is_none());
 }
+use crate::equivalence::kernel::KernelBooleanPolynomial;

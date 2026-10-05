@@ -30,9 +30,6 @@ fn compare_with(
     p: &PreparedComparison,
     run: impl FnOnce(&str) -> Result<PortfolioResult, SolverDisagreement>,
 ) -> Option<Result<Analysis, SolverDisagreement>> {
-    if std::env::var_os("IRENE_DISABLE_PATHWISE_GRAPH").is_some() {
-        return None;
-    }
     let [left] = p.left.hps.components.as_slice() else {
         return None;
     };
@@ -210,8 +207,6 @@ mod tests {
             error
         );
     }
-
-
 
     #[test]
     fn only_supported_constant_real_weights_have_a_square() {

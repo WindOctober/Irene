@@ -1,10 +1,10 @@
 //! Rational phase queries and evaluation restored from FSE-Ver.
-use std::collections::BTreeMap;
-use num_bigint::BigInt;
-use num_rational::BigRational;
+use super::model_witness::evaluate_boolean;
 use crate::ir::Qubit;
 use crate::symbolic::{BooleanPolynomial, PhasePolynomial, Variable};
-use super::model_witness::evaluate_boolean;
+use num_bigint::BigInt;
+use num_rational::BigRational;
+use std::collections::BTreeMap;
 pub(super) type RationalPhase = BTreeMap<BooleanPolynomial, BigRational>;
 pub(super) fn rational_phase_difference(
     left: &PhasePolynomial,
@@ -80,7 +80,10 @@ pub(super) fn phase_variation_query(
         &[],
     ))
 }
-pub(super) fn evaluate_phase(phase: &RationalPhase, bindings: &BTreeMap<Variable, bool>) -> BigRational {
+pub(super) fn evaluate_phase(
+    phase: &RationalPhase,
+    bindings: &BTreeMap<Variable, bool>,
+) -> BigRational {
     modulo_one(
         phase
             .iter()
@@ -139,20 +142,6 @@ fn smt_boolean(
             .map(|position| format!("{namespace}{position}")),
         Variable::Path(_) => None,
     })
-}
-fn smt_or(terms: &[String]) -> String {
-    smt_fold(terms, "or", "false")
-}
-fn smt_and(terms: &[String]) -> String {
-    smt_fold(terms, "and", "true")
-}
-fn smt_fold(terms: &[String], operator: &str, identity: &str) -> String {
-    terms
-        .iter()
-        .cloned()
-        .fold(identity.to_owned(), |left, right| {
-            format!("({operator} {left} {right})")
-        })
 }
 fn smt_script(declarations: String, assertion: String, values: &[String]) -> String {
     let get_values = if values.is_empty() {

@@ -591,8 +591,10 @@ fn factor_binomials(
     super::factor_refine::binomials(source, |l, r| multiply_aggregates(l, r, budget))
 }
 
+#[cfg(test)]
 use super::factor_relation::add_phase;
 
+#[cfg(test)]
 use super::factor_normalize::normalize as normalize_factor;
 
 #[cfg(test)]

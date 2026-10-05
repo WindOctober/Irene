@@ -182,7 +182,7 @@ fn generated_affine_coset_witnesses_match_exhaustive_truth_tables() {
     }
     assert!(equal > 0 && different > 0);
     assert_eq!(column_rank(0, &[]), 0);
-    assert!(column_span_contains(0, &[], &[]));
+    assert!(column_span_contains(0, &[], 0, &[]));
 }
 
 fn y(index: usize) -> BooleanPolynomial {
@@ -308,5 +308,29 @@ fn joint_rank_admission_matches_exhaustive_path_injectivity() {
             pairs.len() == 4,
             "map {code}"
         );
+    }
+}
+#[test]
+fn cached_rank_membership_agrees_with_enumerated_column_span() {
+    // All two-column matrices over GF(2)^3, including zero and dependent columns.
+    for bits in 0..64 {
+        let columns: Vec<Vec<bool>> = (0..2)
+            .map(|c| (0..3).map(|r| bits & (1 << (3 * c + r)) != 0).collect())
+            .collect();
+        let rank = column_rank(3, &columns);
+        let span: BTreeSet<Vec<bool>> = (0..4)
+            .map(|mask| {
+                (0..3)
+                    .map(|r| (mask & 1 != 0 && columns[0][r]) ^ (mask & 2 != 0 && columns[1][r]))
+                    .collect()
+            })
+            .collect();
+        for bits in 0..8 {
+            let value: Vec<_> = (0..3).map(|r| bits & (1 << r) != 0).collect();
+            assert_eq!(
+                column_span_contains(3, &columns, rank, &value),
+                span.contains(&value)
+            );
+        }
     }
 }
