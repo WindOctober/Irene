@@ -5,24 +5,18 @@ subsets of OpenQASM 2 and 3, including measurement and classical feedback.
 It reports equivalence, non-equivalence, or an inconclusive result; unsupported
 language features and invalid programs may produce errors.
 
+## News
+
+- **2026-10-06** · [Certified unitary contraction](docs/architecture.md#numerical-hps-certificates): shared HPS semantics for exact and interval backends, with full-operator contraction up to 10 qubits under resource budgets.
+- **2026-10-05** · [Local gate rewriting](docs/architecture.md#verification-flow): shared exact identities, including native Hadamard and local SWAP reductions, applicable to supported fragments within mixed-angle circuits.
+- **2026-09-28** · [Paper version](https://arxiv.org/abs/2609.36065v1): the implementation accompanying the paper is maintained on the [FSE-Ver](https://github.com/WindOctober/Irene/tree/FSE-Ver) branch.
+
 ## Workspace
 
-This repository contains two Rust crates with a one-way dependency:
-
-- **IQIR** (`iqir/`, package/library `iqir`): Irene Quantum IR, its node
-  allocator, OpenQASM 2/3 import support, traversal utilities, and pure unitary
-  validation/miter helpers. It has no dependency on the verifier or external solvers.
-- **Irene** (repository root, package/library `irene`): symbolic execution,
-  equivalence checking, and the `irene` command.
-  Its equivalence-verification component is called **IreneQ**;
-  this is not a separate Cargo package or library name.
-  `irene::ir` re-exports IQIR's types without conversion or duplication.
-  `irene::frontend` re-exports IQIR's import layer for existing callers.
-
-The split does not change the IR's operations, source metadata, phase
-conventions, or verification semantics. See [IQIR](iqir/README.md) for its
-construction API. Existing Rust consumers continue to use `irene::...`
-without a dependency alias.
+- **[IQIR](iqir/README.md)**: a reusable intermediate representation for hybrid
+  quantum programs, currently focused on importing OpenQASM 2 and 3.
+- **IreneQ**: Irene's equivalence checker, using symbolic execution and solver-backed
+  reasoning to compare programs represented in IQIR.
 
 ## Build and run
 
@@ -44,3 +38,20 @@ Run both crates' test suites with `cargo test --workspace --release`.
 The default workspace members also include both crates.
 Use `cargo test -p iqir` to test only the standalone IR, or
 `cargo test -p irene` for the verifier.
+
+## Citation
+
+If you use Irene in your research, please cite our
+[paper](https://arxiv.org/abs/2609.36065):
+
+```bibtex
+@misc{ke2026irene,
+  title         = {{Irene}: Equivalence Checking of Hybrid Quantum Programs via Structure-Preserving Symbolic Reduction},
+  author        = {Jingyu Ke and Jingyang Li and Guoqiang Li},
+  year          = {2026},
+  eprint        = {2609.36065},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.PL},
+  url           = {https://arxiv.org/abs/2609.36065}
+}
+```
