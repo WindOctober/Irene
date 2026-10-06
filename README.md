@@ -1,4 +1,4 @@
-# Irene: IQIR and IreneQ
+# Irene: An Equivalence Checker for Hybrid Quantum Programs
 
 Irene checks the equivalence of hybrid quantum programs written in supported
 subsets of OpenQASM 2 and 3, including measurement and classical feedback.
