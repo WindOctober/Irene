@@ -1,9 +1,8 @@
 # IQIR — Irene Quantum IR
 
-IQIR is the solver-independent IR and OpenQASM import layer extracted from Irene. Its initial version
-preserves the existing gate-level program model: static registers, numeric
+IQIR is the solver-independent IR and OpenQASM import layer extracted from Irene. Its program model includes static registers, numeric
 gate expressions, Boolean assignments, measurement, reset, conditional blocks,
-and grouping scopes. Existing OpenQASM version metadata and phase conventions
+while loops, typed scalars, composite gates and grouping scopes. Existing OpenQASM version metadata and phase conventions
 are unchanged; this is not the LLVM-based QIR Alliance format.
 
 Use `AstIdGenerator::node` to build nodes, and `AstNode::ast_id()` to read
@@ -45,8 +44,7 @@ let program = frontend::parse_str(
 Both functions select the OpenQASM 2 or 3 frontend using the declared version
 and return `iqir::Program`. The version-specific
 `frontend::openqasm2::parse_str` and `frontend::openqasm3::parse_str` APIs
-retain their original error types. Existing supported subsets, numeric
-lowering, and include restrictions are unchanged. Importing does not perform
+retain their original error types. The include restrictions are unchanged. Importing does not perform
 equivalence checking.
 
 IQIR owns the OpenQASM parser dependencies, exact decimal/rational arithmetic,
@@ -58,8 +56,13 @@ IreneQ, which accepts `iqir::Program` directly. It re-exports the IR types as
 `irene::ir`, the import layer as `irene::frontend`, and the original source
 loading utilities through `irene::utils`.
 
-## OpenQASM 3 gates
+## OpenQASM 3 control flow and gates
 
+- `while (condition) { ... }`, including nested loops, measurement-driven
+  control, and single-statement bodies. A loop remains one `While` node;
+  there is no finite unrolling and no termination assumption. Block-local
+  declarations are allocated afresh on each entry. Entry facts are cleared
+  before lowering a loop body and after a loop for `pow` specialization.
 - OpenQASM 3 `gate` definitions, including formal numeric parameters,
   nested previously declared gates and register broadcasting. Definitions
   have their signatures checked at declaration and their bodies checked/lowered
@@ -79,49 +82,13 @@ loading utilities through `irene::utils`.
   Rz(phi). In particular, **theta/2 cannot be discarded**. This differs from
   OpenQASM 2 / Qiskit U3. Imported AutoQ gate definitions are honored, not
   ignored like the upstream AutoQ comments describe.
-
-### Backend support
-
-Plain custom gates expand into existing Apply/Scope nodes. Composite controls,
-inverse and integer powers retain a Unitary node, and gphase/U retain explicit
-GlobalPhase nodes. Consumers must preserve sequence order and controlled phases.
-IreneQ and IQIR's unitary miter currently reject these two node kinds explicitly
-before optimization/execution; parsing them is not a verification result.
-
-Gate bodies are checked when called, not via a temporary checker. Unused bodies
-are not expanded. Definition-time lexical visibility is retained at calls, so
-recursion, forward gate calls and captures of caller locals are rejected.
-Expansion depth is limited to 64, modifier count to 16 and total expansion/copy
-work to 65,536. Runtime numeric parameters, negctrl and non-integer powers remain
-unsupported.
-
-Run `cargo test -p iqir` and `cargo test -p irene --test gate_capabilities`.
-
-## OpenQASM 3 while loops
-
-The frontend preserves `while (condition) body` as `While { condition, body }`.
-Nested loops and braced/single-statement bodies reuse existing Boolean lowering
-and lexical scopes. Conditions are re-evaluated before each iteration by an IR
-consumer; no finite unrolling or termination assumption is made.
-
-Known-bit facts are cleared before lowering a loop and after it, so gate powers
-cannot be specialized using stale entry values across a back edge. Facts newly
-established inside an iteration can still be used by subsequent statements.
-Loop nesting is limited to 64; this is not a runtime iteration bound.
-`break` and `continue` remain unsupported.
-
-Whole `bit[n]` registers can be compared to representable integer literals,
-including `bit[1] c; while(c == 1) {}`. Comparison uses every bit in
-little-endian order, rejects out-of-range literals, and also works in `if`.
-
-IreneQ and the unitary miter reject loops explicitly, including loops in dead
-branches, before optimization or execution. Frontend import is not a loop proof.
-
-## Numeric scalar declarations
-
-Mutable int[1..64] and float[32]/float[64] declarations support initializers,
-assignment, unary minus, arithmetic (+, -, *, / and integer %), compound
-assignments and six comparisons. Comparisons integrate with if and while.
+- Mutable `int[n]` with `1 <= n <= 64`, and `float[32]` /
+  `float[64]`: declarations, initializers, assignment, unary minus, `+ - * /`,
+  integer `%`, corresponding compound assignments, and all six comparisons.
+  Boolean combinations of comparisons can control `if` and `while`.
+- `bit[n]` versus representable integer literal comparisons use the complete
+  little-endian register, including the `bit[1] c; while(c == 1)` spelling
+  produced by Qiskit. Width/shape are not reduced to the lowest bit.
 
 ## Scalar types, declarations and constant evaluation
 
@@ -172,6 +139,43 @@ subroutine parameters/returns, mixed signed/unsigned arithmetic, int/float
 variable conversions, non-floating scalar casts, integer bitwise/shift operations
 in the new scalar representation, non-integer gate powers, `negctrl`, and
 non-gate bodies inside gate definitions remain explicitly unsupported.
+Unsigned `uint[n]` keeps the existing word/bit lowering, including indexed reads,
+measurement writes, bitwise operations, shifts and comparisons. Addition and
+subtraction (including compound assignments) reuse the modular word adder also
+used for angles; assignments read all operands before writing destination bits.
+Integer literals must fit the word; unsigned operands must have equal widths.
+It is not rerouted through the signed/float scalar representation; runtime uint arithmetic
+other than addition/subtraction remains unsupported.
 
-IreneQ rejects scalar declarations, assignments and comparisons before slicing,
-including in dead branches. Frontend support is not backend proof support.
+## Validation
+
+```bash
+cargo test --locked -p iqir
+cargo clippy --locked -p iqir --all-targets -- -D warnings
+cargo check --locked --workspace --all-targets
+cargo test --locked -p irene --lib
+cargo run --locked -p iqir --example import -- input.qasm
+```
+
+Tests inspect actual IR and use small independent classical/state-vector
+interpreters for loop execution, scope, signedness, float promotion/rounding,
+whole-register comparisons, controlled U phases, composite inverse/power and
+negative admissions. Frontend tests check unique/dense AST IDs.
+The local Saria suite has 122 `program.qasm` inputs. Its
+`benchmark/iqir-parse-report.*` files record the earlier Git-dependent run,
+not unpublished changes in this checkout.
+
+Semantic references:
+[OpenQASM 3 gates](https://openqasm.com/versions/3.0/language/gates.html),
+[types and casts](https://openqasm.com/versions/3.0/language/types.html),
+[classical instructions](https://openqasm.com/versions/3.0/language/classical.html).
+
+## Verifier support
+
+Frontend import and verification share one IR. Import success is not an equivalence or termination
+proof. IreneQ currently rejects while loops, scalar storage/comparisons,
+explicit global phases and composite unitary modifiers before slicing or symbolic
+execution, even in dead branches. IQIR's unitary miter also reports unsupported
+statements explicitly. These diagnostics mark backend capabilities, not a second
+frontend. Plain custom gates that expand entirely to supported gate nodes can
+use the existing verifier.

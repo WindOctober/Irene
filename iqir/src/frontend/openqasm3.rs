@@ -2002,6 +2002,18 @@ impl Lowerer {
                 let right_source = binary
                     .rhs()
                     .ok_or_else(|| expected!("a right operand", &binary))?;
+                // Unsigned word wraparound must not hide a checked static
+                // overflow, e.g. const uint[3] n=7; uint[3] a=n+1.
+                if matches!(
+                    binary.op_kind(),
+                    Some(ast::BinaryOp::ArithOp(
+                        ast::ArithOp::Add | ast::ArithOp::Sub
+                    ))
+                ) && self.static_integer(left_source.clone(), false).is_ok()
+                    && self.static_integer(right_source.clone(), false).is_ok()
+                {
+                    self.static_integer(Expr::BinExpr(binary.clone()), false)?;
+                }
                 if let Some(ast::BinaryOp::ArithOp(op @ (ast::ArithOp::Shl | ast::ArithOp::Shr))) =
                     binary.op_kind()
                 {
@@ -2010,6 +2022,9 @@ impl Lowerer {
                 let left = self.lower_typed_classical_expr(left_source)?;
                 let right = self.lower_typed_classical_expr(right_source)?;
                 match binary.op_kind() {
+                    Some(ast::BinaryOp::ArithOp(op @ (ast::ArithOp::Add | ast::ArithOp::Sub))) => {
+                        self.uint_add(op, left, right, &binary)
+                    }
                     // Equality dispatches after both operand types are known.
                     Some(ast::BinaryOp::CmpOp(ast::CmpOp::Eq { negated })) => {
                         let equality = self.lower_classical_equality(left, right, &binary)?;
