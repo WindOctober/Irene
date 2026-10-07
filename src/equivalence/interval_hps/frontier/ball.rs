@@ -211,6 +211,35 @@ impl Balls {
         indices: impl Iterator<Item = usize>,
         precision: u32,
     ) {
+        if coefficients.len == 2 {
+            let mut indices = indices;
+            let a = indices.next().expect("two dot-product inputs");
+            let b = indices.next().expect("two dot-product inputs");
+            assert!(indices.next().is_none(), "two dot-product inputs");
+            let first = inputs.at(a);
+            let _last = inputs.at(b);
+            // Most local blocks have exactly two terms per output. Accumulate
+            // them together with rigorous rounding instead of two addmul calls.
+            // Balls allocations fit isize, so the signed stride also fits.
+            let stride = b as isize - a as isize;
+            // SAFETY: both strided endpoints and both coefficients are checked
+            // initialized entries. Scratch output is disjoint from the inputs;
+            // acb_dot allows negative/zero strides and retains error bounds.
+            unsafe {
+                acb_dot(
+                    self.at_mut(output),
+                    std::ptr::null(),
+                    0,
+                    first,
+                    stride.try_into().expect("FLINT input stride"),
+                    coefficients.at(0),
+                    1,
+                    2,
+                    precision.into(),
+                )
+            };
+            return;
+        }
         // SAFETY: checked index into uniquely owned, initialized storage.
         unsafe { acb_zero(self.at_mut(output)) };
         for (j, i) in indices.enumerate() {
