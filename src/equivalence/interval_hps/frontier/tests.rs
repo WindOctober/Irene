@@ -1,4 +1,69 @@
 use super::*;
+
+#[test]
+fn ball_sum_products_encloses_exact_complex_sums_with_strided_inputs() {
+    let input_values = [(2, 3), (-1, 4), (3, -2)];
+    let coefficient_values = [(4, 5), (-2, 1), (1, -3)];
+    let mut inputs = Balls::new(input_values.len());
+    for (i, (re, im)) in input_values.into_iter().enumerate() {
+        inputs.set_enclosure(
+            i,
+            &Complex {
+                re: Interval::n(re),
+                im: Interval::n(im),
+            },
+            64,
+        );
+    }
+    // Forward, reverse and repeated inputs exercise positive, negative and
+    // zero strides; one/three terms also retain the generic fallback.
+    for indices in [vec![0, 2], vec![2, 0], vec![1, 1], vec![2], vec![2, 0, 1]] {
+        let mut coefficients = Balls::new(indices.len());
+        let (mut re, mut im) = (0, 0);
+        for (j, &i) in indices.iter().enumerate() {
+            let (a, b) = input_values[i];
+            let (c, d) = coefficient_values[j];
+            re += a * c - b * d;
+            im += a * d + b * c;
+            coefficients.set_enclosure(
+                j,
+                &Complex {
+                    re: Interval::n(c),
+                    im: Interval::n(d),
+                },
+                64,
+            );
+        }
+        let mut output = Balls::new(1);
+        output.sum_products(0, &inputs, &coefficients, indices.into_iter(), 64);
+        let result = output.enclosure(0).unwrap();
+        assert!(result.re.lo <= re && result.re.hi >= re);
+        assert!(result.im.lo <= im && result.im.hi >= im);
+    }
+}
+
+#[test]
+fn ball_short_dot_preserves_input_and_coefficient_uncertainty() {
+    let real = |lo: i32, hi: i32| {
+        Complex::real(Interval {
+            lo: Interval::n(lo).lo,
+            hi: Interval::n(hi).hi,
+        })
+    };
+    let mut inputs = Balls::new(2);
+    inputs.set_enclosure(0, &real(-1, 2), 64);
+    inputs.set_enclosure(1, &real(3, 4), 64);
+    let mut coefficients = Balls::new(2);
+    coefficients.set_enclosure(0, &real(2, 3), 64);
+    coefficients.set_enclosure(1, &real(-2, -1), 64);
+    let mut output = Balls::new(1);
+    output.sum_products(0, &inputs, &coefficients, [0, 1].into_iter(), 64);
+    let result = output.enclosure(0).unwrap();
+    // Independent extrema of [-1,2]*[2,3] + [3,4]*[-2,-1].
+    assert!(result.re.lo <= -11 && result.re.hi >= 3);
+    assert!(result.im.lo <= 0 && result.im.hi >= 0);
+}
+
 fn parse(n: usize, gates: &str) -> Program {
     crate::frontend::openqasm3::parse_str(
         &format!("OPENQASM 3.0; include \"stdgates.inc\"; qubit[{n}] q; {gates}"),
