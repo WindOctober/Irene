@@ -108,7 +108,7 @@ fn shared_rules_follow_live_dependencies_and_keep_h_statistics_valid() {
     assert_eq!(
         crate::equivalence::unitary_rewrite::tests::matrix(&c.circuit),
         crate::equivalence::unitary_rewrite::tests::matrix(
-            &crate::ir::unitary::miter(
+            &crate::equivalence::unitary_miter::miter(
                 &parse("s q[0]; cx q[1],q[0]; rx(pi/2) q[0]; s q[0];"),
                 &parse("cx q[1],q[0]; h q[0];")
             )

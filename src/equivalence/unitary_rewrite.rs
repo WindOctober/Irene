@@ -1,11 +1,12 @@
 //! Exact, shrinking circuit rewrites before symbolic execution.
 //! Candidate discovery is separate from rule/commutation checks. All rewrites
 //! preserve the operator exactly, including phase in controlled contexts.
+use super::unitary_miter;
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::ir::{
     AstIdGenerator, Block, Gate, NumericConstant, NumericExprKind, Program, Qubit, Statement,
-    StatementKind, unitary,
+    StatementKind,
 };
 use crate::symbolic::{PhaseCoefficient, numeric_domains};
 use num_rational::BigRational;
@@ -412,7 +413,7 @@ pub(super) fn preprocess(source: &Program) -> Option<Program> {
 
 pub(super) fn preprocess_with(source: &Program, strategy: Strategy) -> Option<Program> {
     let start = std::time::Instant::now();
-    if unitary::validate(source).is_err() || numeric_domains(source).is_err() {
+    if unitary_miter::validate(source).is_err() || numeric_domains(source).is_err() {
         return None;
     }
     let mut candidate = source.clone();

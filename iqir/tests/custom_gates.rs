@@ -26,12 +26,6 @@ fn custom_gates_expand_nested_parameters_broadcasts_and_structured_modifiers() {
     assert!(
         matches!(&p.body.statements[1].kind,StatementKind::Unitary {controls,power:-2,..} if controls.len()==1)
     );
-    assert!(
-        unitary::validate(&p)
-            .unwrap_err()
-            .to_string()
-            .contains("unitary miter")
-    );
 }
 
 #[test]

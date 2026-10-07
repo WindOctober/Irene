@@ -21,9 +21,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{
+use crate::ir::{
     AstIdGenerator, Block, BlockData, ClassicalExprKind, Gate, NumericExpr, NumericExprKind,
     OpenQasmVersion, Program, ProgramData, Qubit, RegisterData, Statement, StatementKind, SymbolId,
+    gate_shape,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -40,17 +41,6 @@ pub enum UnitaryMiterError {
     NonUnitary,
     #[error("invalid quantum declarations or gate operands")]
     InvalidOperands,
-}
-
-/// Returns the required (qubit count, parameter count) for an IR gate.
-pub fn gate_shape(gate: Gate) -> (usize, usize) {
-    match gate {
-        Gate::H | Gate::X | Gate::Y | Gate::Z | Gate::S | Gate::Sdg | Gate::T | Gate::Tdg => (1, 0),
-        Gate::Cx | Gate::Cy | Gate::Cz | Gate::Swap => (2, 0),
-        Gate::Ccx | Gate::Ccz => (3, 0),
-        Gate::P | Gate::Rx | Gate::Ry | Gate::Rz => (1, 1),
-        Gate::Cp | Gate::Crx | Gate::Cry | Gate::Crz => (2, 1),
-    }
 }
 
 /// Structural full-unitary admission, without building a miter or executing HPS.

@@ -41,7 +41,7 @@ fn inverse_random_mixed_circuits_and_relative_phase() {
             seed + 1
         );
         let p = parse(3, &body);
-        let (miter, _) = unitary::miter(&p, &p).unwrap();
+        let (miter, _) = unitary_miter::miter(&p, &p).unwrap();
         let report = identity_bound(&miter).unwrap();
         assert!(report.bound.unwrap() < BigRational::new(1.into(), 1_000_000_000_000i64.into()));
         assert_eq!(

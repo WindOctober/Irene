@@ -3,9 +3,13 @@
 ## Crate boundary
 
 The root `irene` package depends on the standalone `iqir` workspace member.
-IQIR owns OpenQASM 2/3 importing, program representation, and pure unitary
-transformations. The root Irene crate owns symbolic execution, proof strategies, and solver
-integration; its equivalence-verification component is called IreneQ.
+IQIR owns OpenQASM 2/3 importing, program representation, and generic gate
+metadata (`iqir::gate_shape`). The root Irene crate owns symbolic execution,
+proof strategies, and solver integration; its equivalence-verification component
+is called IreneQ. Full-unitary admission, positional wire pairing, and miter
+construction live in `irene::equivalence::unitary_miter`. This is an executable
+IR-to-IR transformation, but its interface and admission policy belong to the
+verifier, not to the common IR.
 The `irene::ir` re-export is the same API and types as `iqir`.
 The `irene::frontend` re-export preserves the existing parser API. Independent
 clients can use `iqir::frontend::parse_str` or `parse_file` to obtain a

@@ -116,7 +116,7 @@ pub(in crate::equivalence) fn reduce(
     tolerance: Option<BigRational>,
     schedule: bool,
 ) -> Option<(Program, Statistics)> {
-    unitary::validate(source).ok()?;
+    unitary_miter::validate(source).ok()?;
     numeric_domains(source).ok()?;
     if source
         .body

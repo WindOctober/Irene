@@ -61,7 +61,7 @@ pub(super) fn identity_bound(program: &Program) -> Option<Report> {
     if cells.checked_mul(blocks.len())? > MAX_CELL_STEPS {
         return None;
     }
-    unitary::validate(program).ok()?;
+    unitary_miter::validate(program).ok()?;
     crate::symbolic::numeric_domains(program).ok()?;
     let start = Instant::now();
     // Entrywise interval dependency grows through mixing gates. Extra precision
