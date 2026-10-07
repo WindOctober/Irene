@@ -15,6 +15,7 @@ use std::ops::{Deref, DerefMut};
 
 use num_rational::BigRational;
 
+pub mod annotation;
 pub mod frontend;
 pub mod scalar;
 pub use scalar::*;
