@@ -158,6 +158,16 @@ semantic boundaries:
 Only bound paths may be eliminated as summation variables. Refused reductions
 retain the original expression or fall back; incomplete sums cannot certify a verdict.
 
+When the HPS path rules reach a fixed point, affine recovery checks whether a
+guard or phase selector hides a constant or XOR of variables. A shared ordered
+positive-Davio graph recognizes these functions without enumerating assignments;
+its iterative evaluator is bounded by graph nodes and actual work, not input
+count. Bounded sparse ANF is a fallback after a diagram refusal. Only proved
+affine results are substituted, and phase coefficients are preserved exactly.
+Recovered guards re-enter ordinary substitution before phase recovery. Queries
+share a work budget and cache within the reduction, and refusal leaves the
+original predicate intact. This is Boolean normalization, not an extra path sum.
+
 ## Density kernel and WorkingTerm
 
 [kernel.rs](../src/equivalence/kernel.rs) introduces input/output variables and

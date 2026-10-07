@@ -58,6 +58,8 @@ pub(crate) fn reduce_path_sums(component: &mut Component, allow_history: bool) -
         cancel_half_turn_history_phases(component);
     }
 
+    let mut recovery = super::recovery::Recovery::default();
+
     loop {
         // Visit every current path once before starting another fixed-point
         // round.  A successful elimination can make a path visited earlier in
@@ -102,6 +104,12 @@ pub(crate) fn reduce_path_sums(component: &mut Component, allow_history: bool) -
             }
         }
         if !reduced {
+            if recovery.recover(component) {
+                if !simplify_component(component) {
+                    return false;
+                }
+                continue;
+            }
             return true;
         }
     }

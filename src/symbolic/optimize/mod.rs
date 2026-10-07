@@ -8,6 +8,7 @@ mod merge;
 #[cfg(test)]
 pub(crate) use merge::tests::assert_density;
 mod path_sum;
+mod recovery;
 mod simplify;
 pub(crate) mod slice;
 mod unitary_trace;

@@ -31,6 +31,83 @@ struct Dag {
 }
 
 impl Dag {
+    // Explicit postorder evaluation bounds actual work without a recursion or
+    // variable-count limit. Existing normalization callers retain their policy.
+    fn apply_iterative(&mut self, op: u32, a: u32, b: u32) -> Option<u32> {
+        enum Task {
+            Apply(u32, u32, u32),
+            Finish(u32, (u32, u32, u32)),
+            Product(u32, (u32, u32, u32)),
+            JoinProduct(u32, u32, (u32, u32, u32)),
+        }
+        let mut tasks = vec![Task::Apply(op, a, b)];
+        let mut values = Vec::new();
+        while let Some(task) = tasks.pop() {
+            self.work = self.work.checked_sub(1)?;
+            match task {
+                Task::Apply(op, mut a, mut b) => {
+                    if a > b {
+                        std::mem::swap(&mut a, &mut b);
+                    }
+                    let simple = match op {
+                        2 if a == 0 => Some(b),
+                        2 if a == b => Some(0),
+                        3 if a == 0 => Some(0),
+                        3 if a == 1 || a == b => Some(b),
+                        2 | 3 => None,
+                        _ => return None,
+                    };
+                    let key = (op, a, b);
+                    if let Some(value) = simple.or_else(|| self.cache.get(&key).copied()) {
+                        values.push(value);
+                        continue;
+                    }
+                    if self.cache.len() >= self.limit.saturating_mul(4) {
+                        return None;
+                    }
+                    let v = self.nodes[a as usize]
+                        .variable
+                        .min(self.nodes[b as usize].variable);
+                    let (a0, ad) = self.split(a, v);
+                    let (b0, bd) = self.split(b, v);
+                    if op == 2 {
+                        tasks.push(Task::Finish(v, key));
+                        tasks.push(Task::Apply(2, ad, bd));
+                    } else {
+                        tasks.push(Task::Product(v, key));
+                        tasks.push(Task::Apply(3, ad, bd));
+                        tasks.push(Task::Apply(3, ad, b0));
+                        tasks.push(Task::Apply(3, a0, bd));
+                    }
+                    tasks.push(Task::Apply(op, a0, b0));
+                }
+                Task::Product(v, key) => {
+                    let z = values.pop()?;
+                    let y = values.pop()?;
+                    let x = values.pop()?;
+                    tasks.push(Task::JoinProduct(v, z, key));
+                    tasks.push(Task::Apply(2, x, y));
+                }
+                Task::JoinProduct(v, z, key) => {
+                    let xy = values.pop()?;
+                    tasks.push(Task::Finish(v, key));
+                    tasks.push(Task::Apply(2, xy, z));
+                }
+                Task::Finish(v, key) => {
+                    let delta = values.pop()?;
+                    let low = values.pop()?;
+                    let result = self.node(v, low, delta)?;
+                    if self.cache.len() >= self.limit.saturating_mul(4) {
+                        return None;
+                    }
+                    self.cache.insert(key, result);
+                    values.push(result);
+                }
+            }
+        }
+        (values.len() == 1).then(|| values[0])
+    }
+
     fn new(work: usize, limit: usize) -> Self {
         Self {
             nodes: vec![
@@ -152,6 +229,50 @@ impl Dag {
         memo.insert(id, result);
         result
     }
+}
+
+/// Recognize a single affine output without exporting a general normalized
+/// graph. `Some(None)` is a completed nonlinear query; `None` is resource refusal.
+/// Bounds graph/apply work; a resource refusal consumes the attempt's allowance.
+pub(crate) fn affine(
+    source: &Network,
+    work: &mut usize,
+    nodes: usize,
+) -> Option<Option<(bool, Vec<u32>)>> {
+    if source.nodes.len() > *work || source.outputs.len() != 1 || !source.validate() {
+        *work = 0;
+        return None;
+    }
+    let mut dag = Dag::new(*work, nodes);
+    let result = (|| {
+        let mut ids = Vec::with_capacity(source.nodes.len());
+        for &[op, a, b] in &source.nodes {
+            dag.work = dag.work.checked_sub(1)?;
+            let id = match op {
+                0 => a,
+                1 => dag.node(source.inputs - 1 - a, 0, 1)?,
+                2 | 3 => dag.apply_iterative(op, ids[a as usize], ids[b as usize])?,
+                _ => return None,
+            };
+            ids.push(id);
+        }
+        let mut root = ids[source.outputs[0] as usize];
+        let mut variables = Vec::new();
+        while root > 1 {
+            dag.work = dag.work.checked_sub(1)?;
+            let n = dag.nodes[root as usize];
+            // In a reduced ordered positive-Davio graph an affine function
+            // has only constant-one derivatives along its low chain.
+            if n.delta != 1 {
+                return Some(None);
+            }
+            variables.push(source.inputs - 1 - n.variable);
+            root = n.low;
+        }
+        Some(Some((root == 1, variables)))
+    })();
+    *work = if result.is_none() { 0 } else { dag.work };
+    result
 }
 
 /// Resource refusal returns no transformed graph, never a partial certificate.

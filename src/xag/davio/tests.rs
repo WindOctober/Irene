@@ -59,8 +59,49 @@ fn exhaustive_small_graphs_preserve_all_outputs_and_orders() {
                 );
             }
         }
+        for &root in &b.network.outputs {
+            let mut single = b.network.clone();
+            single.outputs = vec![root];
+            let mut work = 100_000;
+            let result = affine(&single, &mut work, 10_000).unwrap();
+            let constant = evaluate(&single, 0)[0];
+            let inputs: Vec<_> = (0..5)
+                .filter(|i| evaluate(&single, 1 << i)[0] != constant)
+                .collect();
+            let is_affine = (0..32).all(|assignment| {
+                let expected = inputs
+                    .iter()
+                    .fold(constant, |v, i| v ^ (assignment & (1 << i) != 0));
+                evaluate(&single, assignment)[0] == expected
+            });
+            assert_eq!(result.is_some(), is_affine);
+            if let Some((c, vars)) = result {
+                assert_eq!(c, constant);
+                assert_eq!(
+                    vars.into_iter().collect::<std::collections::BTreeSet<_>>(),
+                    inputs.into_iter().collect()
+                );
+            }
+        }
         assert!(normalize(&b.network, Order::Forward, 0, 0).is_none());
     }
+}
+
+#[test]
+fn affine_recognition_is_not_limited_by_input_count_or_call_stack() {
+    let mut b = Builder::default();
+    b.network.inputs = 1500;
+    let mut root = b.node(0, 1, 0);
+    for i in 0..1500 {
+        let v = b.node(1, i, 0);
+        root = b.node(2, root, v);
+    }
+    b.network.outputs = vec![root];
+    let (constant, inputs) = affine(&b.network, &mut 100_000, 10_000).unwrap().unwrap();
+    assert!(constant);
+    assert_eq!(inputs.len(), 1500);
+    assert!(affine(&b.network, &mut 10, 10_000).is_none());
+    assert!(affine(&b.network, &mut 100_000, 10).is_none());
 }
 #[test]
 fn wide_distributivity_and_idempotence_cancel_without_truth_tables() {

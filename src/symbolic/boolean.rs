@@ -480,6 +480,15 @@ impl BooleanPolynomial {
     /// Explicit bounded algebraic view. It is not cached in the graph; budget
     /// failure is inconclusive and must never be treated as zero.
     pub fn expanded_terms(&self, limit: usize) -> Option<BTreeSet<Monomial>> {
+        self.expanded_terms_with_work(limit, &mut limit.saturating_mul(64))
+    }
+
+    /// Share an actual algebraic-work budget across several optional queries.
+    pub(crate) fn expanded_terms_with_work(
+        &self,
+        limit: usize,
+        work: &mut usize,
+    ) -> Option<BTreeSet<Monomial>> {
         fn expand(
             p: &BooleanPolynomial,
             limit: usize,
@@ -539,12 +548,7 @@ impl BooleanPolynomial {
             memo.insert(p.key(), r.clone());
             Some(r)
         }
-        expand(
-            self,
-            limit,
-            &mut limit.saturating_mul(64),
-            &mut HashMap::new(),
-        )
+        expand(self, limit, work, &mut HashMap::new())
     }
     #[cfg(test)]
     pub fn terms(&self) -> impl Iterator<Item = Monomial> {
