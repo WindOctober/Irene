@@ -99,6 +99,9 @@ fn unknown_condition_keeps_only_agreeing_branch_values() {
 
 #[test]
 fn else_branch_starts_from_the_branch_entry_state() {
+    // Unsigned subtraction is now supported: the else branch still sees k=1.
+    let zero = parse("uint[3] k=1; bit b=measure q[0]; if(b) { k=2; } else { pow(k-1) @ x q[0]; }");
+    assert_eq!(count_x(&zero.body), 0);
     let p =
         parse("h q[0]; bit b=measure q[0]; uint[3] k=1; if(b) { k=2; } else { pow(k) @ x q[1]; }");
     let branch = p
@@ -124,7 +127,7 @@ fn unknown_and_invalid_powers_are_rejected() {
         "uint[3] k; pow(k) @ x q[0];",
         "bit b=measure q[0]; uint[3] k=1; if(b) { k=2; } pow(k) @ x q[0];",
         "uint[3] k=1; measure q[0] -> k[0]; pow(k) @ x q[0];",
-        "uint[3] k=1; bit b=measure q[0]; if(b) { k=2; } else { pow(k-1) @ x q[0]; }",
+        "uint[3] k=1; bit b=measure q[0]; if(b) { k=2; } pow(k-1) @ x q[0];",
         "pow(0.5) @ x q[0];",
         "pow(2.0) @ x q[0];",
         "pow(0) @ bogus q[0];",

@@ -554,7 +554,7 @@ fn pow_constant_propagation_respects_flow_widths_and_scope() {
         "uint[3] k; pow(k) @ x q;",
         "bit b=measure q; uint[3] k=1; if(b) { k=2; } pow(k) @ x q;",
         "uint[3] k=1; measure q -> k[0]; pow(k) @ x q;",
-        "uint[3] k=1; bit b=measure q; if(b) { k=2; } else { pow(k-1) @ x q; }", // unsupported runtime arithmetic, not a guessed value
+        "uint[3] k=1; bit b=measure q; if(b) { k=2; } pow(k-1) @ x q;", // branch-dependent power remains unknown
         "pow(0.5) @ x q;",
         "pow(2.0) @ x q;",
         "pow(0) @ bogus q;",
@@ -723,7 +723,7 @@ fn uint_rejects_dynamic_widths_and_unsupported_or_lossy_operations() {
         "uint[4] a=1; uint[3] b=a;",
         "uint[4] a=1; a <<= -1;",
         "uint[4] a=1; uint[4] s=1; a <<= s;",
-        "uint[4] a=1; a += 1;",
+        "uint[4] a=1; a += 16;",
         "uint[4] a=1; a=a*2;",
         "uint[4] a=1; angle[4] b=a;",
         "uint[4] a=1; bit[4] b=a;",
