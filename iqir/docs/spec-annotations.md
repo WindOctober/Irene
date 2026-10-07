@@ -67,23 +67,63 @@ IEEE rounding. Function parsing stores the signature and expression body only.
   declared program variables. Parsing does not prove probability/expectation laws.
 
 
-## Parsing boundaries
+## Pure auxiliary functions
 
-These APIs parse syntax, not proofs or executable operations. They do not yet
-provide name/type checking or OpenQASM statement attachment. Parsing
-`@saria.requires 1`, for example, is not a claim that its payload is Boolean;
-that obligation belongs to the checking layer.
+Use `parse_function` on
+`pragma saria.def name(parameter: type, ...) -> type = expression`, then pass the
+result to `define_function` with a caller-owned function table. Helpers are
+non-executable. Definitions are registered in source order and may call
+earlier helpers. Duplicate names/parameters, builtin collisions, forward calls,
+recursion and implicit capture of program state are rejected, even for unused
+helpers. To use program state, pass it explicitly: `stop_probability(n)`.
 
-Names remain `Name`, unknown calls remain `NamedCall`, and binder IDs remain
-unassigned. Known mathematical function arities are checked by the parser.
-Malformed syntax, unknown annotation kinds, trailing tokens, and exceeded
-resource budgets produce errors. Budgets cover input bytes, operator count,
-nesting, parse-tree size and numeric literal/exponent size.
+Parameter/return types are classical scalar categories `bool`, `bit`, `int`,
+`uint`, `float`, `angle`. They describe mathematical values, not machine storage:
+no sized type spellings, IEEE rounding or wraparound occur in helper arithmetic.
+`float`/`angle` admit real-valued formulas; integer arguments can be promoted to
+them, not vice versa. `bool`/`bit` are compatible but not implicitly numeric
+arithmetic operands; bit-versus-integer equality is admitted. Int/uint conversion
+retains a nonnegative-value obligation when targeting uint; this checker does
+not prove that obligation. Helpers cannot take or return qubits/matrices/arrays.
 
-Quantum/matrix AST variants are reserved syntax, not implemented quantum
-semantics. Likewise, accepting probability, infinite series or factorial syntax
-does not establish definedness, convergence, nonnegativity or any stated result.
-The mathematical conventions above are obligations for consumers, not numerical
-evaluation performed by the parser.
+The caller-owned `Vec<SpecFunction>` stores bodies/signatures indexed by `FunctionId`.
+`Parameter(index)` differs from program `SymbolId` and quantified `BoundVariable`.
+`NamedCall` becomes `HelperCall` after resolution and argument/return sort checks.
+`instantiate_function` substitutes already-checked arguments, alpha-renaming
+callee binders to avoid capture; nested helper calls remain symbolic, not
+recursively expanded. The substitution API does not re-check caller argument
+types: callers must use `check_expression` first. Budgets bound parsing, checking,
+definitions and substitution.
+
+
+## Name resolution and checking
+
+`check_expression` uses the same checker as helper definitions. Its resolver
+callback supplies program-variable bindings and classical types. Local binder
+names take precedence over helper parameters, which take precedence over the
+resolver. Bounds are checked before entering the new binder's scope.
+
+Parsing alone retains `Name` and `NamedCall`. Checking turns them into
+`Symbol`/constant values, `Parameter`, `BoundVariable`, and `HelperCall`
+references. Arithmetic, logical operators, mathematical functions, helper calls
+and binder bodies have their argument/result sorts checked. Both branches of a
+conditional are checked, even when its condition is a constant.
+
+For example, factorial requires an integer operand, probability requires a
+Boolean event, and sum/product require integer indices with numeric bodies.
+Quantifiers require Boolean bodies. Quantum/matrix operators are explicitly
+rejected by the classical checker.
+
+## Checking boundaries
+
+The standalone APIs do not attach specifications to OpenQASM statements.
+A caller checking a precondition/invariant must also require a Boolean result
+from `check_expression`; the generic expression checker admits numeric results.
+
+Syntax errors, unresolved names/functions, wrong arities and incompatible sorts
+are rejected. Parsing, checking, helper definitions and substitution have resource
+budgets. Checks do not discharge factorial nonnegativity, uint nonnegativity,
+index bounds, nonzero denominators, convergence or any asserted property.
+They do not evaluate helpers or infer a probability measure.
 
 Back to the [IQIR overview](../README.md).
