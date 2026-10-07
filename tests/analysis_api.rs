@@ -131,3 +131,43 @@ fn unitary_preprocessing_does_not_turn_a_reset_channel_into_a_unitary_miter() {
         Verdict::Equivalent
     );
 }
+
+#[test]
+fn specification_metadata_neither_blocks_equivalence_nor_supplies_assumptions() {
+    for (operation, comparison, expected) in [
+        ("h q;", "h q;", Verdict::Equivalent),
+        ("h q;", "x q;", Verdict::NotEquivalent),
+        ("reset q;", "reset q;", Verdict::Equivalent),
+        ("reset q;", "h q; h q;", Verdict::NotEquivalent),
+    ] {
+        let annotated = parse(&format!(
+            "qubit q;\n\
+             pragma saria.def never(n: int) -> bool = n < n\n\
+             @saria.requires never(0)\n\
+             @saria.ensures false\n{operation}"
+        ));
+        let original = annotated.clone();
+        let plain = parse(&format!("qubit q; {operation}"));
+        let other = parse(&format!("qubit q; {comparison}"));
+        for candidate in [&plain, &annotated] {
+            for (left, right) in [(candidate, &other), (&other, candidate)] {
+                let interface = EquivalenceConfig::positional(left, right).unwrap();
+                assert_eq!(analyze(left, right, &interface).unwrap().verdict, expected);
+            }
+        }
+        assert_eq!(annotated, original);
+        if operation == "h q;" {
+            irene::equivalence::unitary_miter::validate(&annotated).unwrap();
+            let (circuit, identity) =
+                irene::equivalence::unitary_miter::miter(&annotated, &plain).unwrap();
+            for generated in [circuit, identity] {
+                assert!(generated.annotations.is_empty());
+                assert!(generated.spec_functions.is_empty());
+            }
+        } else {
+            // Metadata must not relax the existing gate-only admission rules.
+            assert!(irene::equivalence::unitary_miter::validate(&annotated).is_err());
+            assert!(irene::equivalence::unitary_miter::miter(&annotated, &plain).is_err());
+        }
+    }
+}

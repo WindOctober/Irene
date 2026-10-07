@@ -366,6 +366,12 @@ pub struct ProgramData {
     pub quantum_registers: Vec<Register>,
     pub classical_registers: Vec<Register>,
     pub body: Block,
+    /// Specifications attached to whole lowered source statements. Specification-
+    /// preserving rewrites must remap these IDs. Executable-only transformations
+    /// may omit this metadata explicitly; equivalence checking must not assume it.
+    pub annotations: std::collections::BTreeMap<AstId, Vec<annotation::Annotation>>,
+    /// Pure classical specification helpers, indexed by FunctionId.
+    pub spec_functions: Vec<annotation::SpecFunction>,
 }
 
 pub type Program = AstNode<ProgramData>;
@@ -499,7 +505,7 @@ impl AstNode<ProgramData> {
 mod tests;
 
 /// Expansion uses temporary parameter trees. Compact only after import, before
-/// AST identities are exposed or side tables exist. Symbol IDs never change.
+/// AST identities are exposed. Annotation keys are remapped; symbols never change.
 pub(crate) fn compact_program_ids(mut program: crate::Program) -> crate::Program {
     use crate::{
         Block, ClassicalExpr, ClassicalExprKind as C, NumericExpr, NumericExprKind as N,
@@ -584,6 +590,16 @@ pub(crate) fn compact_program_ids(mut program: crate::Program) -> crate::Program
                 S::Reset(_) | S::Measure { .. } => {}
             }
         }
+    }
+    if !program.annotations.is_empty() {
+        let mut remap = std::collections::BTreeMap::new();
+        program.visit_ast_ids(|old| {
+            remap.insert(old, AstId(remap.len()));
+        });
+        program.annotations = std::mem::take(&mut program.annotations)
+            .into_iter()
+            .map(|(id, annotations)| (remap[&id], annotations))
+            .collect();
     }
     let mut next = 0;
     id(&mut program, &mut next);

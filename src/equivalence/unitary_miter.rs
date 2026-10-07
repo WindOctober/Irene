@@ -45,6 +45,7 @@ pub enum UnitaryMiterError {
 
 /// Structural full-unitary admission, without building a miter or executing HPS.
 /// Numeric domains must still be checked before rewriting or execution.
+/// Specification annotations and helpers do not affect admission.
 pub fn validate(source: &Program) -> Result<(), UnitaryMiterError> {
     let wires = wire_map(source)?;
     let mut blocks = vec![&source.body];
@@ -105,6 +106,9 @@ pub fn validate(source: &Program) -> Result<(), UnitaryMiterError> {
 ///
 /// Both source programs must be unitary, not merely the side being inverted.
 /// No internal HPS paths are matched, and no source programs are modified.
+/// The generated programs contain executable operations only: source annotations
+/// and specification helpers are neither copied nor used as proof assumptions.
+/// Inversion/composition does not preserve their source statement boundaries.
 pub fn miter(
     forward: &Program,
     adjoint_of: &Program,
@@ -146,6 +150,8 @@ fn program(width: usize, statements: Vec<Statement>, ids: &mut AstIdGenerator) -
         statements,
     });
     ids.node(ProgramData {
+        annotations: Default::default(),
+        spec_functions: Vec::new(),
         version: OpenQasmVersion { major: 3, minor: 0 },
         numeric_inputs: Vec::new(),
         quantum_registers: vec![register],

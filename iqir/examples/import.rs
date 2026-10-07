@@ -8,9 +8,11 @@ fn main() -> ExitCode {
         total += 1;
         match iqir::frontend::parse_file(&path) {
             Ok(p) => println!(
-                "PASS {}: {} AST IDs",
+                "PASS {}: {} AST IDs, {} annotations, {} helpers",
                 path.to_string_lossy(),
-                p.ast_id_bound()
+                p.ast_id_bound(),
+                p.annotations.values().map(Vec::len).sum::<usize>(),
+                p.spec_functions.len()
             ),
             Err(error) => {
                 failed += 1;
