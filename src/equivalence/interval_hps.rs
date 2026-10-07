@@ -1,7 +1,7 @@
 //! Structural HPS coefficient simplification with certified numerical leaves.
 //!
-//! Small physical-wire frontiers contract the complete operator first; wider
-//! programs retain shared Boolean expressions and structural elimination. Every
+//! Shared Boolean expressions and structural elimination are attempted first;
+//! small physical-wire frontiers refine unresolved results afterward. Every
 //! path and input remains accounted for in the normalized trace. Boolean
 //! guards/selectors stay exact; MPFR endpoints enclose all scalar/phase values.
 //! For a d-dimensional unitary V and t=Tr(V)/d, choose its global phase so that
@@ -116,18 +116,32 @@ pub fn identity_bound(program: &Program) -> Report {
 }
 
 /// The target guides refinement only; every returned bound remains certified.
-/// A wide frontier enclosure must not suppress the existing structural route.
+/// Try structural HPS contraction with its normal resource limits first, then
+/// refine an inconclusive enclosure with the complete physical-wire matrix.
+/// No additional short-probe budget or repeated HPS attempt is introduced.
 pub fn identity_bound_with_tolerance(program: &Program, target: &BigRational) -> Report {
-    let first = frontier::identity_bound(program);
-    if let Some(report) = &first
-        && (report.bound.as_ref().is_some_and(|u| u <= target)
-            || report.lower_bound.as_ref().is_some_and(|l| l > target))
-    {
-        return first.unwrap();
+    refine_with_frontier(structured::identity_bound(program), target, || {
+        frontier::identity_bound(program)
+    })
+}
+
+fn refine_with_frontier(
+    first: Report,
+    target: &BigRational,
+    frontier: impl FnOnce() -> Option<Report>,
+) -> Report {
+    let decisive = |report: &Report| {
+        report.bound.as_ref().is_some_and(|u| u <= target)
+            || report.lower_bound.as_ref().is_some_and(|l| l > target)
+    };
+    if decisive(&first) {
+        return first;
     }
-    let mut report = structured::identity_bound(program);
-    if let Some(first) = first {
-        report.method = "frontier+structured";
+    if let Some(mut report) = frontier() {
+        if decisive(&report) {
+            return report;
+        }
+        report.method = "structured+frontier";
         report.precision = report.precision.max(first.precision);
         report.bound = match (first.bound, report.bound) {
             (Some(a), Some(b)) => Some(a.min(b)),
@@ -139,14 +153,81 @@ pub fn identity_bound_with_tolerance(program: &Program, target: &BigRational) ->
         };
         report.work += first.work;
         report.nodes = report.nodes.max(first.nodes);
+        // Keep structural diagnostics for the unresolved symbolic residual.
+        report.paths = first.paths;
+        report.max_width = report.max_width.max(first.max_width);
+        return report;
     }
-    report
+    first
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::frontend::openqasm3;
+
+    fn enclosure(method: &'static str, upper: Option<i64>, lower: Option<i64>) -> Report {
+        Report {
+            method,
+            precision: PREC,
+            bound: upper.map(|n| BigRational::from_integer(n.into())),
+            lower_bound: lower.map(|n| BigRational::from_integer(n.into())),
+            reason: "test enclosure",
+            paths: 0,
+            work: 0,
+            max_width: 0,
+            nodes: 0,
+        }
+    }
+
+    #[test]
+    fn decisive_hps_bounds_do_not_run_matrix_refinement() {
+        for first in [
+            enclosure("structured", Some(0), Some(0)),
+            enclosure("structured", Some(2), Some(1)),
+        ] {
+            let report = refine_with_frontier(first, &tolerance(), || {
+                panic!("a decisive HPS certificate must return before matrix contraction")
+            });
+            assert_eq!(report.method, "structured");
+        }
+    }
+
+    #[test]
+    fn unresolved_hps_can_be_settled_by_matrix_or_preserved_on_refusal() {
+        for first in [
+            enclosure("structured", None, None),
+            enclosure("structured", Some(2), Some(0)),
+        ] {
+            let report = refine_with_frontier(first, &tolerance(), || {
+                Some(enclosure("frontier", Some(0), Some(0)))
+            });
+            assert_eq!(report.method, "frontier");
+            assert_eq!(report.bound, Some(BigRational::from_integer(0.into())));
+        }
+        let report = refine_with_frontier(
+            enclosure("structured", Some(2), Some(0)),
+            &tolerance(),
+            || None,
+        );
+        assert_eq!(report.method, "structured");
+        assert_eq!(report.bound, Some(BigRational::from_integer(2.into())));
+    }
+
+    #[test]
+    fn inconclusive_refinement_keeps_the_best_of_both_bounds() {
+        let report = refine_with_frontier(
+            enclosure("structured", Some(4), Some(1)),
+            &BigRational::from_integer(2.into()),
+            || Some(enclosure("frontier", Some(3), Some(0))),
+        );
+        assert_eq!(report.method, "structured+frontier");
+        assert_eq!(report.bound, Some(BigRational::from_integer(3.into())));
+        assert_eq!(
+            report.lower_bound,
+            Some(BigRational::from_integer(1.into()))
+        );
+    }
     #[test]
     fn exact_trace_distance_lower_is_positive_only_for_valid_mismatches() {
         let r = |n: i64, d: i64| BigRational::new(n.into(), d.into());

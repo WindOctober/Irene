@@ -7,7 +7,7 @@ language features and invalid programs may produce errors.
 
 ## News
 
-- **2026-10-07** · [Hidden affine recovery](docs/architecture.md#algebraic-reductions): complex Boolean representations can obscure valid path-elimination opportunities, so we reuse Davio decomposition to expose hidden constant and affine functions in guards and phase selectors, enabling existing elimination rules to apply. **Solved: 1665/1982.**
+- ⭐⭐ **2026-10-07** · [Hidden affine recovery](docs/architecture.md#algebraic-reductions): complex Boolean representations can obscure valid path-elimination opportunities, so we reuse Davio decomposition to expose hidden constant and affine functions in guards and phase selectors, enabling existing elimination rules to apply. **Solved: 1665/1982 · Average time: 5.31 s.**
 
   For arbitrary Boolean expressions $A,B$, even over many path variables:
 
@@ -15,9 +15,13 @@ language features and invalid programs may produce errors.
 
   Recovering this identity removes the redundant guard $G=0$ and simplifies a phase selector $G\oplus y$ to $y$, revealing elimination opportunities hidden by apparent dependencies on $A$ and $B$.
 
-- **2026-10-06** · [Certified unitary contraction](docs/architecture.md#numerical-hps-certificates): shared HPS semantics for exact and interval backends, with full-operator contraction up to 10 qubits under resource budgets. **Solved: 1635/1982.**
-- **2026-10-05** · [Local gate rewriting](docs/architecture.md#verification-flow): shared exact identities, including native Hadamard and local SWAP reductions, applicable to supported fragments within mixed-angle circuits. **Solved: 1590/1982.**
-- **2026-09-28** · [Paper version](https://arxiv.org/abs/2609.36065v1): the implementation accompanying the paper is maintained on the [FSE-Ver](https://github.com/WindOctober/Irene/tree/FSE-Ver) branch. **Solved: 1584/1982.**
+- ⭐ **2026-10-06** · [Certified unitary contraction](docs/architecture.md#numerical-hps-certificates): shared HPS semantics for exact and interval backends, with full-operator contraction up to 10 qubits under resource budgets. **Solved: 1635/1982 · Average time: 5.09 s.**
+- **2026-10-05** · [Local gate rewriting](docs/architecture.md#verification-flow): shared exact identities, including native Hadamard and local SWAP reductions, applicable to supported fragments within mixed-angle circuits. **Solved: 1590/1982 · Average time: 3.67 s.**
+- ⭐⭐⭐ **2026-09-28** · [Paper version](https://arxiv.org/abs/2609.36065v1): the implementation accompanying the paper is maintained on the [FSE-Ver](https://github.com/WindOctober/Irene/tree/FSE-Ver) branch. **Solved: 1584/1982 · Average time: 3.93 s.**
+
+Average time is the arithmetic mean of per-case wall time for solved pairs only,
+including certified approximate verdicts. Each entry reports its historical
+full-suite run.
 
 ## Workspace
 

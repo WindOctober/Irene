@@ -41,6 +41,10 @@ struct Node {
     /// None marks an already normalized node; never store an Arc to self.
     /// Changed forms own only rebuilt nodes/subgraphs, not the source root.
     normalized: OnceLock<Option<BooleanPolynomial>>,
+    /// Exact, context-free recovery conclusion: Some(affine form), or None
+    /// for proved non-affinity. An unset cell means unknown, including budget
+    /// refusal. Lives with this immutable node across reduction invocations.
+    affine_recovery: OnceLock<Option<BooleanPolynomial>>,
 }
 impl fmt::Debug for Node {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -90,10 +94,22 @@ impl BooleanPolynomial {
         Self(Arc::new(Node {
             expression,
             normalized: OnceLock::new(),
+            affine_recovery: OnceLock::new(),
         }))
     }
     pub(crate) fn expression(&self) -> &Expression {
         &self.0.expression
+    }
+    pub(super) fn cached_affine_recovery(&self) -> Option<&Option<Self>> {
+        self.0.affine_recovery.get()
+    }
+    /// Only completed proofs belong here, never a budget refusal. The input
+    /// is structurally nonlinear and the result, if any, is structurally
+    /// affine, so the cached result cannot own this node (no Arc cycle).
+    pub(super) fn cache_affine_recovery(&self, result: Option<Self>) {
+        debug_assert!(!self.is_affine());
+        debug_assert!(result.as_ref().is_none_or(Self::is_affine));
+        let _ = self.0.affine_recovery.set(result);
     }
     pub fn zero() -> Self {
         Self::node(Expression::Constant(false))
