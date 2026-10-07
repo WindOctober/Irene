@@ -37,6 +37,8 @@ fn validate_block(
     for statement in &block.statements {
         match &statement.kind {
             StatementKind::While { .. }
+            | StatementKind::ScalarDeclare { .. }
+            | StatementKind::ScalarAssign { .. }
             | StatementKind::GlobalPhase(_)
             | StatementKind::Unitary { .. } => {
                 return Err(SymbolicError::UnsupportedConstruct("this statement kind"));
@@ -88,7 +90,7 @@ fn validate_block(
 fn constant_boolean(expression: &ClassicalExpr) -> Option<bool> {
     match &expression.kind {
         ClassicalExprKind::Bool(value) => Some(*value),
-        ClassicalExprKind::Bit(_) => None,
+        ClassicalExprKind::Bit(_) | ClassicalExprKind::ScalarCompare { .. } => None,
         ClassicalExprKind::Not(inner) => Some(!constant_boolean(inner)?),
         ClassicalExprKind::Eq(left, right) => {
             Some(constant_boolean(left)? == constant_boolean(right)?)
@@ -110,6 +112,9 @@ fn require_assigned(
     assigned: &BTreeSet<ClassicalBit>,
 ) -> Result<(), SymbolicError> {
     match &expression.kind {
+        ClassicalExprKind::ScalarCompare { .. } => {
+            Err(SymbolicError::UnsupportedConstruct("scalar comparison"))
+        }
         ClassicalExprKind::Bool(_) => Ok(()),
         ClassicalExprKind::Bit(bit) => {
             if assigned.contains(bit) {

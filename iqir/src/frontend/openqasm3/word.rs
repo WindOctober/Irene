@@ -15,6 +15,8 @@ impl Lowerer {
             destinations: &BTreeSet<ClassicalBit>,
         ) -> bool {
             match &e.kind {
+                // Numeric scalar reads never alias Boolean word destinations.
+                ClassicalExprKind::ScalarCompare { .. } => false,
                 ClassicalExprKind::Bool(_) => false,
                 ClassicalExprKind::Bit(b) => b != own && destinations.contains(b),
                 ClassicalExprKind::Not(a) => cross_read(a, own, destinations),

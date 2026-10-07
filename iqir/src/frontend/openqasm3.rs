@@ -14,7 +14,8 @@ use thiserror::Error;
 use crate::{
     AstIdGenerator, Block, BlockData, ClassicalBit, ClassicalExpr, ClassicalExprKind, Gate,
     NumericExpr, NumericExprKind, NumericInput, NumericInputData, NumericType, OpenQasmVersion,
-    Program, ProgramData, Qubit, Register, RegisterData, Statement, StatementKind, SymbolId,
+    Program, ProgramData, Qubit, Register, RegisterData, ScalarType, ScalarValue, Statement,
+    StatementKind, SymbolId,
 };
 
 use super::scope::{Binding, BindingKind, BitType, QuantumType, ScopeError, ScopeKind, ScopeStack};
@@ -84,6 +85,7 @@ mod constants;
 mod controlled_u;
 mod custom_gates;
 mod power;
+mod scalar;
 mod static_integer;
 mod uint;
 mod word;
@@ -399,14 +401,9 @@ impl Lowerer {
             }
             // `bit[4] c;` records the register; `bit c = true;` additionally
             // emits an assignment that initializes its storage at this point.
-            Stmt::ClassicalDeclarationStatement(declaration)
-                if declaration.const_token().is_some() =>
-            {
-                self.lower_static_constant(declaration)
-            }
             Stmt::ClassicalDeclarationStatement(declaration) => {
                 let (register, initializer) = self.lower_classical_declaration(declaration)?;
-                self.classical_registers.push(register);
+                self.classical_registers.extend(register);
                 if let Some(initializer) = initializer {
                     body.statements.push(initializer);
                 }
@@ -573,11 +570,29 @@ impl Lowerer {
         }))
     }
 
-    /// Declares `bool`, `bit`, or `bit[n]` and lowers an optional initializer.
-    ///
-    /// For `bit c = true;`, the register metadata is returned together with
-    /// `Some(Assign(c, true))`; `bit c;` has no executable initializer.
+    /// Common declaration entry for globals, blocks and subroutine bodies.
+    /// Constants occupy the symbol table; variables produce word storage or
+    /// scalar declaration nodes according to their type, not evaluation phase.
     fn lower_classical_declaration(
+        &mut self,
+        declaration: ast::ClassicalDeclarationStatement,
+    ) -> Result<(Option<Register>, Option<Statement>), FrontendError> {
+        if self.is_scalar_declaration(&declaration) {
+            return Ok((None, self.lower_scalar_declaration(declaration)?));
+        }
+        if declaration.const_token().is_some() {
+            let ty = declaration
+                .scalar_type()
+                .ok_or_else(|| expected!("a constant type", &declaration))?;
+            self.lower_bit_constant(declaration, ty)?;
+            return Ok((None, None));
+        }
+        let (register, initializer) = self.lower_bit_declaration(declaration)?;
+        Ok((Some(register), initializer))
+    }
+
+    /// Declares Boolean word storage and lowers its optional initializer.
+    fn lower_bit_declaration(
         &mut self,
         declaration: ast::ClassicalDeclarationStatement,
     ) -> Result<(Register, Option<Statement>), FrontendError> {
@@ -1088,13 +1103,21 @@ impl Lowerer {
                 let name = identifier.string();
                 let binding = self.scopes.lookup(&name).map_err(scope_error)?;
                 match binding.kind {
-                    BindingKind::StaticFloat { bits, .. } => {
+                    BindingKind::Scalar {
+                        value: Some(value @ (ScalarValue::Float32(_) | ScalarValue::Float64(_))),
+                        ..
+                    } => {
                         self.check_constant_visibility(binding, &identifier)?;
                         Ok(self.ids.node(NumericExprKind::Rational(
-                            BigRational::from_float(f64::from_bits(bits)).expect("finite constant"),
+                            BigRational::from_float(value.as_float().unwrap())
+                                .expect("finite constant"),
                         )))
                     }
-                    BindingKind::StaticInteger { .. } => {
+                    BindingKind::Scalar {
+                        ty: ScalarType::Int { .. },
+                        value: Some(_),
+                        ..
+                    } => {
                         let value = self.static_integer(Expr::Identifier(identifier), false)?;
                         Ok(self
                             .ids
@@ -1240,6 +1263,22 @@ impl Lowerer {
         &mut self,
         assignment: ast::AssignmentStmt,
     ) -> Result<Statement, FrontendError> {
+        if let Some(id) = assignment.identifier() {
+            let binding = self.scopes.lookup(&id.string()).map_err(scope_error)?;
+            if let BindingKind::Scalar { ty, assignable, .. } = binding.kind {
+                if !assignable {
+                    return Err(expected!("an assignable variable", &assignment));
+                }
+                let rhs = assignment
+                    .rhs()
+                    .ok_or_else(|| expected!("scalar assignment value", &assignment))?;
+                let value = self.lower_scalar_expr(rhs, ty)?;
+                return Ok(self.ids.node(StatementKind::ScalarAssign {
+                    target: binding.id,
+                    value,
+                }));
+            }
+        }
         let targets = self.lower_assignment_targets(&assignment)?;
         let rhs = assignment
             .rhs()
@@ -1339,6 +1378,15 @@ impl Lowerer {
         let lhs = assignment
             .lhs()
             .ok_or_else(|| expected!("an assignment target", &assignment))?;
+        if let Expr::Identifier(id) = &lhs {
+            let binding = self.scopes.lookup(&id.string()).map_err(scope_error)?;
+            if let BindingKind::Scalar { ty, assignable, .. } = binding.kind {
+                if !assignable {
+                    return Err(expected!("an assignable variable", &assignment));
+                }
+                return self.lower_scalar_compound(assignment, binding.id, ty);
+            }
+        }
         if let Ok(targets) = self.lower_bit_operand(lhs.clone())
             && matches!(targets.ty(), BitType::Uint { .. })
         {
@@ -1561,14 +1609,9 @@ impl Lowerer {
         let mut saw_return = false;
         for (index, statement) in source_statements.iter().cloned().enumerate() {
             match statement {
-                Stmt::ClassicalDeclarationStatement(declaration)
-                    if declaration.const_token().is_some() =>
-                {
-                    self.lower_static_constant(declaration)?;
-                }
                 Stmt::ClassicalDeclarationStatement(declaration) => {
                     let (register, initializer) = self.lower_classical_declaration(declaration)?;
-                    lowered.classical_registers.push(register);
+                    lowered.classical_registers.extend(register);
                     if let Some(initializer) = initializer {
                         lowered.statements.push(initializer);
                     }
@@ -1759,15 +1802,10 @@ impl Lowerer {
         let mut lowered = self.ids.node(BlockData::default());
         for statement in block.statements() {
             match statement {
-                Stmt::ClassicalDeclarationStatement(declaration)
-                    if declaration.const_token().is_some() =>
-                {
-                    self.lower_static_constant(declaration)?;
-                }
                 // `bit local;` belongs to this block and is removed on scope exit.
                 Stmt::ClassicalDeclarationStatement(declaration) => {
                     let (register, initializer) = self.lower_classical_declaration(declaration)?;
-                    lowered.classical_registers.push(register);
+                    lowered.classical_registers.extend(register);
                     if let Some(initializer) = initializer {
                         lowered.statements.push(initializer);
                     }
@@ -1816,6 +1854,14 @@ impl Lowerer {
         &mut self,
         expression: Expr,
     ) -> Result<TypedClassicalExpr, FrontendError> {
+        if let Expr::BinExpr(binary) = &expression
+            && matches!(binary.op_kind(), Some(ast::BinaryOp::CmpOp(_)))
+            && self.has_scalar_comparison(&expression)?
+        {
+            return self
+                .lower_scalar_comparison(binary.clone())
+                .map(TypedClassicalExpr::Bool);
+        }
         if self.is_angle_expression(&expression)? {
             return self.lower_angle_expression(expression);
         }
@@ -1831,7 +1877,11 @@ impl Lowerer {
                 }
                 if matches!(
                     self.scopes.lookup(&name).map_err(scope_error)?.kind,
-                    BindingKind::StaticInteger { .. }
+                    BindingKind::Scalar {
+                        ty: ScalarType::Int { .. },
+                        value: Some(_),
+                        ..
+                    }
                 ) {
                     let value = self.static_integer(Expr::Identifier(identifier), false)?;
                     return Ok(TypedClassicalExpr::Integer {
@@ -2832,6 +2882,13 @@ impl Lowerer {
     /// Copies a classical expression with fresh AST IDs for the copied tree.
     fn clone_classical_expr(&mut self, expression: &ClassicalExpr) -> ClassicalExpr {
         let kind = match &expression.kind {
+            ClassicalExprKind::ScalarCompare { op, left, right } => {
+                ClassicalExprKind::ScalarCompare {
+                    op: *op,
+                    left: Box::new(self.ids.clone_scalar_expr(left)),
+                    right: Box::new(self.ids.clone_scalar_expr(right)),
+                }
+            }
             ClassicalExprKind::Bool(value) => ClassicalExprKind::Bool(*value),
             ClassicalExprKind::Bit(bit) => ClassicalExprKind::Bit(bit.clone()),
             ClassicalExprKind::Not(inner) => {

@@ -174,6 +174,8 @@ fn analyze_block(block: &Block, mut live: LiveSet, plan: &mut SlicePlan) -> Bloc
     for statement in block.statements.iter().rev() {
         match &statement.kind {
             StatementKind::While { .. }
+            | StatementKind::ScalarDeclare { .. }
+            | StatementKind::ScalarAssign { .. }
             | StatementKind::GlobalPhase(_)
             | StatementKind::Unitary { .. } => {
                 unreachable!("unsupported statements must be rejected before slicing")
@@ -303,6 +305,9 @@ fn analyze_block(block: &Block, mut live: LiveSet, plan: &mut SlicePlan) -> Bloc
 /// For `c[0] ^ !c[1]`, both `c[0]` and `c[1]` become live before the branch.
 fn collect_classical_reads(expression: &ClassicalExpr, bits: &mut BTreeSet<ClassicalBit>) {
     match &expression.kind {
+        ClassicalExprKind::ScalarCompare { .. } => {
+            unreachable!("scalars must be rejected before slicing")
+        }
         ClassicalExprKind::Bool(_) => {}
         ClassicalExprKind::Bit(bit) => {
             bits.insert(bit.clone());

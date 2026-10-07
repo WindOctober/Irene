@@ -4,8 +4,8 @@
 //! transformations. It does not depend on IreneQ or an SMT solver.
 //! Construct nodes with [AstIdGenerator]; identities are not semantic content.
 //!
-//! The extracted representation retains its existing OpenQASM metadata and
-//! supported operations. Extraction does not broaden its semantic domain.
+//! Structured control flow and typed scalars preserve source semantics;
+//! consumers explicitly validate the subset they can execute or verify.
 
 use std::cmp::Ordering;
 use std::fmt;
@@ -15,7 +15,9 @@ use std::ops::{Deref, DerefMut};
 use num_rational::BigRational;
 
 pub mod frontend;
+pub mod scalar;
 pub mod unitary;
+pub use scalar::*;
 
 /// Program-local identity shared by every owned IR node.
 ///
@@ -262,6 +264,11 @@ pub enum Gate {
 /// and `Xor` as Boolean operations, and `Eq(a, b)` as `!(a ^ b)`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClassicalExprKind {
+    ScalarCompare {
+        op: ScalarComparison,
+        left: Box<ScalarExpr>,
+        right: Box<ScalarExpr>,
+    },
     Bool(bool),
     Bit(ClassicalBit),
     Not(Box<ClassicalExpr>),
@@ -287,6 +294,20 @@ pub enum StatementKind {
     While {
         condition: ClassicalExpr,
         body: Block,
+    },
+    /// Allocate fresh storage on each lexical block entry. No initializer
+    /// means uninitialized, not zero. The symbol is local to the owning block.
+    ScalarDeclare {
+        id: SymbolId,
+        name: String,
+        ty: ScalarType,
+        /// Source spelling, independent of type compatibility.
+        explicit_width: bool,
+        initializer: Option<ScalarExpr>,
+    },
+    ScalarAssign {
+        target: SymbolId,
+        value: ScalarExpr,
     },
     /// Exact exp(i * phase), including inside controlled custom gates.
     GlobalPhase(NumericExpr),
@@ -362,6 +383,10 @@ impl AstNode<ProgramData> {
         fn classical(expression: &ClassicalExpr, visit: &mut impl FnMut(AstId)) {
             visit(expression.ast_id);
             match &expression.kind {
+                ClassicalExprKind::ScalarCompare { left, right, .. } => {
+                    left.visit_ids(visit);
+                    right.visit_ids(visit);
+                }
                 ClassicalExprKind::Not(inner) => classical(inner, visit),
                 ClassicalExprKind::Eq(left, right)
                 | ClassicalExprKind::And(left, right)
@@ -386,6 +411,12 @@ impl AstNode<ProgramData> {
                         classical(condition, visit);
                         visit_block(body, visit);
                     }
+                    StatementKind::ScalarDeclare { initializer, .. } => {
+                        if let Some(value) = initializer {
+                            value.visit_ids(visit);
+                        }
+                    }
+                    StatementKind::ScalarAssign { value, .. } => value.visit_ids(visit),
                     StatementKind::GlobalPhase(value) => numeric(value, visit),
                     StatementKind::Unitary { body, .. } => visit_block(body, visit),
                     StatementKind::Apply { parameters, .. } => {
@@ -477,6 +508,17 @@ pub(crate) fn compact_program_ids(mut program: crate::Program) -> crate::Program
             _ => {}
         }
     }
+    fn scalar(e: &mut ScalarExpr, next: &mut usize) {
+        id(e, next);
+        match &mut e.kind.kind {
+            ScalarExprKind::Neg(a) | ScalarExprKind::FloatCast(a) => scalar(a, next),
+            ScalarExprKind::Binary { left, right, .. } => {
+                scalar(left, next);
+                scalar(right, next);
+            }
+            _ => {}
+        }
+    }
     fn classical(e: &mut ClassicalExpr, next: &mut usize) {
         id(e, next);
         match &mut e.kind {
@@ -484,6 +526,10 @@ pub(crate) fn compact_program_ids(mut program: crate::Program) -> crate::Program
             C::Eq(a, b) | C::And(a, b) | C::Or(a, b) | C::Xor(a, b) => {
                 classical(a, next);
                 classical(b, next);
+            }
+            C::ScalarCompare { left, right, .. } => {
+                scalar(left, next);
+                scalar(right, next);
             }
             _ => {}
         }
@@ -516,6 +562,12 @@ pub(crate) fn compact_program_ids(mut program: crate::Program) -> crate::Program
                     block(body, next);
                 }
                 S::Scope(b) | S::Unitary { body: b, .. } => block(b, next),
+                S::ScalarDeclare { initializer, .. } => {
+                    if let Some(e) = initializer {
+                        scalar(e, next);
+                    }
+                }
+                S::ScalarAssign { value, .. } => scalar(value, next),
                 S::GlobalPhase(e) => numeric(e, next),
                 S::Reset(_) | S::Measure { .. } => {}
             }

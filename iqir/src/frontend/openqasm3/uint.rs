@@ -4,16 +4,8 @@ use super::*;
 
 impl Lowerer {
     pub(super) fn uint_storage_type(&self, ty: &ast::ScalarType) -> Result<BitType, FrontendError> {
-        // Irene's target default is 32 bits, not an OpenQASM-wide default.
-        let width = match ty.designator() {
-            Some(d) => {
-                self.static_index(d.expr().ok_or_else(|| expected!("a uint width", ty))?, true)?
-            }
-            None => static_integer::DEFAULT_INTEGER_WIDTH as usize,
-        };
-        if !(1..=64).contains(&width) {
-            return Err(unsupported!("uint storage width outside 1..64", ty));
-        }
+        // Storage remains Boolean words; type validation is shared with const uint.
+        let width = self.scalar_type(ty)?.width() as usize;
         Ok(BitType::Uint {
             width,
             explicit_width: ty.designator().is_some(),

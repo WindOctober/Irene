@@ -1,14 +1,17 @@
 //! Typed compile-time constants. In particular, a float constant stores an
 //! IEEE value, not the exact real expression that initialized it.
 use super::*;
-use crate::NumericConstant;
+use crate::{ScalarExpr, ScalarType, ScalarValue};
 
 impl Lowerer {
     pub(super) fn has_float_binding(&self, expr: &Expr) -> Result<bool, FrontendError> {
         if let Expr::Identifier(id) = expr {
             return Ok(matches!(
                 self.scopes.lookup(&id.string()).map_err(scope_error)?.kind,
-                BindingKind::StaticFloat { .. }
+                BindingKind::Scalar {
+                    ty: ScalarType::Float { .. },
+                    ..
+                }
             ));
         }
         if let Expr::CastExpression(c) = expr
@@ -29,7 +32,11 @@ impl Lowerer {
             Expr::Literal(l) => Ok(matches!(l.kind(), ast::LiteralKind::IntNumber(_))),
             Expr::Identifier(id) => Ok(matches!(
                 self.scopes.lookup(&id.string()).map_err(scope_error)?.kind,
-                BindingKind::StaticInteger { .. }
+                BindingKind::Scalar {
+                    ty: ScalarType::Int { .. },
+                    value: Some(_),
+                    ..
+                }
             )),
             Expr::ParenExpr(_) | Expr::PrefixExpr(_) | Expr::BinExpr(_) => {
                 for child in expr.syntax().children().filter_map(Expr::cast) {
@@ -63,9 +70,13 @@ impl Lowerer {
         Ok(())
     }
 
-    /// Check const-typedness before evaluating: even `false && runtime_bit`
+    /// Check const-typedness before evaluating: even `false && scalar_bit`
     /// is not a const expression. Reject unsupported syntax instead of guessing.
-    fn check_const_expression(&self, expr: &Expr, depth: usize) -> Result<(), FrontendError> {
+    pub(super) fn check_const_expression(
+        &self,
+        expr: &Expr,
+        depth: usize,
+    ) -> Result<(), FrontendError> {
         if depth >= 64 || expr.syntax().text().len() > 65536.into() {
             return Err(unsupported!("constant expression budget", expr));
         }
@@ -76,8 +87,7 @@ impl Lowerer {
                 if !matches!(
                     binding.kind,
                     BindingKind::Constant(_)
-                        | BindingKind::StaticInteger { is_const: true, .. }
-                        | BindingKind::StaticFloat { .. }
+                        | BindingKind::Scalar { is_const: true, .. }
                         | BindingKind::StaticBits { .. }
                 ) {
                     return Err(expected!("a const-typed expression", expr));
@@ -127,26 +137,17 @@ impl Lowerer {
         }
     }
 
-    pub(super) fn lower_other_constant(
+    pub(super) fn lower_bit_constant(
         &mut self,
         declaration: ast::ClassicalDeclarationStatement,
         ty: ast::ScalarType,
     ) -> Result<(), FrontendError> {
+        self.charge_static_expansion(&declaration)?;
         let expr = declaration
             .expr()
             .ok_or_else(|| expected!("a const initializer", &declaration))?;
         self.check_const_expression(&expr, 0)?;
-        let kind = if ty.float_token().is_some() {
-            let width = self.float_width(&ty)?;
-            let value = self.float_operand(expr, width, 0)?;
-            if !value.is_finite() {
-                return Err(unsupported!("non-finite constant float", &declaration));
-            }
-            BindingKind::StaticFloat {
-                bits: value.to_bits(),
-                width,
-            }
-        } else {
+        let kind = {
             let storage = if ty.angle_token().is_some() {
                 BitType::Angle {
                     width: self.angle_width(&ty)?,
@@ -195,175 +196,48 @@ impl Lowerer {
         Ok(())
     }
 
-    fn float_width(&self, ty: &ast::ScalarType) -> Result<u32, FrontendError> {
-        // Target choice: unspecified float precision is binary64.
-        let width = match ty.designator() {
-            None => 64,
-            Some(d) => self.static_index(
-                d.expr().ok_or_else(|| expected!("a float width", ty))?,
-                true,
-            )?,
-        };
-        if width != 32 && width != 64 {
-            return Err(unsupported!("float precision other than 32/64", ty));
-        }
-        Ok(width as u32)
-    }
-
-    fn contains_float(&self, expr: &Expr) -> Result<bool, FrontendError> {
-        match expr {
-            Expr::Literal(l) => Ok(matches!(l.kind(), ast::LiteralKind::FloatNumber(_))),
-            Expr::Identifier(id) => Ok(matches!(
-                self.scopes.lookup(&id.string()).map_err(scope_error)?.kind,
-                BindingKind::StaticFloat { .. } | BindingKind::Constant(_)
-            )),
-            Expr::CastExpression(c)
-                if c.scalar_type().is_some_and(|t| t.float_token().is_some()) =>
-            {
-                Ok(true)
-            }
-            _ => {
-                for c in expr.syntax().children().filter_map(Expr::cast) {
-                    if self.contains_float(&c)? {
-                        return Ok(true);
-                    }
-                }
-                Ok(false)
-            }
-        }
-    }
-
-    /// Evaluate binary32/64 arithmetic at the promoted operand precision.
-    /// Integer-only subexpressions retain integer division and overflow checks.
-    pub(super) fn static_float(
+    pub(super) fn require_scalar_constant<T: AstNode>(
         &self,
-        expr: Expr,
-        depth: usize,
-    ) -> Result<(f64, u32), FrontendError> {
-        if depth == 0 {
-            self.check_const_expression(&expr, 0)?;
+        expression: &ScalarExpr,
+        source: &T,
+    ) -> Result<ScalarValue, FrontendError> {
+        let value = expression
+            .constant_value()
+            .map_err(|_| unsupported!("invalid constant scalar arithmetic", source))?
+            .ok_or_else(|| expected!("a constant scalar value", source))?;
+        if value.as_float().is_some_and(|f| !f.is_finite()) {
+            return Err(unsupported!("non-finite constant float", source));
         }
-        if depth >= 64 {
-            return Err(unsupported!("constant float expression depth", &expr));
-        }
-        if !self.contains_float(&expr)? {
-            let value = self.static_integer(expr, true)?.value;
-            // Integer-to-float promotion defaults to binary64. A typed binary32
-            // context uses the original integer through float_operand below.
-            return Ok((value as f64, 0));
-        }
-        let result = match expr.clone() {
-            Expr::Identifier(id) => {
-                let binding = self.scopes.lookup(&id.string()).map_err(scope_error)?;
-                self.check_constant_visibility(binding, &id)?;
-                match binding.kind {
-                    BindingKind::StaticFloat { bits, width } => (f64::from_bits(bits), width),
-                    BindingKind::Constant(c) => (
-                        match c {
-                            NumericConstant::Pi => std::f64::consts::PI,
-                            NumericConstant::Tau => std::f64::consts::TAU,
-                            NumericConstant::Euler => std::f64::consts::E,
-                        },
-                        64,
-                    ),
-                    _ => return Err(expected!("a numeric constant", &id)),
-                }
-            }
-            Expr::Literal(l) => {
-                let ast::LiteralKind::FloatNumber(n) = l.kind() else {
-                    return Err(expected!("a float literal", &l));
-                };
-                (
-                    n.to_string()
-                        .replace('_', "")
-                        .parse::<f64>()
-                        .map_err(|_| expected!("a binary64 literal", &l))?,
-                    64,
-                )
-            }
-            Expr::ParenExpr(p) => self.static_float(
-                p.expr().ok_or_else(|| expected!("an operand", &p))?,
-                depth + 1,
-            )?,
-            Expr::PrefixExpr(p) if p.op_kind() == Some(ast::UnaryOp::Neg) => {
-                let (v, w) = self.static_float(
-                    p.expr().ok_or_else(|| expected!("an operand", &p))?,
-                    depth + 1,
-                )?;
-                (-v, w)
-            }
-            Expr::CastExpression(c) => {
-                let t = c
-                    .scalar_type()
-                    .ok_or_else(|| expected!("a float cast", &c))?;
-                if t.float_token().is_none() {
-                    return Err(unsupported!("constant numeric cast", &c));
-                }
-                let w = self.float_width(&t)?;
-                let operand = c.expr().ok_or_else(|| expected!("a cast operand", &c))?;
-                (self.float_operand(operand, w, depth + 1)?, w)
-            }
-            Expr::BinExpr(b) => {
-                let l = b.lhs().ok_or_else(|| expected!("a left operand", &b))?;
-                let r = b.rhs().ok_or_else(|| expected!("a right operand", &b))?;
-                let (av, lw) = self.static_float(l.clone(), depth + 1)?;
-                let (zv, rw) = self.static_float(r.clone(), depth + 1)?;
-                let w = lw.max(rw).max(32);
-                let a = if lw == 0 && w == 32 {
-                    f64::from(self.static_integer(l, true)?.value as f32)
-                } else {
-                    av
-                };
-                let z = if rw == 0 && w == 32 {
-                    f64::from(self.static_integer(r, true)?.value as f32)
-                } else {
-                    zv
-                };
-                let op = b.op_kind();
-                let v = if w == 32 {
-                    let (a, z) = (a as f32, z as f32);
-                    f64::from(match op {
-                        Some(ast::BinaryOp::ArithOp(ast::ArithOp::Add)) => a + z,
-                        Some(ast::BinaryOp::ArithOp(ast::ArithOp::Sub)) => a - z,
-                        Some(ast::BinaryOp::ArithOp(ast::ArithOp::Mul)) => a * z,
-                        Some(ast::BinaryOp::ArithOp(ast::ArithOp::Div)) => a / z,
-                        _ => return Err(unsupported!("constant float operator", &b)),
-                    })
-                } else {
-                    match op {
-                        Some(ast::BinaryOp::ArithOp(ast::ArithOp::Add)) => a + z,
-                        Some(ast::BinaryOp::ArithOp(ast::ArithOp::Sub)) => a - z,
-                        Some(ast::BinaryOp::ArithOp(ast::ArithOp::Mul)) => a * z,
-                        Some(ast::BinaryOp::ArithOp(ast::ArithOp::Div)) => a / z,
-                        _ => return Err(unsupported!("constant float operator", &b)),
-                    }
-                };
-                (v, w)
-            }
-            _ => return Err(unsupported!("constant float expression", &expr)),
-        };
-        if !result.0.is_finite() {
-            return Err(unsupported!("non-finite constant float", &expr));
-        }
-        Ok(result)
+        Ok(value)
     }
 
-    fn float_operand(&self, expr: Expr, width: u32, depth: usize) -> Result<f64, FrontendError> {
-        if !self.contains_float(&expr)? {
-            let v = self.static_integer(expr, true)?.value;
-            return Ok(if width == 32 {
-                f64::from(v as f32)
-            } else {
-                v as f64
-            });
-        }
-        let (v, _) = self.static_float(expr, depth)?;
-        Ok(if width == 32 { f64::from(v as f32) } else { v })
+    /// Bridge typed finite-precision values to existing angle/gate consumers.
+    /// Parsing, promotion and rounding are shared with all scalar expressions.
+    pub(super) fn static_float(
+        &mut self,
+        expr: Expr,
+        _depth: usize,
+    ) -> Result<(f64, u32), FrontendError> {
+        self.check_const_expression(&expr, 0)?;
+        let saved_ids = self.ids.clone();
+        let result = (|| {
+            let value = self.lower_scalar_expr(expr.clone(), ScalarType::Float { width: 64 })?;
+            let value = self.require_scalar_constant(&value, &expr)?;
+            Ok((
+                value
+                    .as_float()
+                    .ok_or_else(|| expected!("a floating-point value", &expr))?,
+                64,
+            ))
+        })();
+        self.ids = saved_ids;
+        result
     }
 }
 
 pub(super) fn eval_constant_bit(e: &ClassicalExpr) -> Option<bool> {
     Some(match &e.kind {
+        ClassicalExprKind::ScalarCompare { .. } => return None,
         ClassicalExprKind::Bool(b) => *b,
         ClassicalExprKind::Bit(_) => return None,
         ClassicalExprKind::Not(a) => !eval_constant_bit(a)?,

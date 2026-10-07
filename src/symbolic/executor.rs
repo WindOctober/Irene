@@ -625,6 +625,8 @@ impl Executor {
         // only classical `if` forms an explicit sum of components.
         match statement {
             StatementKind::While { .. }
+            | StatementKind::ScalarDeclare { .. }
+            | StatementKind::ScalarAssign { .. }
             | StatementKind::GlobalPhase(_)
             | StatementKind::Unitary { .. } => {
                 Err(SymbolicError::UnsupportedConstruct("this statement kind"))
@@ -1075,6 +1077,8 @@ fn is_predicable_block(block: &Block, plan: &SlicePlan) -> bool {
                 | StatementKind::Measure { .. }
                 | StatementKind::Assign { .. }
                 | StatementKind::While { .. }
+                | StatementKind::ScalarDeclare { .. }
+                | StatementKind::ScalarAssign { .. }
                 | StatementKind::GlobalPhase(_)
                 | StatementKind::Unitary { .. }
                 | StatementKind::If { .. } => false,
@@ -1119,6 +1123,9 @@ fn evaluate_classical(
     // Classical values use the same shared Boolean representation as wire values. For
     // example, if c0=x and c1=y, `c0 || c1` becomes x ⊕ y ⊕ xy.
     match &expression.kind {
+        ClassicalExprKind::ScalarCompare { .. } => {
+            Err(SymbolicError::UnsupportedConstruct("scalar comparison"))
+        }
         ClassicalExprKind::Bool(value) => Ok(BooleanPolynomial::from(*value)),
         ClassicalExprKind::Bit(bit) => memory
             .get(bit)
