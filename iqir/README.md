@@ -63,8 +63,9 @@ semantics and unsupported constructs.
 
 `iqir::annotation` provides typed annotation/expression structures and standalone
 Pest-based parsers: `parse_expression`, `parse_annotation`, and `parse_function`.
-Parsing constructs mathematical syntax trees; it does not resolve names, check
-classical types, prove predicates, or attach annotations during OpenQASM import.
+`check_expression` resolves names and checks classical types; `define_function`
+registers checked pure helpers; `instantiate_function` substitutes checked arguments.
+These standalone APIs do not prove predicates or attach annotations during OpenQASM import.
 
 See [Specification syntax](docs/spec-annotations.md) for examples and boundaries.
 

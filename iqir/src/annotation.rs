@@ -1,7 +1,7 @@
 //! Specification syntax, separate from executable IR expressions.
 //!
-//! Pest parses syntax; name resolution and classical checking belong to consumers.
-//! Parsing does not prove predicates or mathematical domains (e.g. factorial requires a
+//! Pest parses syntax; classical checking resolves symbols/helpers and sorts.
+//! Neither proves predicates or mathematical domains (e.g. factorial requires a
 //! nonnegative integer). Numbers are exact mathematical rationals, not
 //! finite-width program arithmetic. Quantum operators remain reserved.
 
@@ -9,7 +9,9 @@ use num_rational::BigRational;
 
 use crate::{NumericConstant, SymbolId};
 
+mod functions;
 mod parser;
+pub use functions::{FunctionError, check_expression, define_function, instantiate_function};
 pub use parser::{AnnotationParseError, parse_annotation, parse_expression, parse_function};
 
 /// Classical specification types. These use mathematical arithmetic, not
