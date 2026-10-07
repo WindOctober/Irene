@@ -173,6 +173,9 @@ fn analyze_block(block: &Block, mut live: LiveSet, plan: &mut SlicePlan) -> Bloc
     let mut retained = false;
     for statement in block.statements.iter().rev() {
         match &statement.kind {
+            StatementKind::GlobalPhase(_) | StatementKind::Unitary { .. } => {
+                unreachable!("unsupported statements must be rejected before slicing")
+            }
             StatementKind::Apply { qubits, .. } => {
                 // A multi-qubit unitary may entangle every operand with a live
                 // output. A unitary confined to a dead subsystem is invisible

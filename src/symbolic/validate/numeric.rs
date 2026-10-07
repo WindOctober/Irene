@@ -126,6 +126,14 @@ fn block(source: &Block, work: &mut usize, depth: usize) -> Result<(), SymbolicE
     for statement in &source.statements {
         spend(work)?;
         match &statement.kind {
+            StatementKind::GlobalPhase(_) => {
+                return Err(SymbolicError::UnsupportedConstruct("explicit global phase"));
+            }
+            StatementKind::Unitary { .. } => {
+                return Err(SymbolicError::UnsupportedConstruct(
+                    "composite unitary modifiers",
+                ));
+            }
             StatementKind::Apply { parameters, .. } => {
                 for parameter in parameters {
                     expression(parameter, work, 0)?;

@@ -283,6 +283,16 @@ pub type Block = AstNode<BlockData>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StatementKind {
+    /// Exact exp(i * phase), including inside controlled custom gates.
+    GlobalPhase(NumericExpr),
+    /// Apply the entire unitary body to the given integer power, conditioned
+    /// on all controls being one. A negative power includes sequence reversal.
+    /// This is NOT a gate-wise power of a composite body.
+    Unitary {
+        controls: Vec<Qubit>,
+        power: i128,
+        body: Block,
+    },
     Reset(Qubit),
     Apply {
         gate: Gate,
@@ -367,6 +377,8 @@ impl AstNode<ProgramData> {
             for statement in &block.statements {
                 visit(statement.ast_id);
                 match &statement.kind {
+                    StatementKind::GlobalPhase(value) => numeric(value, visit),
+                    StatementKind::Unitary { body, .. } => visit_block(body, visit),
                     StatementKind::Apply { parameters, .. } => {
                         for parameter in parameters {
                             numeric(parameter, visit);
@@ -433,3 +445,80 @@ impl AstNode<ProgramData> {
 
 #[cfg(test)]
 mod tests;
+
+/// Expansion uses temporary parameter trees. Compact only after import, before
+/// AST identities are exposed or side tables exist. Symbol IDs never change.
+pub(crate) fn compact_program_ids(mut program: crate::Program) -> crate::Program {
+    use crate::{
+        Block, ClassicalExpr, ClassicalExprKind as C, NumericExpr, NumericExprKind as N,
+        StatementKind as S,
+    };
+    fn id<T>(node: &mut AstNode<T>, next: &mut usize) {
+        node.ast_id = AstId(*next);
+        *next += 1;
+    }
+    fn numeric(e: &mut NumericExpr, next: &mut usize) {
+        id(e, next);
+        match &mut e.kind {
+            N::Neg(a) => numeric(a, next),
+            N::Add(a, b) | N::Sub(a, b) | N::Mul(a, b) | N::Div(a, b) => {
+                numeric(a, next);
+                numeric(b, next);
+            }
+            _ => {}
+        }
+    }
+    fn classical(e: &mut ClassicalExpr, next: &mut usize) {
+        id(e, next);
+        match &mut e.kind {
+            C::Not(a) => classical(a, next),
+            C::Eq(a, b) | C::And(a, b) | C::Or(a, b) | C::Xor(a, b) => {
+                classical(a, next);
+                classical(b, next);
+            }
+            _ => {}
+        }
+    }
+    fn block(b: &mut Block, next: &mut usize) {
+        id(b, next);
+        for r in &mut b.classical_registers {
+            id(r, next);
+        }
+        for s in &mut b.statements {
+            id(s, next);
+            match &mut s.kind {
+                S::Apply { parameters, .. } => {
+                    for p in parameters {
+                        numeric(p, next);
+                    }
+                }
+                S::Assign { value, .. } => classical(value, next),
+                S::If {
+                    condition,
+                    then_branch,
+                    else_branch,
+                } => {
+                    classical(condition, next);
+                    block(then_branch, next);
+                    block(else_branch, next);
+                }
+                S::Scope(b) | S::Unitary { body: b, .. } => block(b, next),
+                S::GlobalPhase(e) => numeric(e, next),
+                S::Reset(_) | S::Measure { .. } => {}
+            }
+        }
+    }
+    let mut next = 0;
+    id(&mut program, &mut next);
+    for input in &mut program.numeric_inputs {
+        id(input, &mut next);
+    }
+    for r in &mut program.quantum_registers {
+        id(r, &mut next);
+    }
+    for r in &mut program.classical_registers {
+        id(r, &mut next);
+    }
+    block(&mut program.body, &mut next);
+    program
+}

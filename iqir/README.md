@@ -57,3 +57,42 @@ The separate `irene` crate contains the equivalence-verification component,
 IreneQ, which accepts `iqir::Program` directly. It re-exports the IR types as
 `irene::ir`, the import layer as `irene::frontend`, and the original source
 loading utilities through `irene::utils`.
+
+## OpenQASM 3 gates
+
+- OpenQASM 3 `gate` definitions, including formal numeric parameters,
+  nested previously declared gates and register broadcasting. Definitions
+  have their signatures checked at declaration and their bodies checked/lowered
+  when called, like subroutines. Call-site checking retains definition-time name
+  visibility; unused bodies are not expanded. Invalid captures, arity, qubit aliasing,
+  recursion, forward calls, non-unitary bodies and incompatible broadcasts
+  fail with diagnostics. Expansion has statement/depth budgets.
+- `ctrl`, `inv`, and static integer `pow` on custom gates and builtin `U`.
+  A `Unitary { controls, power, body }` node represents the **entire** modified
+  body. Negative powers reverse and adjoint the sequence; powers must never
+  be distributed over noncommuting constituent gates. Positive controls are
+  prepended source operands, and all must be one. `GlobalPhase` is retained
+  under control, where it becomes a relative phase.
+- Builtin `U(theta, phi, lambda)` and `gphase`. OpenQASM 3 specifies
+  `U = exp(i*(theta+phi+lambda)/2) Rz(phi) Ry(theta) Rz(lambda)`;
+  the time-ordered emitted sequence is global phase, Rz(lambda), Ry(theta),
+  Rz(phi). In particular, **theta/2 cannot be discarded**. This differs from
+  OpenQASM 2 / Qiskit U3. Imported AutoQ gate definitions are honored, not
+  ignored like the upstream AutoQ comments describe.
+
+### Backend support
+
+Plain custom gates expand into existing Apply/Scope nodes. Composite controls,
+inverse and integer powers retain a Unitary node, and gphase/U retain explicit
+GlobalPhase nodes. Consumers must preserve sequence order and controlled phases.
+IreneQ and IQIR's unitary miter currently reject these two node kinds explicitly
+before optimization/execution; parsing them is not a verification result.
+
+Gate bodies are checked when called, not via a temporary checker. Unused bodies
+are not expanded. Definition-time lexical visibility is retained at calls, so
+recursion, forward gate calls and captures of caller locals are rejected.
+Expansion depth is limited to 64, modifier count to 16 and total expansion/copy
+work to 65,536. Runtime numeric parameters, negctrl and non-integer powers remain
+unsupported.
+
+Run `cargo test -p iqir` and `cargo test -p irene --test gate_capabilities`.

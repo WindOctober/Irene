@@ -82,6 +82,7 @@ macro_rules! expected {
 mod angle;
 mod constants;
 mod controlled_u;
+mod custom_gates;
 mod power;
 mod static_integer;
 mod uint;
@@ -116,6 +117,10 @@ pub fn parse_str(source: &str, source_name: &str) -> Result<Program, FrontendErr
 /// all emitted nodes. Subroutine definitions remain as syntax until a call is
 /// specialized to concrete caller-owned qubits.
 struct Lowerer {
+    gates: HashMap<String, custom_gates::CustomGate>,
+    numeric_arguments: HashMap<SymbolId, NumericExpr>,
+    gate_depth: usize,
+    gate_work: usize,
     ids: AstIdGenerator,
     version: Option<OpenQasmVersion>,
     scopes: ScopeStack,
@@ -299,6 +304,10 @@ impl TypedClassicalExpr {
 impl Default for Lowerer {
     fn default() -> Self {
         Self {
+            gates: HashMap::new(),
+            numeric_arguments: HashMap::new(),
+            gate_depth: 0,
+            gate_work: 0,
             ids: AstIdGenerator::default(),
             version: None,
             scopes: ScopeStack::new(),
@@ -351,12 +360,15 @@ impl Lowerer {
             classical_registers: self.classical_registers,
             body,
         };
-        Ok(self.ids.node(program))
+        let program = self.ids.node(program);
+        let program = crate::compact_program_ids(program);
+        Ok(program)
     }
 
     /// Lowers declarations into program metadata and executable statements into the body.
     fn lower_top_level(&mut self, statement: Stmt, body: &mut Block) -> Result<(), FrontendError> {
         match statement {
+            Stmt::Gate(gate) => self.declare_custom_gate(gate),
             // `OPENQASM 3.0;` declares the source-language version.
             Stmt::VersionString(version) => self.lower_version(version),
             // `include "stdgates.inc";` makes the standard gate names visible.
@@ -663,6 +675,7 @@ impl Lowerer {
                     .expr()
                     .ok_or_else(|| expected!("an expression statement", &expression_statement))?;
                 match expression {
+                    Expr::GPhaseCallExpr(call) => self.lower_global_phase(call),
                     Expr::GateCallExpr(call) => self.lower_gate(call),
                     Expr::ModifiedGateCallExpr(call) => self.lower_modified_gate(call),
                     Expr::CallExpr(call) => self.lower_subroutine_call(call, None),
@@ -705,6 +718,12 @@ impl Lowerer {
         &mut self,
         call: ast::ModifiedGateCallExpr,
     ) -> Result<Statement, FrontendError> {
+        if call
+            .gate_call_expr()
+            .is_some_and(|gate| self.is_composite_gate(&gate))
+        {
+            return self.lower_composite_modified_gate(call);
+        }
         let mut controls = 0usize;
         let mut inverse = false;
         let mut has_inverse = false;
@@ -801,6 +820,9 @@ impl Lowerer {
         call: ast::GateCallExpr,
         mut controls: usize,
     ) -> Result<Statement, FrontendError> {
+        if self.is_composite_gate(&call) {
+            return self.lower_composite_gate(call, controls, 1);
+        }
         if call.identifier().is_some_and(|name| name.string() == "cu") {
             return self.lower_standard_cu(call, controls);
         }
@@ -1008,6 +1030,13 @@ impl Lowerer {
     /// Preserves the structure of an OpenQASM numeric expression while
     /// normalizing finite literals to exact rationals.
     fn lower_numeric_expr(&mut self, expression: Expr) -> Result<NumericExpr, FrontendError> {
+        if let Expr::Identifier(id) = &expression {
+            let binding = self.scopes.lookup(&id.string()).map_err(scope_error)?;
+            if let Some(value) = self.numeric_arguments.get(&binding.id) {
+                custom_gates::charge_copy(&mut self.gate_work, value)?;
+                return Ok(self.ids.clone_numeric_expr(value));
+            }
+        }
         // Typed float constants keep IEEE arithmetic in their use sites too;
         // never reinterpret (rounded_const + 1) as exact real arithmetic.
         if self.has_float_binding(&expression)? {

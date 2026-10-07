@@ -36,6 +36,9 @@ fn validate_block(
 ) -> Result<BTreeSet<ClassicalBit>, SymbolicError> {
     for statement in &block.statements {
         match &statement.kind {
+            StatementKind::GlobalPhase(_) | StatementKind::Unitary { .. } => {
+                return Err(SymbolicError::UnsupportedConstruct("this statement kind"));
+            }
             StatementKind::Measure { target, .. } => {
                 assigned.insert(target.clone());
             }

@@ -20,6 +20,8 @@ use super::{BooleanPolynomial, PhaseCoefficient, PhasePolynomial, Scalar, Variab
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum SymbolicError {
+    #[error("symbolic execution does not support {0}")]
+    UnsupportedConstruct(&'static str),
     #[error("configured symbolic input is not declared by the program: {0:?}")]
     UnknownInput(Qubit),
     #[error("selected quantum output is not declared by the program: {0:?}")]
@@ -622,6 +624,9 @@ impl Executor {
         // Linear statements transform each existing component independently;
         // only classical `if` forms an explicit sum of components.
         match statement {
+            StatementKind::GlobalPhase(_) | StatementKind::Unitary { .. } => {
+                Err(SymbolicError::UnsupportedConstruct("this statement kind"))
+            }
             StatementKind::Reset(qubit) => {
                 let value = component
                     .output
@@ -1067,6 +1072,8 @@ fn is_predicable_block(block: &Block, plan: &SlicePlan) -> bool {
                 StatementKind::Reset(_)
                 | StatementKind::Measure { .. }
                 | StatementKind::Assign { .. }
+                | StatementKind::GlobalPhase(_)
+                | StatementKind::Unitary { .. }
                 | StatementKind::If { .. } => false,
             }
         })
