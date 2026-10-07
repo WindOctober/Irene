@@ -51,6 +51,7 @@ impl KnownBits {
 
     pub(super) fn statement(&mut self, s: &Statement) {
         match &s.kind {
+            StatementKind::While { .. } => self.0.clear(),
             StatementKind::GlobalPhase(_) | StatementKind::Unitary { .. } => {}
             StatementKind::Assign { target, value } => {
                 if let Some(v) = self.value(value) {

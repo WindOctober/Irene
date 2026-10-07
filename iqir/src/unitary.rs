@@ -61,7 +61,9 @@ pub fn validate(source: &Program) -> Result<(), UnitaryMiterError> {
     while let Some(block) = blocks.pop() {
         for s in &block.statements {
             match &s.kind {
-                StatementKind::GlobalPhase(_) | StatementKind::Unitary { .. } => {
+                StatementKind::While { .. }
+                | StatementKind::GlobalPhase(_)
+                | StatementKind::Unitary { .. } => {
                     return Err(UnitaryMiterError::UnsupportedStatement);
                 }
                 StatementKind::Scope(b) => blocks.push(b),
@@ -274,7 +276,9 @@ fn append_block(
             // or control are admitted anywhere. Such writes cannot affect it.
             StatementKind::Assign { value, .. }
                 if matches!(value.kind, ClassicalExprKind::Bool(_)) => {}
-            StatementKind::GlobalPhase(_) | StatementKind::Unitary { .. } => {
+            StatementKind::While { .. }
+            | StatementKind::GlobalPhase(_)
+            | StatementKind::Unitary { .. } => {
                 return Err(UnitaryMiterError::UnsupportedStatement);
             }
             StatementKind::Reset(_)

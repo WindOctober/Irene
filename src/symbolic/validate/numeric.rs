@@ -126,6 +126,9 @@ fn block(source: &Block, work: &mut usize, depth: usize) -> Result<(), SymbolicE
     for statement in &source.statements {
         spend(work)?;
         match &statement.kind {
+            StatementKind::While { .. } => {
+                return Err(SymbolicError::UnsupportedConstruct("while loops"));
+            }
             StatementKind::GlobalPhase(_) => {
                 return Err(SymbolicError::UnsupportedConstruct("explicit global phase"));
             }

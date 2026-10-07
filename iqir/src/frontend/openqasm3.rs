@@ -120,6 +120,7 @@ struct Lowerer {
     gates: HashMap<String, custom_gates::CustomGate>,
     numeric_arguments: HashMap<SymbolId, NumericExpr>,
     gate_depth: usize,
+    loop_depth: usize,
     gate_work: usize,
     ids: AstIdGenerator,
     version: Option<OpenQasmVersion>,
@@ -307,6 +308,7 @@ impl Default for Lowerer {
             gates: HashMap::new(),
             numeric_arguments: HashMap::new(),
             gate_depth: 0,
+            loop_depth: 0,
             gate_work: 0,
             ids: AstIdGenerator::default(),
             version: None,
@@ -645,6 +647,7 @@ impl Lowerer {
     fn lower_statement_inner(&mut self, statement: Stmt) -> Result<Statement, FrontendError> {
         self.charge_static_expansion(&statement)?;
         match statement {
+            Stmt::WhileStmt(statement) => self.lower_while(statement),
             Stmt::ForStmt(statement) => self.lower_static_for(statement),
             // Barriers constrain scheduling, not the observable channel.
             // Keep operand validation, but emit no quantum/classical effect.
@@ -1707,10 +1710,29 @@ impl Lowerer {
         }))
     }
 
-    /// Lowers either legal form of an OpenQASM control-flow body.
-    ///
-    /// `if (c) x q;` is represented by the same one-statement Irene block as
-    /// `if (c) { x q; }`, so the internal IR does not need two branch types.
+    /// Preserves a runtime loop without unrolling or assuming termination.
+    fn lower_while(&mut self, statement: ast::WhileStmt) -> Result<Statement, FrontendError> {
+        if self.loop_depth >= 64 {
+            return Err(unsupported!("while nesting budget", &statement));
+        }
+        // Entry facts need not hold on a back edge. In particular, pow(bit)
+        // must not be specialized using a value known only before the loop.
+        if self.known_bits.is_some() {
+            self.known_bits = Some(Default::default());
+        }
+        let condition = self.lower_scalar_bit_expression(
+            statement
+                .condition()
+                .ok_or_else(|| expected!("a while condition", &statement))?,
+        )?;
+        self.loop_depth += 1;
+        let result = self.lower_branch(statement.block_or_stmt());
+        self.loop_depth -= 1;
+        let body = result?;
+        Ok(self.ids.node(StatementKind::While { condition, body }))
+    }
+
+    /// Lowers a braced or single-statement control-flow body to one block type.
     fn lower_branch(&mut self, branch: BlockOrStmt) -> Result<Block, FrontendError> {
         match branch {
             BlockOrStmt::BlockExpr(block) => self.lower_block(block),
@@ -2483,6 +2505,29 @@ impl Lowerer {
         source: &ast::BinExpr,
         expected: &'static str,
     ) -> Result<(Vec<ClassicalExpr>, Vec<ClassicalExpr>), FrontendError> {
+        // Qiskit emits register-to-integer loop guards, e.g. bit[1] c; c == 1.
+        // Interpret the register little-endian at its full width, not c[0].
+        match (&left, &right) {
+            (TypedClassicalExpr::Register(bits), TypedClassicalExpr::IntegerLiteral(value)) => {
+                let literal = self.integer_literal_bits(
+                    value.clone(),
+                    bits.len(),
+                    Signedness::Unsigned,
+                    source,
+                )?;
+                return Ok((bits.clone(), literal));
+            }
+            (TypedClassicalExpr::IntegerLiteral(value), TypedClassicalExpr::Register(bits)) => {
+                let literal = self.integer_literal_bits(
+                    value.clone(),
+                    bits.len(),
+                    Signedness::Unsigned,
+                    source,
+                )?;
+                return Ok((literal, bits.clone()));
+            }
+            _ => {}
+        }
         let snippet = source.syntax().text().to_string();
         let left = self.coerce_bit_expr(left, snippet.clone())?;
         let right = self.coerce_bit_expr(right, snippet)?;
