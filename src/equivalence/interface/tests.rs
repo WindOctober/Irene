@@ -281,6 +281,8 @@ fn identity_program(register: usize) -> (Program, Qubit) {
     });
     let body = ids.node(BlockData::default());
     let program = ids.node(ProgramData {
+        annotations: Default::default(),
+        spec_functions: Vec::new(),
         version: OpenQasmVersion { major: 3, minor: 0 },
         numeric_inputs: Vec::new(),
         quantum_registers: vec![quantum_register],
@@ -314,6 +316,8 @@ fn identity_program_with_numeric_input(
     });
     let body = ids.node(BlockData::default());
     let program = ids.node(ProgramData {
+        annotations: Default::default(),
+        spec_functions: Vec::new(),
         version: OpenQasmVersion { major: 3, minor: 0 },
         numeric_inputs: vec![numeric_input],
         quantum_registers: vec![quantum_register],

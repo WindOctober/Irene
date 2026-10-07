@@ -22,6 +22,12 @@ use super::scope::{Binding, BindingKind, BitType, QuantumType, ScopeError, Scope
 
 #[derive(Debug, Error)]
 pub enum FrontendError {
+    #[error("annotation in {source_name} at byte {offset}: {message}")]
+    Annotation {
+        source_name: String,
+        offset: usize,
+        message: String,
+    },
     #[error("OpenQASM parse failed: {0}")]
     Parse(String),
     #[error("unsupported OpenQASM construct: {construct}: {snippet}")]
@@ -81,6 +87,7 @@ macro_rules! expected {
 }
 
 mod angle;
+mod annotations;
 mod constants;
 mod controlled_u;
 mod custom_gates;
@@ -110,7 +117,11 @@ pub fn parse_str(source: &str, source_name: &str) -> Result<Program, FrontendErr
         return Err(FrontendError::Parse(diagnostics));
     }
 
-    Lowerer::default().lower(syntax.tree())
+    Lowerer {
+        source_name: source_name.to_owned(),
+        ..Lowerer::default()
+    }
+    .lower(syntax.tree())
 }
 
 /// Mutable context shared by one source-to-IR lowering pass.
@@ -119,6 +130,9 @@ pub fn parse_str(source: &str, source_name: &str) -> Result<Program, FrontendErr
 /// all emitted nodes. Subroutine definitions remain as syntax until a call is
 /// specialized to concrete caller-owned qubits.
 struct Lowerer {
+    source_name: String,
+    annotations: std::collections::BTreeMap<crate::AstId, Vec<crate::annotation::Annotation>>,
+    spec_functions: Vec<crate::annotation::SpecFunction>,
     gates: HashMap<String, custom_gates::CustomGate>,
     numeric_arguments: HashMap<SymbolId, NumericExpr>,
     gate_depth: usize,
@@ -307,6 +321,9 @@ impl TypedClassicalExpr {
 impl Default for Lowerer {
     fn default() -> Self {
         Self {
+            source_name: String::new(),
+            annotations: Default::default(),
+            spec_functions: Vec::new(),
             gates: HashMap::new(),
             numeric_arguments: HashMap::new(),
             gate_depth: 0,
@@ -342,8 +359,13 @@ impl Lowerer {
             self.known_bits = Some(power::KnownBits::default());
         }
         let mut body = self.ids.node(BlockData::default());
-        for statement in source.statements() {
-            self.lower_top_level(statement, &mut body)?;
+        for (annotations, statement) in self.annotated_statements(source.statements())? {
+            if annotations.is_empty() {
+                self.lower_top_level(statement, &mut body)?;
+            } else {
+                body.statements
+                    .push(self.lower_annotated_statement(annotations, statement)?);
+            }
         }
 
         let version = self.version.ok_or_else(|| FrontendError::Expected {
@@ -358,6 +380,8 @@ impl Lowerer {
         }
 
         let program = ProgramData {
+            annotations: self.annotations,
+            spec_functions: self.spec_functions,
             version,
             numeric_inputs: self.numeric_inputs,
             quantum_registers: self.quantum_registers,
@@ -371,7 +395,21 @@ impl Lowerer {
 
     /// Lowers declarations into program metadata and executable statements into the body.
     fn lower_top_level(&mut self, statement: Stmt, body: &mut Block) -> Result<(), FrontendError> {
+        // Templates are specialized later; do not silently lose specifications
+        // in unused definitions, or attach formal symbols to caller-owned IR.
+        if matches!(&statement, Stmt::Gate(_) | Stmt::Def(_))
+            && statement.syntax().descendants().any(|n| {
+                ast::AnnotationStatement::cast(n.clone()).is_some()
+                    || ast::PragmaStatement::cast(n).is_some()
+            })
+        {
+            return Err(unsupported!(
+                "annotations/pragmas inside gate/subroutine definitions",
+                &statement
+            ));
+        }
         match statement {
+            Stmt::PragmaStatement(pragma) => self.declare_spec_function(pragma),
             Stmt::Gate(gate) => self.declare_custom_gate(gate),
             // `OPENQASM 3.0;` declares the source-language version.
             Stmt::VersionString(version) => self.lower_version(version),
@@ -1800,7 +1838,13 @@ impl Lowerer {
     /// Lowers declarations and statements after the caller has entered a scope.
     fn lower_block_contents(&mut self, block: ast::BlockExpr) -> Result<Block, FrontendError> {
         let mut lowered = self.ids.node(BlockData::default());
-        for statement in block.statements() {
+        for (annotations, statement) in self.annotated_statements(block.statements())? {
+            if !annotations.is_empty() {
+                lowered
+                    .statements
+                    .push(self.lower_annotated_statement(annotations, statement)?);
+                continue;
+            }
             match statement {
                 // `bit local;` belongs to this block and is removed on scope exit.
                 Stmt::ClassicalDeclarationStatement(declaration) => {

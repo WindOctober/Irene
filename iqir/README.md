@@ -2,7 +2,7 @@
 
 IQIR is the solver-independent IR and OpenQASM 2/3 import layer extracted from
 Irene. It represents quantum gates, classical data, structured control flow and
-standalone specification syntax. It does not depend on Irene or an SMT solver, and is
+specification annotations. It does not depend on Irene or an SMT solver, and is
 not the LLVM-based QIR Alliance format.
 
 ## Import OpenQASM
@@ -59,15 +59,17 @@ loops or assume termination.
 See [OpenQASM frontend semantics](docs/frontend.md) for lowering rules, numeric
 semantics and unsupported constructs.
 
-## Specification syntax
+## Specification annotations
 
-`iqir::annotation` provides typed annotation/expression structures and standalone
-Pest-based parsers: `parse_expression`, `parse_annotation`, and `parse_function`.
-`check_expression` resolves names and checks classical types; `define_function`
-registers checked pure helpers; `instantiate_function` substitutes checked arguments.
-These standalone APIs do not prove predicates or attach annotations during OpenQASM import.
+The OpenQASM 3 frontend recognizes `@saria.requires`, `@saria.ensures`,
+`@saria.invariant` and `@saria.terminates`, plus pure auxiliary functions defined
+with `pragma saria.def`. Annotations attach
+to statements and use a separate, typed mathematical expression AST.
 
-See [Specification syntax](docs/spec-annotations.md) for examples and boundaries.
+Import checks syntax, names and types—not whether a specification holds.
+Annotations do not change executable semantics or equivalence checking.
+See [Specification annotations](docs/spec-annotations.md) for syntax, examples,
+helper functions and checking boundaries.
 
 ## Verification boundary
 
