@@ -128,6 +128,7 @@ pub(super) enum ScopeError {
 struct Scope {
     kind: ScopeKind,
     bindings: HashMap<String, Binding>,
+    global_before: Option<SymbolId>,
 }
 
 impl Scope {
@@ -135,6 +136,7 @@ impl Scope {
         Self {
             kind,
             bindings: HashMap::new(),
+            global_before: None,
         }
     }
 }
@@ -211,6 +213,14 @@ impl ScopeStack {
     pub(super) fn enter(&mut self, kind: ScopeKind) {
         assert_ne!(kind, ScopeKind::Global);
         self.scopes.push(Scope::new(kind));
+    }
+
+    /// Reuse the callable scope rules, but resolve globals at definition time.
+    /// Symbol IDs are monotonic, so the definition's ID excludes itself and
+    /// all later declarations without cloning a symbol table or lowering body.
+    pub(super) fn enter_definition(&mut self, definition: SymbolId) {
+        self.enter(ScopeKind::Subroutine);
+        self.scopes.last_mut().expect("entered scope").global_before = Some(definition);
     }
 
     pub(super) fn exit(&mut self) {
@@ -306,6 +316,13 @@ impl ScopeStack {
             let Some(binding) = scope.bindings.get(name).copied() else {
                 continue;
             };
+            if scope.kind == ScopeKind::Global
+                && subroutine_scope
+                    .and_then(|boundary| self.scopes[boundary].global_before)
+                    .is_some_and(|limit| binding.id >= limit)
+            {
+                continue;
+            }
             if subroutine_scope.is_some()
                 && scope.kind == ScopeKind::Global
                 && !matches!(
