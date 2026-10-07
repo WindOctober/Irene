@@ -156,6 +156,31 @@ fn assert_amplitudes(before: &Component, after: &Component, reachable: bool) {
 }
 
 #[test]
+fn hidden_boolean_identities_preserve_guarded_amplitudes_and_phase() {
+    let hidden_zero = x(0)
+        .complement()
+        .and(&x(1).complement())
+        .xor(&x(0).and(&x(1)))
+        .xor(&x(0))
+        .xor(&x(1))
+        .complement();
+    for guard_one in [false, true] {
+        let mut c = fixture();
+        c.guard.push(if guard_one {
+            hidden_zero.complement()
+        } else {
+            hidden_zero.clone()
+        });
+        add_phase(&mut c, &hidden_zero.xor(&y(0)), 1, 4);
+        add_phase(&mut c, &hidden_zero.complement(), 1, 8);
+        c.output.quantum.insert(q(0), x(0));
+        let before = c.clone();
+        let reachable = run(&mut c);
+        assert_amplitudes(&before, &c, reachable);
+    }
+}
+
+#[test]
 fn unused_path_doubles_amplitude_without_changing_relative_phase() {
     let mut c = fixture();
     c.scalar = Scalar::sqrt(Scalar::rational(ratio(1, 2)));
