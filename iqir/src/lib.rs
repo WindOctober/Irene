@@ -283,6 +283,11 @@ pub type Block = AstNode<BlockData>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StatementKind {
+    /// Re-evaluate condition before every iteration; no unrolling bound.
+    While {
+        condition: ClassicalExpr,
+        body: Block,
+    },
     /// Exact exp(i * phase), including inside controlled custom gates.
     GlobalPhase(NumericExpr),
     /// Apply the entire unitary body to the given integer power, conditioned
@@ -377,6 +382,10 @@ impl AstNode<ProgramData> {
             for statement in &block.statements {
                 visit(statement.ast_id);
                 match &statement.kind {
+                    StatementKind::While { condition, body } => {
+                        classical(condition, visit);
+                        visit_block(body, visit);
+                    }
                     StatementKind::GlobalPhase(value) => numeric(value, visit),
                     StatementKind::Unitary { body, .. } => visit_block(body, visit),
                     StatementKind::Apply { parameters, .. } => {
@@ -501,6 +510,10 @@ pub(crate) fn compact_program_ids(mut program: crate::Program) -> crate::Program
                     classical(condition, next);
                     block(then_branch, next);
                     block(else_branch, next);
+                }
+                S::While { condition, body } => {
+                    classical(condition, next);
+                    block(body, next);
                 }
                 S::Scope(b) | S::Unitary { body: b, .. } => block(b, next),
                 S::GlobalPhase(e) => numeric(e, next),

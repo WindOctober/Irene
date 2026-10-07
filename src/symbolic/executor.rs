@@ -624,7 +624,9 @@ impl Executor {
         // Linear statements transform each existing component independently;
         // only classical `if` forms an explicit sum of components.
         match statement {
-            StatementKind::GlobalPhase(_) | StatementKind::Unitary { .. } => {
+            StatementKind::While { .. }
+            | StatementKind::GlobalPhase(_)
+            | StatementKind::Unitary { .. } => {
                 Err(SymbolicError::UnsupportedConstruct("this statement kind"))
             }
             StatementKind::Reset(qubit) => {
@@ -1072,6 +1074,7 @@ fn is_predicable_block(block: &Block, plan: &SlicePlan) -> bool {
                 StatementKind::Reset(_)
                 | StatementKind::Measure { .. }
                 | StatementKind::Assign { .. }
+                | StatementKind::While { .. }
                 | StatementKind::GlobalPhase(_)
                 | StatementKind::Unitary { .. }
                 | StatementKind::If { .. } => false,

@@ -96,3 +96,23 @@ work to 65,536. Runtime numeric parameters, negctrl and non-integer powers remai
 unsupported.
 
 Run `cargo test -p iqir` and `cargo test -p irene --test gate_capabilities`.
+
+## OpenQASM 3 while loops
+
+The frontend preserves `while (condition) body` as `While { condition, body }`.
+Nested loops and braced/single-statement bodies reuse existing Boolean lowering
+and lexical scopes. Conditions are re-evaluated before each iteration by an IR
+consumer; no finite unrolling or termination assumption is made.
+
+Known-bit facts are cleared before lowering a loop and after it, so gate powers
+cannot be specialized using stale entry values across a back edge. Facts newly
+established inside an iteration can still be used by subsequent statements.
+Loop nesting is limited to 64; this is not a runtime iteration bound.
+`break` and `continue` remain unsupported.
+
+Whole `bit[n]` registers can be compared to representable integer literals,
+including `bit[1] c; while(c == 1) {}`. Comparison uses every bit in
+little-endian order, rejects out-of-range literals, and also works in `if`.
+
+IreneQ and the unitary miter reject loops explicitly, including loops in dead
+branches, before optimization or execution. Frontend import is not a loop proof.
