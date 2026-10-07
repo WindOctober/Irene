@@ -1,7 +1,9 @@
 //! Complete physical-wire contraction, with certified coefficient enclosures.
 //! Gate semantics and coherent local sums are shared with the exact frontier.
 use super::*;
-use crate::ir::{Gate, StatementKind};
+use crate::ir::StatementKind;
+mod ball;
+use ball::{Balls, Magnitude, Norm};
 
 const MAX_QUBITS: usize = 10;
 const MAX_CELL_STEPS: usize = 1_500_000_000;
@@ -49,7 +51,18 @@ fn block_matrix(
     )
 }
 
-pub(super) fn identity_bound(program: &Program) -> Option<Report> {
+#[cfg(test)]
+fn identity_bound(program: &Program) -> Option<Report> {
+    identity_bound_with_tolerance(
+        program,
+        &BigRational::new(1.into(), 1_000_000_000_000i64.into()),
+    )
+}
+
+pub(super) fn identity_bound_with_tolerance(
+    program: &Program,
+    target: &BigRational,
+) -> Option<Report> {
     let wires = super::super::qubits(program);
     let n = wires.len();
     if n > MAX_QUBITS || !program.numeric_inputs.is_empty() {
@@ -64,29 +77,49 @@ pub(super) fn identity_bound(program: &Program) -> Option<Report> {
     unitary::validate(program).ok()?;
     crate::symbolic::numeric_domains(program).ok()?;
     let start = Instant::now();
-    // Entrywise interval dependency grows through mixing gates. Extra precision
-    // is a resource policy, not a proof assumption: final enclosures still decide.
-    let mixing = program
-        .body
-        .statements
-        .iter()
-        .filter(|s| {
-            matches!(
-                s.kind,
-                StatementKind::Apply {
-                    gate: Gate::H | Gate::Rx | Gate::Ry | Gate::Crx | Gate::Cry,
-                    ..
-                }
-            )
-        })
-        .count();
-    let domain = super::super::numeric::Enclosure {
-        precision: (256 + mixing.min(3840)) as u32,
-    };
-    let mut values = vec![Complex::n(0); cells];
-    for i in 0..dimension {
-        values[i * dimension + i] = Complex::n(1);
+    let first = contract(program, &wires, &blocks, start, 64)?;
+    if first.bound.as_ref().is_some_and(|u| u <= target)
+        || first.lower_bound.as_ref().is_some_and(|l| l > target)
+        || first.work.saturating_mul(2) > MAX_CELL_STEPS
+    {
+        return Some(first);
     }
+    // Precision is selected by certificate success, never by gate count. Both
+    // attempts share the deadline; a refused retry preserves the first bounds.
+    let Some(mut second) = contract(program, &wires, &blocks, start, 128) else {
+        return Some(first);
+    };
+    second.bound = first.bound.into_iter().chain(second.bound).min();
+    second.lower_bound = first
+        .lower_bound
+        .into_iter()
+        .chain(second.lower_bound)
+        .max();
+    second.work += first.work;
+    Some(second)
+}
+
+fn contract(
+    program: &Program,
+    wires: &[crate::ir::Qubit],
+    blocks: &[&[crate::ir::Statement]],
+    start: Instant,
+    precision: u32,
+) -> Option<Report> {
+    let n = wires.len();
+    let dimension = 1usize << n;
+    let cells = dimension * dimension;
+    let domain = super::super::numeric::Enclosure { precision };
+    let mut values = Balls::new(cells);
+    for i in 0..dimension {
+        values.one(i * dimension + i);
+    }
+    // M is always a point matrix, with ||U-M||_2 <= error. For the next true
+    // unitary block G, ||GU-GM||_2 = ||U-M||_2. Arb encloses GM; we collect
+    // the newly introduced entry radii as an operator-norm bound before
+    // retaining the midpoint. Thus uncertainty adds, rather than wrapping
+    // exponentially through successive entrywise interval products.
+    let mut error = Magnitude::zero();
     let mut work = 0usize;
     for block in blocks {
         if start.elapsed() >= Duration::from_secs(MAX_SECONDS) {
@@ -106,6 +139,16 @@ pub(super) fn identity_bound(program: &Program) -> Option<Report> {
             .collect::<Option<Vec<_>>>()?;
         let sparse = block_matrix(program, block, &qubits, &domain)?;
         let size = sparse.len();
+        let coefficients: Vec<_> = sparse
+            .iter()
+            .map(|row| {
+                let mut values = Balls::new(row.len().max(1));
+                for (i, (_, coefficient)) in row.iter().enumerate() {
+                    values.set_enclosure(i, coefficient, precision);
+                }
+                values
+            })
+            .collect();
         let mask = positions.iter().fold(0, |m, q| m | (1 << q));
         let offsets: Vec<_> = (0..size)
             .map(|k| {
@@ -117,13 +160,13 @@ pub(super) fn identity_bound(program: &Program) -> Option<Report> {
             .collect();
         let permutation = sparse.iter().all(|r| r.len() == 1)
             && sparse.iter().map(|r| r[0].0).collect::<BTreeSet<_>>().len() == size;
-        let mut scratch = vec![Complex::n(0); size];
+        let mut scratch = Balls::new(size);
+        let mut roundoff = Norm::new(dimension);
         for base in (0..dimension).filter(|r| r & mask == 0) {
             if start.elapsed() >= Duration::from_secs(MAX_SECONDS) {
                 return None;
             }
             if permutation {
-                // Move MPFR allocations instead of cloning whole rows for CX/SWAP.
                 let mut current: Vec<_> = (0..size).collect();
                 for output in 0..size {
                     let input = sparse[output][0].0;
@@ -139,14 +182,16 @@ pub(super) fn identity_bound(program: &Program) -> Option<Report> {
                     }
                 }
                 for output in 0..size {
-                    let coefficient = &sparse[output][0].1;
-                    if coefficient.im.is_zero() && coefficient.re.lo == 1 && coefficient.re.hi == 1
-                    {
+                    let coefficient = &coefficients[output];
+                    if coefficient.is_one(0) {
                         continue;
                     }
                     for col in 0..dimension {
-                        let at = (base | offsets[output]) * dimension + col;
-                        values[at].multiply_assign(coefficient);
+                        let row = base | offsets[output];
+                        let at = row * dimension + col;
+                        values.multiply(at, coefficient, 0, precision);
+                        roundoff.add_radius(row, col, &values, at);
+                        values.midpoint(at);
                     }
                 }
             } else {
@@ -155,39 +200,32 @@ pub(super) fn identity_bound(program: &Program) -> Option<Report> {
                         return None;
                     }
                     for output in 0..size {
-                        let mut value = Complex::n(0);
-                        for (input, coefficient) in &sparse[output] {
-                            value = value.add(
-                                &values[(base | offsets[*input]) * dimension + col]
-                                    .mul(coefficient),
-                            );
-                        }
-                        scratch[output] = value;
-                    }
-                    for output in 0..size {
-                        std::mem::swap(
-                            &mut values[(base | offsets[output]) * dimension + col],
-                            &mut scratch[output],
+                        scratch.sum_products(
+                            output,
+                            &values,
+                            &coefficients[output],
+                            sparse[output]
+                                .iter()
+                                .map(|(input, _)| (base | offsets[*input]) * dimension + col),
+                            precision,
                         );
+                    }
+                    for (output, offset) in offsets.iter().enumerate() {
+                        let row = base | offset;
+                        roundoff.add_radius(row, col, &scratch, output);
+                        scratch.midpoint(output);
+                        values.swap_from(row * dimension + col, &mut scratch, output);
                     }
                 }
             }
         }
+        error.add_assign(&roundoff.bound());
         work += cells;
     }
-    let mut trace = Complex::n(0);
-    for i in 0..dimension {
-        trace = trace.add(&values[i * dimension + i]);
-    }
-    let norm = Complex::real(Interval::rational(&BigRational::new(
-        1.into(),
-        dimension.into(),
-    ))?);
-    trace = trace.mul(&norm);
-    let (upper, lower) = trace_bounds(&trace, n)?;
+    let (upper, lower) = values.certificates(dimension, &error, precision)?;
     Some(Report {
         method: "frontier",
-        precision: domain.precision,
+        precision,
         bound: Some(upper),
         lower_bound: Some(lower),
         reason: "bounded",

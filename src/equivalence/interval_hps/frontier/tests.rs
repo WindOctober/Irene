@@ -88,3 +88,62 @@ fn rejects_invalid_domains_and_nonunitary_operations() {
     assert!(identity_bound(&p).is_none());
     assert!(identity_bound(&parse(2, "reset q[0];")).is_none());
 }
+
+#[test]
+fn low_precision_norm_error_survives_deep_mixing() {
+    let body = "h q[0]; ry(0.173) q[1]; cx q[1],q[2]; rz(0.291) q[0]; ".repeat(120);
+    let p = parse(3, &body);
+    let (miter, _) = unitary::miter(&p, &p).unwrap();
+    let report = identity_bound(&miter).unwrap();
+    assert_eq!(report.precision, 64);
+    assert!(report.bound.unwrap() < BigRational::new(1.into(), 1_000_000_000_000i64.into()));
+    assert_eq!(
+        report.lower_bound.unwrap(),
+        BigRational::from_integer(0.into())
+    );
+}
+
+#[test]
+fn adaptive_precision_respects_tiny_real_mismatches() {
+    let tolerance = BigRational::new(1.into(), 1_000_000_000_000i64.into());
+    for angle in ["0.3", "0.0000000001", "0.000000000002", "0.00000000000001"] {
+        let p = parse(2, &format!("rz({angle}) q[0];"));
+        let StatementKind::Apply { parameters, .. } = &p.body.statements[0].kind else {
+            unreachable!()
+        };
+        // Independent analytic channel distance for Rz(theta): 2 sin(theta/2).
+        let distance = number(&parameters[0], 0)
+            .unwrap()
+            .mul(&Interval::rational(&BigRational::new(1.into(), 2.into())).unwrap())
+            .trig(true)
+            .mul(&Interval::n(2));
+        let report = identity_bound_with_tolerance(&p, &tolerance).unwrap();
+        assert!(
+            report.bound.as_ref().unwrap() >= &float_rational(&distance.lo).unwrap(),
+            "{angle}: {report:?}"
+        );
+        assert!(
+            report.lower_bound.as_ref().unwrap() <= &float_rational(&distance.hi).unwrap(),
+            "{angle}: {report:?}"
+        );
+        if angle == "0.00000000000001" {
+            assert!(report.bound.unwrap() < tolerance);
+        } else {
+            assert!(report.lower_bound.unwrap() > tolerance, "{angle}");
+        }
+    }
+}
+
+#[test]
+fn tighter_target_retries_without_claiming_float_equality() {
+    let p = parse(2, "h q[0]; ry(0.173) q[1]; cx q[1],q[0];");
+    let (miter, _) = unitary::miter(&p, &p).unwrap();
+    let target = BigRational::new(1.into(), BigInt::from(10).pow(24));
+    let report = identity_bound_with_tolerance(&miter, &target).unwrap();
+    assert_eq!(report.precision, 128);
+    assert!(report.bound.unwrap() < target);
+    assert_eq!(
+        report.lower_bound.unwrap(),
+        BigRational::from_integer(0.into())
+    );
+}

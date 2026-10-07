@@ -121,7 +121,7 @@ pub fn identity_bound(program: &Program) -> Report {
 /// No additional short-probe budget or repeated HPS attempt is introduced.
 pub fn identity_bound_with_tolerance(program: &Program, target: &BigRational) -> Report {
     refine_with_frontier(structured::identity_bound(program), target, || {
-        frontier::identity_bound(program)
+        frontier::identity_bound_with_tolerance(program, target)
     })
 }
 

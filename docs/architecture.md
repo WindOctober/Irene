@@ -269,9 +269,20 @@ The interval frontier admits at most 1.5 billion projected cell/block steps and
 uses a 180 s cooperative time budget.
 Contiguous blocks contain at most 64 gates and one mixing gate; their sparse transitions come from
 the shared HPS lowering, so monomial runs update the operator once per block,
-without gate reordering or a second gate-matrix semantics. Its precision is
-256 plus the number of mixing gates, capped at 4096 bits, to counter entrywise
-interval widening. Exceeding a budget or failing to enclose a useful result
+without gate reordering or a second gate-matrix semantics. Matrix arithmetic uses
+FLINT/Arb complex balls, initially at 64-bit precision, with a 128-bit retry only
+when the certificate is inconclusive and the shared time/work budget permits.
+Gate coefficients still come from the shared certified numerical interpretation.
+After each unitary block, the midpoint matrix is retained and the discarded
+radii are accumulated as a rigorous operator-norm error. Specifically,
+`||G U - midpoint(G M)|| <= ||U-M|| + ||G M-midpoint(G M)||` because `G` is unitary;
+the new error is bounded by `sqrt(max_row_sum * max_column_sum)` of entry radii.
+This avoids repeatedly propagating independent entry intervals through mixing
+gates. A direct residual certificate `2*(||M-z I|| + error)`, for an enclosed
+unit-modulus phase `z`, complements the trace upper bound without subtracting
+nearly equal trace magnitudes. The normalized trace is separately widened by
+the accumulated error before deriving its certified lower bound. Exceeding a
+budget or failing to enclose a useful result
 does not certify a verdict. Independently certified bounds may be intersected.
 `identity_bound_with_tolerance` exposes this refinement target; the compatibility
 entry point uses 1e-12. Reports identify method and precision.

@@ -200,29 +200,6 @@ pub(super) struct Complex {
     pub(super) im: Interval,
 }
 impl Complex {
-    pub(super) fn multiply_assign(&mut self, b: &Self) {
-        // Exact roots of unity only; never recognize one by a tolerance.
-        if b.im.is_zero() && b.re.lo == b.re.hi {
-            if b.re.lo == 1 {
-                return;
-            }
-            if b.re.lo == -1 {
-                self.re = self.re.neg();
-                self.im = self.im.neg();
-                return;
-            }
-        }
-        if b.re.is_zero() && b.im.lo == b.im.hi && (b.im.lo == 1 || b.im.lo == -1) {
-            std::mem::swap(&mut self.re, &mut self.im);
-            if b.im.lo == 1 {
-                self.re = self.re.neg();
-            } else {
-                self.im = self.im.neg();
-            }
-            return;
-        }
-        *self = self.mul(b);
-    }
     pub(super) fn is_zero(&self) -> bool {
         self.re.is_zero() && self.im.is_zero()
     }
