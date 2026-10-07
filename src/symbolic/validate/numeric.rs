@@ -6,7 +6,10 @@
 
 use num_rational::BigRational;
 
-use crate::ir::{Block, NumericConstant, NumericExpr, NumericExprKind, Program, StatementKind};
+use crate::ir::{
+    Block, ClassicalExpr, ClassicalExprKind, NumericConstant, NumericExpr, NumericExprKind,
+    Program, StatementKind,
+};
 use crate::symbolic::SymbolicError;
 
 // TODO: Revisit these temporary fixed caps. Profile their checking overhead
@@ -118,6 +121,24 @@ fn expression(source: &NumericExpr, work: &mut usize, depth: usize) -> CheckedIn
     }
 }
 
+// Check both operands, even when constant folding could erase an unsupported read.
+fn classical(source: &ClassicalExpr) -> Result<(), SymbolicError> {
+    match &source.kind {
+        ClassicalExprKind::ScalarCompare { .. } => {
+            Err(SymbolicError::UnsupportedConstruct("scalar comparison"))
+        }
+        ClassicalExprKind::Not(a) => classical(a),
+        ClassicalExprKind::Eq(a, b)
+        | ClassicalExprKind::And(a, b)
+        | ClassicalExprKind::Or(a, b)
+        | ClassicalExprKind::Xor(a, b) => {
+            classical(a)?;
+            classical(b)
+        }
+        ClassicalExprKind::Bool(_) | ClassicalExprKind::Bit(_) => Ok(()),
+    }
+}
+
 fn block(source: &Block, work: &mut usize, depth: usize) -> Result<(), SymbolicError> {
     spend(work)?;
     if depth >= MAX_DEPTH {
@@ -128,6 +149,9 @@ fn block(source: &Block, work: &mut usize, depth: usize) -> Result<(), SymbolicE
         match &statement.kind {
             StatementKind::While { .. } => {
                 return Err(SymbolicError::UnsupportedConstruct("while loops"));
+            }
+            StatementKind::ScalarDeclare { .. } | StatementKind::ScalarAssign { .. } => {
+                return Err(SymbolicError::UnsupportedConstruct("scalar storage"));
             }
             StatementKind::GlobalPhase(_) => {
                 return Err(SymbolicError::UnsupportedConstruct("explicit global phase"));
@@ -143,17 +167,17 @@ fn block(source: &Block, work: &mut usize, depth: usize) -> Result<(), SymbolicE
                 }
             }
             StatementKind::If {
+                condition,
                 then_branch,
                 else_branch,
-                ..
             } => {
+                classical(condition)?;
                 block(then_branch, work, depth + 1)?;
                 block(else_branch, work, depth + 1)?;
             }
             StatementKind::Scope(body) => block(body, work, depth + 1)?,
-            StatementKind::Measure { .. }
-            | StatementKind::Assign { .. }
-            | StatementKind::Reset(_) => {}
+            StatementKind::Assign { value, .. } => classical(value)?,
+            StatementKind::Measure { .. } | StatementKind::Reset(_) => {}
         }
     }
     Ok(())

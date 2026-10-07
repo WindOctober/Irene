@@ -63,6 +63,9 @@ fn word(body: &str, name: &str) -> u64 {
 fn specialize_classical(mut p: Program) -> Program {
     fn value(e: &ClassicalExpr, m: &BTreeMap<ClassicalBit, bool>) -> bool {
         match &e.kind {
+            ClassicalExprKind::ScalarCompare { .. } => {
+                panic!("angle oracle expects bit expressions")
+            }
             ClassicalExprKind::Bool(v) => *v,
             ClassicalExprKind::Bit(b) => m[b],
             ClassicalExprKind::Not(a) => !value(a, m),

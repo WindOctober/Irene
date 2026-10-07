@@ -62,6 +62,8 @@ pub fn validate(source: &Program) -> Result<(), UnitaryMiterError> {
         for s in &block.statements {
             match &s.kind {
                 StatementKind::While { .. }
+                | StatementKind::ScalarDeclare { .. }
+                | StatementKind::ScalarAssign { .. }
                 | StatementKind::GlobalPhase(_)
                 | StatementKind::Unitary { .. } => {
                     return Err(UnitaryMiterError::UnsupportedStatement);
@@ -277,6 +279,8 @@ fn append_block(
             StatementKind::Assign { value, .. }
                 if matches!(value.kind, ClassicalExprKind::Bool(_)) => {}
             StatementKind::While { .. }
+            | StatementKind::ScalarDeclare { .. }
+            | StatementKind::ScalarAssign { .. }
             | StatementKind::GlobalPhase(_)
             | StatementKind::Unitary { .. } => {
                 return Err(UnitaryMiterError::UnsupportedStatement);

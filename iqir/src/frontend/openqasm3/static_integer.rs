@@ -70,12 +70,12 @@ impl Lowerer {
             Expr::Identifier(identifier) => {
                 let name = identifier.string();
                 let binding = self.scopes.lookup(&name).map_err(scope_error)?;
-                let BindingKind::StaticInteger {
-                    value,
-                    width,
+                let BindingKind::Scalar {
+                    value: Some(crate::ScalarValue::Integer(value)),
+                    ty: crate::ScalarType::Int { width, signed },
                     is_const,
-                    signed,
                     explicit_width,
+                    ..
                 } = binding.kind
                 else {
                     return Err(expected!("a statically known integer", &identifier));
@@ -168,49 +168,22 @@ impl Lowerer {
                     .chain(right.width)
                     .max()
                     .unwrap_or(DEFAULT_INTEGER_WIDTH);
-                if !fits(left.value, width, signed) || !fits(right.value, width, signed) {
-                    return Err(unsupported!(
-                        "static integer promotion outside admitted range",
-                        &binary
-                    ));
-                }
-                if signed
-                    && left.value == -(1_i128 << (width - 1))
-                    && right.value == -1
-                    && matches!(
-                        binary.op_kind(),
-                        Some(ast::BinaryOp::ArithOp(
-                            ast::ArithOp::Div | ast::ArithOp::Rem
-                        ))
-                    )
-                {
-                    return Err(unsupported!("static signed division overflow", &binary));
-                }
-                let value = match binary.op_kind() {
-                    Some(ast::BinaryOp::ArithOp(ast::ArithOp::Add)) => {
-                        left.value.checked_add(right.value)
-                    }
-                    Some(ast::BinaryOp::ArithOp(ast::ArithOp::Sub)) => {
-                        left.value.checked_sub(right.value)
-                    }
-                    Some(ast::BinaryOp::ArithOp(ast::ArithOp::Mul)) => {
-                        left.value.checked_mul(right.value)
-                    }
-                    Some(ast::BinaryOp::ArithOp(ast::ArithOp::Div)) => {
-                        left.value.checked_div(right.value)
-                    }
-                    Some(ast::BinaryOp::ArithOp(ast::ArithOp::Rem)) => {
-                        left.value.checked_rem(right.value)
-                    }
+                let op = match binary.op_kind() {
+                    Some(ast::BinaryOp::ArithOp(ast::ArithOp::Add)) => crate::ScalarArithmetic::Add,
+                    Some(ast::BinaryOp::ArithOp(ast::ArithOp::Sub)) => crate::ScalarArithmetic::Sub,
+                    Some(ast::BinaryOp::ArithOp(ast::ArithOp::Mul)) => crate::ScalarArithmetic::Mul,
+                    Some(ast::BinaryOp::ArithOp(ast::ArithOp::Div)) => crate::ScalarArithmetic::Div,
+                    Some(ast::BinaryOp::ArithOp(ast::ArithOp::Rem)) => crate::ScalarArithmetic::Rem,
                     _ => return Err(unsupported!("static integer operator", &binary)),
-                }
-                .filter(|value| fits(*value, width, signed))
-                .ok_or_else(|| {
-                    unsupported!(
-                        "static integer overflow, underflow or zero divisor",
-                        &binary
-                    )
-                })?;
+                };
+                let value = crate::ScalarType::Int { width, signed }
+                    .checked_integer_arithmetic(op, left.value, right.value)
+                    .map_err(|_| {
+                        unsupported!(
+                            "static integer overflow, underflow or zero divisor",
+                            &binary
+                        )
+                    })?;
                 // On this no-overflow subset, widening integer
                 // promotions cannot change the mathematical result. A source
                 // overflow is refused rather than interpreted as exact integers.
@@ -229,63 +202,7 @@ impl Lowerer {
         if ty.uint_token().is_none() && ty.int_token().is_none() {
             return Err(unsupported!("static type other than int/uint", ty));
         }
-        let Some(designator) = ty.designator() else {
-            return Ok(DEFAULT_INTEGER_WIDTH);
-        };
-        let width = self
-            .static_integer(
-                designator
-                    .expr()
-                    .ok_or_else(|| expected!("an integer width", &designator))?,
-                true,
-            )?
-            .value;
-        if !(1..=64).contains(&width) {
-            return Err(unsupported!("static integer width outside 1..64", ty));
-        }
-        Ok(width as u32)
-    }
-
-    pub(super) fn lower_static_constant(
-        &mut self,
-        declaration: ast::ClassicalDeclarationStatement,
-    ) -> Result<(), FrontendError> {
-        self.charge_static_expansion(&declaration)?;
-        let ty = declaration
-            .scalar_type()
-            .ok_or_else(|| expected!("a static integer type", &declaration))?;
-        if ty.int_token().is_none() && ty.uint_token().is_none() {
-            return self.lower_other_constant(declaration, ty);
-        }
-        let width = self.static_integer_width(&ty)?;
-        let signed = ty.int_token().is_some();
-        let value = self
-            .static_integer(
-                declaration
-                    .expr()
-                    .ok_or_else(|| expected!("a const initializer", &declaration))?,
-                true,
-            )?
-            .value;
-        if !fits(value, width, signed) {
-            return Err(unsupported!(
-                "lossy static integer initialization",
-                &declaration
-            ));
-        }
-        self.scopes
-            .declare(
-                declaration_name(&declaration)?,
-                BindingKind::StaticInteger {
-                    value,
-                    width,
-                    signed,
-                    explicit_width: ty.designator().is_some(),
-                    is_const: true,
-                },
-            )
-            .map_err(scope_error)?;
-        Ok(())
+        Ok(self.scalar_type(ty)?.width())
     }
 
     pub(super) fn static_index(
@@ -451,12 +368,12 @@ impl Lowerer {
                     self.scopes
                         .declare(
                             name.clone(),
-                            BindingKind::StaticInteger {
-                                value: start + i * step,
-                                width,
-                                signed,
+                            BindingKind::Scalar {
+                                value: Some(crate::ScalarValue::Integer(start + i * step)),
+                                ty: crate::ScalarType::Int { width, signed },
                                 explicit_width: ty.designator().is_some(),
                                 is_const: false,
+                                assignable: false,
                             },
                         )
                         .map_err(scope_error)?;
@@ -483,12 +400,7 @@ impl Lowerer {
 }
 
 fn fits(value: i128, width: u32, signed: bool) -> bool {
-    if signed {
-        let bound = 1_i128 << (width - 1);
-        -bound <= value && value < bound
-    } else {
-        0 <= value && value < (1_i128 << width)
-    }
+    crate::ScalarType::Int { width, signed }.contains_integer(value)
 }
 
 pub(super) fn single_index(

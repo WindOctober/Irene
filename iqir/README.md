@@ -116,3 +116,62 @@ little-endian order, rejects out-of-range literals, and also works in `if`.
 
 IreneQ and the unitary miter reject loops explicitly, including loops in dead
 branches, before optimization or execution. Frontend import is not a loop proof.
+
+## Numeric scalar declarations
+
+Mutable int[1..64] and float[32]/float[64] declarations support initializers,
+assignment, unary minus, arithmetic (+, -, *, / and integer %), compound
+assignments and six comparisons. Comparisons integrate with if and while.
+
+## Scalar types, declarations and constant evaluation
+
+`ScalarType` describes integer signedness/width or floating precision, not
+when a value is evaluated. Const and variable declarations share the same
+type parser, expression builder, promotions and arithmetic. Scope bindings
+store const qualification, assignability and an optional known `ScalarValue`
+separately. A specialized for-loop index can be known without being const;
+a variable's known initializer does not make it admissible in const contexts.
+
+`ScalarDeclare`, `ScalarAssign` and `ScalarCompare` integrate with the ordinary
+statement and Boolean-expression IR. Constants are evaluated from the same
+`ScalarExpr` tree and stored in the symbol table, without executable storage.
+Static integer specialization shares the checked integer arithmetic with that
+evaluator. Floating constant arithmetic no longer has a separate AST evaluator.
+The existing exact symbolic `NumericExpr` representation remains for gate
+parameters; it is a different numeric domain, not a non-runtime scalar type.
+
+The target defaults are 32-bit signed integers and binary64 floats.
+Explicit versus omitted widths are retained as declaration metadata, not type
+identity: `int` and `int[32]` are compatible on this target. Integers are **not**
+unbounded mathematical integers. Signed overflow and integer division by zero
+must be diagnosed by consumers.
+Integer division truncates toward zero. Out-of-range literals are rejected.
+Literal-only integer subexpressions use the existing checked static-integer
+frontend before conversion to a destination width. Signed scalar operands
+must have the same width; broader promotions are not yet admitted.
+
+Float literals use binary64 like the existing constant frontend. Float binary
+operations promote to the wider operand precision; explicit `FloatCast` nodes
+record widening and assignment narrowing. Each operation is IEEE binary32 or
+binary64, not exact rational arithmetic. For example, `(a+b)-a` with two
+binary32 variables rounds after the addition; replacing `b` with literal `1.0`
+promotes the operation to binary64. The target rounding profile is nearest,
+ties-to-even with gradual underflow. Signed zero, subnormals and float encoding
+are retained. Arithmetic/conversion can produce infinities or NaNs; comparisons
+must follow IEEE behavior (`NaN != value`, other comparisons false).
+Nonfinite source literals are rejected.
+
+Declarations without initializers stay uninitialized. The frontend does not
+prove definite initialization or execute runtime arithmetic. Backends must
+check reads, overflow, zero division, and allocation lifetimes; they must not
+invent zeros or reuse a previous iteration's local value.
+
+This remains a supported subset, not a full OpenQASM implementation: `break`,
+`continue`, runtime array indexing, variable numeric gate parameters, numeric
+subroutine parameters/returns, mixed signed/unsigned arithmetic, int/float
+variable conversions, non-floating scalar casts, integer bitwise/shift operations
+in the new scalar representation, non-integer gate powers, `negctrl`, and
+non-gate bodies inside gate definitions remain explicitly unsupported.
+
+IreneQ rejects scalar declarations, assignments and comparisons before slicing,
+including in dead branches. Frontend support is not backend proof support.
