@@ -158,6 +158,22 @@ semantic boundaries:
 Only bound paths may be eliminated as summation variables. Refused reductions
 retain the original expression or fall back; incomplete sums cannot certify a verdict.
 
+Local HPS analysis indexes phase selectors by their variables and reuses guard,
+output and history dependencies while the component is unchanged. Every accepted
+rewrite and subsequent simplification invalidates this snapshot. The original
+candidate order and round-admission policy are preserved. An incidence budget
+bounds the index; overflow falls back to scanning all selectors. Cheap and joint
+phase analysis share lazily constructed cofactors for each candidate.
+
+Before building cofactors, a bounded exact check may reject an impossible local
+phase profile: Fourier/Omega require `4*(P(1,z)-P(0,z))` to be integral for every
+assignment of the remaining variables. A nonintegral rational value at either
+uniform assignment rules out these unconditional profiles. Quarter-turn terms
+cannot affect this test; all other rational contributions are combined before
+checking integrality. Unsupported coefficients or exhausted work make the check
+inconclusive. Passing the check still requires the original exact proof, and
+failing it is not a program non-equivalence certificate.
+
 When the HPS path rules reach a fixed point, affine recovery checks whether a
 guard or phase selector hides a constant or XOR of variables. A shared ordered
 positive-Davio graph recognizes these functions without enumerating assignments;
@@ -165,8 +181,14 @@ its iterative evaluator is bounded by graph nodes and actual work, not input
 count. Bounded sparse ANF is a fallback after a diagram refusal. Only proved
 affine results are substituted, and phase coefficients are preserved exactly.
 Recovered guards re-enter ordinary substitution before phase recovery. Queries
-share a work budget and cache within the reduction, and refusal leaves the
-original predicate intact. This is Boolean normalization, not an extra path sum.
+share a work budget within the reduction. Completed affine/non-affine conclusions
+are cached on immutable Boolean nodes and reused across later reductions while
+those nodes remain alive; the cache does not retain discarded source graphs.
+Budget refusals are memoized only within the current attempt, so a later attempt
+can retry. Cached facts do not include context-dependent elimination permission:
+guards, outputs, coefficients and history are checked at the point of use.
+Refusal leaves the original predicate intact. This is Boolean normalization,
+not an extra path sum.
 
 ## Density kernel and WorkingTerm
 
@@ -234,17 +256,23 @@ Symbolic identity, contraction strategy, and numerical evaluation are separate:
   retains its predicate DAG; the interval frontier uses dense complex enclosures.
   These internal data structures are deliberately not forced into one type.
 
-Before building the global HPS, full-unitary candidates of at most ten qubits
-can contract their complete operator on the physical wires. All input columns
-survive; this is not basis-state sampling. The interval frontier admits at most
-1.5 billion projected cell/block steps and uses a 180 s cooperative time budget.
+Full-unitary candidates of at most ten qubits can also contract their complete
+operator on the physical wires. All input columns survive; this is not basis-state
+sampling. The interval route first attempts
+structured HPS trace contraction with its existing resource limits, without an
+extra short-probe deadline. If its enclosure does not settle the target, it tries
+the complete matrix frontier. A refused matrix attempt preserves the HPS result;
+two inconclusive enclosures retain the tighter upper and lower bounds. Remaining
+queries continue through the existing exact verification flow, including kernel
+reasoning when needed; HPS contraction is not repeated after the matrix attempt.
+The interval frontier admits at most 1.5 billion projected cell/block steps and
+uses a 180 s cooperative time budget.
 Contiguous blocks contain at most 64 gates and one mixing gate; their sparse transitions come from
 the shared HPS lowering, so monomial runs update the operator once per block,
 without gate reordering or a second gate-matrix semantics. Its precision is
 256 plus the number of mixing gates, capped at 4096 bits, to counter entrywise
 interval widening. Exceeding a budget or failing to enclose a useful result
-does not certify a verdict. Inconclusive bounds are refined with the existing
-structural route, and independently certified bounds may be intersected.
+does not certify a verdict. Independently certified bounds may be intersected.
 `identity_bound_with_tolerance` exposes this refinement target; the compatibility
 entry point uses 1e-12. Reports identify method and precision.
 

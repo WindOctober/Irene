@@ -15,6 +15,7 @@ use crate::symbolic::{
 
 use super::simplify_component;
 
+mod analysis;
 mod joint_phase;
 
 #[cfg(test)]
@@ -58,6 +59,8 @@ pub(crate) fn reduce_path_sums(component: &mut Component, allow_history: bool) -
         cancel_half_turn_history_phases(component);
     }
 
+    // Reset the attempt budget, not proven structural facts: those live on
+    // the shared Boolean nodes and survive later calls to this reducer.
     let mut recovery = super::recovery::Recovery::default();
 
     loop {
@@ -72,32 +75,34 @@ pub(crate) fn reduce_path_sums(component: &mut Component, allow_history: bool) -
         // a guard and therefore cannot be summed locally. Collect that set
         // once per round instead of rescanning every output expression for
         // every candidate path.
-        let mut blocked = paths_in_guard_scalar_or_outputs(component);
+        let initial_analysis = analysis::Analysis::new(component);
+        let mut blocked = initial_analysis.blocked.clone();
+        blocked.extend(initial_analysis.scalar_variables.iter().cloned());
         // Fourier/Omega require no history occurrence; History requires no
         // phase occurrence. Cache this necessary condition once per round.
         // A rewrite may unblock an earlier path, which is reconsidered in
         // the next round. Eligible candidates still get the dynamic checks
         // in reduce_path, so stale information can only defer a rewrite.
-        let phase_variables = component.phase.variables();
-        for variable in component
-            .output
-            .history
-            .iter()
-            .map(HistoryEntry::value)
-            .flat_map(BooleanPolynomial::variables)
-        {
-            if !allow_history || phase_variables.contains(&variable) {
+        for variable in &initial_analysis.history {
+            if !allow_history || initial_analysis.phase_variables.contains(variable) {
                 blocked.insert(variable.clone());
             }
         }
         let mut reduced = false;
+        let mut analysis = Some(initial_analysis);
         for path in paths {
             let variable = Variable::Path(path);
             if blocked.contains(&variable) || !component.path_support.contains(&path) {
                 continue;
             }
-            if reduce_path(component, &variable, allow_history) {
+            // A successful rule and simplification may change ALL kinds of
+            // dependencies. Rebuild lazily, keeping round admission/order.
+            let current = analysis.get_or_insert_with(|| analysis::Analysis::new(component));
+            if reduce_path_indexed(component, &variable, allow_history, current) {
                 reduced = true;
+                // Release old phase roots BEFORE simplification allocates its
+                // replacement graphs; they are no longer useful for queries.
+                analysis = None;
                 if !simplify_component(component) {
                     return false;
                 }
@@ -163,30 +168,44 @@ impl PathRule {
 
 /// Classifies one path once, then dispatches to the matching closed-form rule.
 /// This avoids rescanning the component's phase separately for every rule.
+#[cfg(test)]
 fn reduce_path(component: &mut Component, variable: &Variable, allow_history: bool) -> bool {
+    let analysis = analysis::Analysis::new(component);
+    reduce_path_indexed(component, variable, allow_history, &analysis)
+}
+
+fn reduce_path_indexed(
+    component: &mut Component,
+    variable: &Variable,
+    allow_history: bool,
+    analysis: &analysis::Analysis,
+) -> bool {
     // A previous elimination in the same round can introduce `variable` into
     // an output or scalar. Recheck dynamically even though the round-level
     // blocked set filtered its original state.
-    if occurs_in_guard_scalar_or_outputs(component, variable) {
+    if analysis.blocked.contains(variable)
+        || (analysis.scalar_variables.contains(variable)
+            && scalar_depends_on(&component.scalar, variable))
+    {
         return false;
     }
-    let mut profile = phase_profile(component, variable);
+    let mut query = analysis.query(variable);
+    if query.excludes_local_profile() {
+        return false;
+    }
+    let mut profile = phase_profile_query(&mut query);
     if matches!(profile, PhaseProfile::Unsupported) {
         // Different selectors can cancel in the *whole* phase derivative.
         // Keep the cheap syntactic classifier first; only its failures need
         // exact joint cofactoring and bounded local function normalization.
-        profile = joint_phase::profile(component, variable);
+        profile = joint_phase::profile(&mut query);
     }
     // Unsupported phases have no local rule, independent of the history.
     // A history pivot is only needed for the phase-absent History rule.
     if matches!(profile, PhaseProfile::Unsupported) {
         return false;
     }
-    let history_is_absent = component
-        .output
-        .history
-        .iter()
-        .all(|entry| !HistoryEntry::value(entry).variables().contains(variable));
+    let history_is_absent = !analysis.history.contains(variable);
     let rule = match (&profile, history_is_absent) {
         (PhaseProfile::Absent, true) => PathRule::Vacuous,
         (PhaseProfile::Absent, false)
@@ -244,25 +263,26 @@ type PhaseProfile = crate::symbolic::path_rules::PhaseProfile<BooleanPolynomial>
 /// Classifies `phase = phase_without_y + y * coefficient` without expanding
 /// any other variable. Non-constant terms must have coefficient one half so
 /// that they denote the Boolean parity in `(-1)^(y f)`.
+#[cfg(test)]
 fn phase_profile(component: &Component, variable: &Variable) -> PhaseProfile {
+    phase_profile_query(&mut analysis::Analysis::new(component).query(variable))
+}
+
+fn phase_profile_query(query: &mut analysis::Query<'_>) -> PhaseProfile {
     let mut present = false;
     let mut constant = integer(0);
     let mut parity = BooleanPolynomial::zero();
 
-    for (value, coefficient) in component.phase.selectors() {
-        if !value.variables().contains(variable) {
-            continue;
-        }
+    for i in 0..query.len() {
         present = true;
-        let Some(coefficient) = coefficient.as_rational() else {
+        let Some(coefficient) = query.coefficient(i).as_rational() else {
             return PhaseProfile::Unsupported;
         };
-        let low = value.substitute(variable, &BooleanPolynomial::zero());
-        let high = value.substitute(variable, &BooleanPolynomial::one());
+        let (low, high) = query.cofactors(i);
         if coefficient == ratio(1, 2) {
             // c*(B1-B0) == (B1 XOR B0)/2 modulo one. This
             // cofactor identity works on the DAG without distributing ANF.
-            parity = parity.xor(&low.xor(&high));
+            parity = parity.xor(&low.xor(high));
         } else if low.is_zero() && high.is_one() {
             constant += coefficient;
         } else {
@@ -272,38 +292,6 @@ fn phase_profile(component: &Component, variable: &Variable) -> PhaseProfile {
     constant = PhaseCoefficient::rational(constant).as_rational().unwrap();
 
     PhaseProfile::classify(present, constant, parity, BooleanPolynomial::complement)
-}
-
-/// Rejects dependencies that cannot be eliminated by any local rule.
-fn occurs_in_guard_scalar_or_outputs(component: &Component, variable: &Variable) -> bool {
-    component
-        .guard
-        .iter()
-        .any(|guard| guard.variables().contains(variable))
-        || scalar_depends_on(&component.scalar, variable)
-        || component
-            .output
-            .quantum
-            .values()
-            .chain(component.output.classical.values())
-            .any(|value| value.variables().contains(variable))
-}
-
-fn paths_in_guard_scalar_or_outputs(component: &Component) -> BTreeSet<Variable> {
-    let mut variables = BTreeSet::new();
-    for guard in &component.guard {
-        variables.extend(guard.variables());
-    }
-    collect_scalar_variables(&component.scalar, &mut variables);
-    for value in component
-        .output
-        .quantum
-        .values()
-        .chain(component.output.classical.values())
-    {
-        variables.extend(value.variables());
-    }
-    variables
 }
 
 fn collect_scalar_variables(scalar: &Scalar, variables: &mut BTreeSet<Variable>) {

@@ -10,9 +10,16 @@ use crate::symbolic::{BooleanPolynomial, Component, PhasePolynomial};
 const MAX_TERMS: usize = 4096;
 const MAX_WORK: usize = 1_000_000;
 
+enum Conclusion {
+    Proven(Option<BooleanPolynomial>),
+    Refused,
+}
+
 pub(super) struct Recovery {
     work: usize,
-    cache: HashMap<BooleanPolynomial, Option<BooleanPolynomial>>,
+    // Invocation-local memo also suppresses repeated budget refusals. Only
+    // completed conclusions are additionally stored on the immutable node.
+    cache: HashMap<BooleanPolynomial, Conclusion>,
 }
 
 #[cfg(test)]
@@ -61,8 +68,122 @@ mod tests {
             work: 1,
             cache: HashMap::new(),
         };
+        let hidden = hidden_zero(&y(200), &y(201)).xor(&y(202));
         assert_eq!(exhausted.affine(&hidden), None);
         assert!(!hidden.is_affine());
+    }
+
+    #[test]
+    fn completed_conclusions_survive_new_reduction_attempts() {
+        let hidden = hidden_zero(&y(0), &y(1)).xor(&y(2));
+        let nonlinear = y(3).and(&y(4));
+        let keys = HashMap::from([(hidden.clone(), 7), (nonlinear.clone(), 9)]);
+        let mut first = Recovery::default();
+        assert_eq!(first.affine(&hidden), Some(y(2)));
+        assert_eq!(first.affine(&nonlinear), None);
+        assert_eq!(nonlinear.cached_affine_recovery(), Some(&None));
+        drop(first);
+
+        let mut later = Recovery {
+            work: 0,
+            cache: HashMap::new(),
+        };
+        assert_eq!(later.affine(&hidden.clone()), Some(y(2)));
+        assert_eq!(later.affine(&nonlinear), None);
+        assert_eq!(later.work, 0);
+        // Populating metadata must not change structural hashing/equality.
+        assert_eq!(keys.get(&hidden), Some(&7));
+        assert_eq!(keys.get(&nonlinear), Some(&9));
+    }
+
+    #[test]
+    fn repeated_reducers_share_facts_but_recheck_observable_paths() {
+        use crate::ir::{Qubit, SymbolId};
+        use crate::symbolic::{HybridMemory, PhaseCoefficient, Scalar};
+        use num_rational::BigRational;
+        let nonlinear = y(0).and(&y(1));
+        let mut phase = PhasePolynomial::zero();
+        phase.add_boolean(
+            &nonlinear,
+            PhaseCoefficient::rational(BigRational::new(1.into(), 2.into())),
+        );
+        let mut first = Component {
+            guard: Vec::new(),
+            scalar: Scalar::one(),
+            path_support: [0, 1, 2].into(),
+            phase,
+            output: HybridMemory {
+                quantum: (0..3)
+                    .map(|i| {
+                        (
+                            Qubit {
+                                register: SymbolId(0),
+                                index: i,
+                            },
+                            y(i),
+                        )
+                    })
+                    .collect(),
+                ..HybridMemory::default()
+            },
+        };
+        let mut second = first.clone();
+        assert!(super::super::path_sum::reduce_path_sums(&mut first, false));
+        assert!(
+            second
+                .phase
+                .selectors()
+                .any(|(p, _)| p.cached_affine_recovery().is_some())
+        );
+        assert!(super::super::path_sum::reduce_path_sums(&mut second, false));
+        assert_eq!(first, second);
+        // A cached structural fact does not authorize dropping visible paths.
+        assert_eq!(second.path_support, [0, 1, 2].into());
+        let mut expected = PhasePolynomial::zero();
+        expected.add_boolean(
+            &nonlinear,
+            PhaseCoefficient::rational(BigRational::new(1.into(), 2.into())),
+        );
+        assert_eq!(second.phase, expected);
+        second.output.quantum.remove(&Qubit {
+            register: SymbolId(0),
+            index: 0,
+        });
+        assert!(super::super::path_sum::reduce_path_sums(&mut second, false));
+        assert!(!second.path_support.contains(&0));
+    }
+
+    #[test]
+    fn refusal_is_local_and_does_not_poison_later_proofs() {
+        let hidden = hidden_zero(&y(0), &y(1)).xor(&y(2));
+        let mut limited = Recovery {
+            work: 1,
+            cache: HashMap::new(),
+        };
+        assert_eq!(limited.affine(&hidden), None);
+        assert!(hidden.cached_affine_recovery().is_none());
+        assert!(matches!(
+            limited.cache.get(&hidden),
+            Some(Conclusion::Refused)
+        ));
+        assert_eq!(Recovery::default().affine(&hidden), Some(y(2)));
+    }
+
+    #[test]
+    fn structural_cache_hits_publish_to_distinct_roots_but_not_changed_forms() {
+        let make = || hidden_zero(&y(0), &y(1)).xor(&y(2));
+        let original = make();
+        let rebuilt = make();
+        let mut recovery = Recovery::default();
+        assert_eq!(recovery.affine(&original), Some(y(2)));
+        assert!(rebuilt.cached_affine_recovery().is_none());
+        assert_eq!(recovery.affine(&rebuilt), Some(y(2)));
+        assert_eq!(rebuilt.cached_affine_recovery(), Some(&Some(y(2))));
+
+        let changed = rebuilt.substitute(&Variable::Path(2), &y(3).and(&y(4)));
+        assert!(changed.cached_affine_recovery().is_none());
+        assert_eq!(Recovery::default().affine(&changed), None);
+        assert_eq!(changed.cached_affine_recovery(), Some(&None));
     }
 }
 
@@ -77,11 +198,22 @@ impl Default for Recovery {
 
 impl Recovery {
     fn affine(&mut self, p: &BooleanPolynomial) -> Option<BooleanPolynomial> {
+        if let Some(result) = p.cached_affine_recovery() {
+            return result.clone();
+        }
         if p.is_affine() {
             return None;
         }
         if let Some(result) = self.cache.get(p) {
-            return result.clone();
+            return match result {
+                Conclusion::Proven(result) => {
+                    // Structurally equal but separately allocated roots share
+                    // the conclusion too; HashMap checks Eq after hashing.
+                    p.cache_affine_recovery(result.clone());
+                    result.clone()
+                }
+                Conclusion::Refused => None,
+            };
         }
         if self.work == 0 {
             return None;
@@ -106,7 +238,9 @@ impl Recovery {
                     ),
                 )
             });
-            self.cache.insert(p.clone(), result.clone());
+            p.cache_affine_recovery(result.clone());
+            self.cache
+                .insert(p.clone(), Conclusion::Proven(result.clone()));
             return result;
         }
         let mut allowance = self.work.min(MAX_TERMS * 64);
@@ -123,7 +257,17 @@ impl Recovery {
         self.work = self
             .work
             .saturating_sub(if refused { before } else { before - allowance });
-        self.cache.insert(p.clone(), result.clone());
+        if !refused {
+            p.cache_affine_recovery(result.clone());
+        }
+        self.cache.insert(
+            p.clone(),
+            if refused {
+                Conclusion::Refused
+            } else {
+                Conclusion::Proven(result.clone())
+            },
+        );
         result
     }
 

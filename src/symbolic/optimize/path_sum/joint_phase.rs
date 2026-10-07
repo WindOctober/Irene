@@ -14,24 +14,26 @@ const MAX_SELECTOR_WORK: usize = 100_000;
 #[cfg(test)]
 mod tests;
 
-pub(super) fn profile(c: &Component, y: &Variable) -> PhaseProfile {
-    analyze(c, y).unwrap_or(PhaseProfile::Unsupported)
+pub(super) fn profile(query: &mut analysis::Query<'_>) -> PhaseProfile {
+    analyze_query(query).unwrap_or(PhaseProfile::Unsupported)
 }
 
+#[cfg(test)]
 fn analyze(c: &Component, y: &Variable) -> Option<PhaseProfile> {
+    analyze_query(&mut analysis::Analysis::new(c).query(y))
+}
+
+fn analyze_query(query: &mut analysis::Query<'_>) -> Option<PhaseProfile> {
     let mut difference = PhasePolynomial::zero();
     let mut work = MAX_SELECTOR_WORK;
-    for (selector, coefficient) in c.phase.selectors() {
-        if !selector.variables().contains(y) {
-            continue;
-        }
+    for i in 0..query.len() {
+        let coefficient = query.coefficient(i).clone();
         // Reject unsupported numeric atoms, never drop their contribution.
         coefficient.as_rational()?;
-        work = work.checked_sub(selector.storage_size())?;
-        let high = selector.substitute(y, &BooleanPolynomial::one());
-        let low = selector.substitute(y, &BooleanPolynomial::zero());
-        difference.add_boolean(&high, coefficient.clone());
-        difference.add_boolean(&low, coefficient.scaled(BigInt::from(-1)));
+        work = work.checked_sub(query.size(i))?;
+        let (low, high) = query.cofactors(i);
+        difference.add_boolean(high, coefficient.clone());
+        difference.add_boolean(low, coefficient.scaled(BigInt::from(-1)));
         if difference.storage_size() > MAX_SELECTOR_WORK {
             return None;
         }
