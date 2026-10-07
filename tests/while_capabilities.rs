@@ -20,6 +20,6 @@ fn loops_are_rejected_even_when_dead_or_unobservable() {
             matches!(result, Err(SymbolicError::UnsupportedConstruct(_))),
             "{source}: {result:?}"
         );
-        assert!(iqir::unitary::validate(&program).is_err());
+        assert!(irene::equivalence::unitary_miter::validate(&program).is_err());
     }
 }

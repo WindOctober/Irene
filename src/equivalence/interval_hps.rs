@@ -11,7 +11,8 @@
 //! A normalized maximally entangled input also gives a lower bound:
 //! 2 sqrt(1-|t|^2). A strictly positive, error-corrected lower bound proves NEQ.
 //! These are separate certificates; the exact `analyze` route is unchanged.
-use crate::ir::{NumericExpr, Program, unitary};
+use super::unitary_miter;
+use crate::ir::{NumericExpr, Program};
 use crate::symbolic::{
     BooleanPolynomial, ExecutionConfig, OutputSelection, Scalar, Variable, execute,
     normalized_trace_component,

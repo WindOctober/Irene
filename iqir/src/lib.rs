@@ -1,7 +1,8 @@
 //! Irene Quantum IR (IQIR).
 //!
-//! This crate owns the gate-level IR, OpenQASM import support, and pure unitary
-//! transformations. It does not depend on IreneQ or an SMT solver.
+//! This crate owns the gate-level IR and OpenQASM import support.
+//! Verification-specific transformations live in IreneQ, not in this crate.
+//! It does not depend on IreneQ or an SMT solver.
 //! Construct nodes with [AstIdGenerator]; identities are not semantic content.
 //!
 //! Structured control flow and typed scalars preserve source semantics;
@@ -16,7 +17,6 @@ use num_rational::BigRational;
 
 pub mod frontend;
 pub mod scalar;
-pub mod unitary;
 pub use scalar::*;
 
 /// Program-local identity shared by every owned IR node.
@@ -254,6 +254,17 @@ pub enum Gate {
     Ccx,
     /// Controlled-controlled Z: |abc> maps to (-1)^(abc) |abc>.
     Ccz,
+}
+
+/// Returns the required (qubit count, parameter count) for an IR gate.
+pub fn gate_shape(gate: Gate) -> (usize, usize) {
+    match gate {
+        Gate::H | Gate::X | Gate::Y | Gate::Z | Gate::S | Gate::Sdg | Gate::T | Gate::Tdg => (1, 0),
+        Gate::Cx | Gate::Cy | Gate::Cz | Gate::Swap => (2, 0),
+        Gate::Ccx | Gate::Ccz => (3, 0),
+        Gate::P | Gate::Rx | Gate::Ry | Gate::Rz => (1, 1),
+        Gate::Cp | Gate::Crx | Gate::Cry | Gate::Crz => (2, 1),
+    }
 }
 
 /// A scalar Boolean expression used by assignments and classical control.

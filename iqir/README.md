@@ -25,8 +25,9 @@ assert_eq!(h.ast_id().index(), 0);
 Node IDs index analysis tables; they do not affect semantic equality.
 The allocator does not validate operands, scopes, or numeric domains. Existing
 validation boundaries are preserved; constructing an IR does not imply that
-IreneQ can verify it. The `unitary` module retains its restricted full-unitary
-validation and miter contract.
+IreneQ can verify it. Gate arities are available through `iqir::gate_shape`.
+Full-unitary admission and miter construction belong to IreneQ's
+`irene::equivalence::unitary_miter` module, not to IQIR.
 
 ## Import OpenQASM
 
@@ -175,7 +176,7 @@ Semantic references:
 Frontend import and verification share one IR. Import success is not an equivalence or termination
 proof. IreneQ currently rejects while loops, scalar storage/comparisons,
 explicit global phases and composite unitary modifiers before slicing or symbolic
-execution, even in dead branches. IQIR's unitary miter also reports unsupported
+execution, even in dead branches. IreneQ's unitary miter also reports unsupported
 statements explicitly. These diagnostics mark backend capabilities, not a second
 frontend. Plain custom gates that expand entirely to supported gate nodes can
 use the existing verifier.
