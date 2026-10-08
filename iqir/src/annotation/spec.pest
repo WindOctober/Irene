@@ -17,8 +17,12 @@ expression = { pratt ~ ("?" ~ expression ~ ":" ~ expression)? }
 pratt = { prefix* ~ primary ~ postfix* ~ (infix ~ prefix* ~ primary ~ postfix*)* }
 // Quantifiers consume a complete expression to their right, including nested
 // quantifiers and implication. Parentheses can explicitly end their scope.
-primary = _{ quantifier | binder | ket | bra | pauli | imaginary | builtin_call | constant | infinity | call | boolean | number | identifier | list | "(" ~ expression ~ ")" }
-// Explicit multiplication keeps Dirac notation distinct from Boolean || and <.
+primary = _{ quantifier | binder | inner_product | outer_product | ket | bra | pauli | imaginary | builtin_call | constant | infinity | call | boolean | number | identifier | list | "(" ~ expression ~ ")" }
+// Complete Dirac products are primaries, before their ket/bra prefixes.
+// Other products still require explicit multiplication; this is not juxtaposition.
+inner_product = { ("<" | "⟨") ~ state_factors ~ "|" ~ state_factors ~ (">" | "⟩") }
+outer_product = { ket ~ bra }
+state_factors = { qubit_state+ }
 ket = { "|" ~ qubit_state+ ~ (">" | "⟩") }
 bra = { ("<" | "⟨") ~ qubit_state+ ~ "|" }
 qubit_state = @{ "+i" | "-i" | "−i" | "0" | "1" | "+" | "-" | "−" }

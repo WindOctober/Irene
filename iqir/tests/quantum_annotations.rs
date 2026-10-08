@@ -143,10 +143,161 @@ fn quantum_notation_does_not_change_boolean_or_arithmetic_precedence() {
 }
 
 #[test]
+fn compact_dirac_products_desugar_to_typed_multiplication() {
+    for (compact, explicit, ty) in [
+        ("<0|1>", "<0| * |1>", SpecType::Complex),
+        ("<0|0>", "<0| * |0>", SpecType::Complex),
+        ("⟨+i|−i⟩", "<+i| * |-i>", SpecType::Complex),
+        ("<01+-|10-+>", "<01+-| * |10-+>", SpecType::Complex),
+        ("< +i -i | 0 1 >", "<+i -i| * |01>", SpecType::Complex),
+        ("|0><0|", "|0> * <0|", SpecType::Operator(1)),
+        ("|+i⟩⟨−i|", "|+i> * <-i|", SpecType::Operator(1)),
+        ("|01><10|", "|01> * <10|", SpecType::Operator(2)),
+        ("| 0 1 > < 1 0 |", "|01> * <10|", SpecType::Operator(2)),
+    ] {
+        assert_eq!(
+            parse_expression(compact).unwrap(),
+            parse_expression(explicit).unwrap(),
+            "{compact}"
+        );
+        let (expression, actual) = checked(compact).unwrap();
+        assert_eq!(actual, ty, "{compact}");
+        assert_eq!((expression.clone(), actual), checked(explicit).unwrap());
+        // Even <0|0> remains a symbolic product, not the computed number 1.
+        assert!(matches!(
+            expression,
+            SpecExpr::Binary {
+                op: BinaryOp::Mul,
+                ..
+            }
+        ));
+    }
+}
+
+#[test]
+fn compact_dirac_pairs_are_primaries_without_changing_other_precedence() {
+    for (compact, explicit) in [
+        ("2 * |0><0|", "2 * (|0> * <0|)"),
+        ("|0><0| * |1>", "(|0> * <0|) * |1>"),
+        ("<0|1> + <1|0>", "(<0| * |1>) + (<1| * |0>)"),
+        ("<0|1>^2", "(<0| * |1>)^2"),
+        ("-|0><0|", "-(|0> * <0|)"),
+        ("<0|1> / <1|0>", "(<0| * |1>) / (<1| * |0>)"),
+        (r"\adjoint(|0><1|)", r"\adjoint((|0> * <1|))"),
+        (r"|0><0| \otimes |1><1|", r"(|0> * <0|) \otimes (|1> * <1|)"),
+        ("<0|1> == 0 || true", "((<0| * |1>) == 0) || true"),
+        ("true || <0|1> == 0", "true || ((<0| * |1>) == 0)"),
+        ("|0><0| == |1><1|", "(|0> * <0|) == (|1> * <1|)"),
+        ("0 < 1 && <0|1> == 0", "(0 < 1) && ((<0| * |1>) == 0)"),
+        ("1 > 0 && <0|1> == 0", "(1 > 0) && ((<0| * |1>) == 0)"),
+        ("true ? <0|1> : <1|0>", "true ? (<0| * |1>) : (<1| * |0>)"),
+    ] {
+        assert_eq!(
+            parse_expression(compact).unwrap(),
+            parse_expression(explicit).unwrap(),
+            "{compact}"
+        );
+        assert_eq!(checked(compact).unwrap(), checked(explicit).unwrap());
+    }
+}
+
+#[test]
+fn compact_dirac_products_keep_literal_dimension_and_syntax_limits() {
+    for bad in [
+        "<|0>",
+        "<0|>",
+        "<0|1",
+        "<2|0>",
+        "<0|2>",
+        "<psi|phi>",
+        "|0><|",
+        "|0><2|",
+        "|0><psi|",
+        "<0||1>",
+        "<0|1><1|0>",
+        "|0><0||1><1|",
+        "2|0>",
+        r"\X|0>",
+        "|0>|1>",
+        r"<0|\X|1>",
+    ] {
+        assert!(parse_expression(bad).is_err(), "accepted {bad}");
+    }
+    for bad in ["<0|00>", "⟨00|0⟩", "|0><00|", "|00⟩⟨0|"] {
+        let mut expression = parse_expression(bad).unwrap();
+        let error = check_expression(&mut expression, &[], |_| unreachable!()).unwrap_err();
+        assert!(
+            error.to_string().contains("invalid linear product"),
+            "{bad}: {error}"
+        );
+    }
+    let max = "0".repeat(64);
+    assert_eq!(
+        checked(&format!("<{max}|{max}>")).unwrap().1,
+        SpecType::Complex
+    );
+    assert_eq!(
+        checked(&format!("|{max}><{max}|")).unwrap().1,
+        SpecType::Operator(64)
+    );
+    let excessive = "0".repeat(65);
+    for bad in [
+        format!("<{excessive}|0>"),
+        format!("<0|{excessive}>"),
+        format!("|{excessive}><0|"),
+        format!("|0><{excessive}|"),
+    ] {
+        let error = parse_expression(&bad).unwrap_err();
+        assert!(
+            error.message.contains("quantum dimension budget"),
+            "{bad}: {error}"
+        );
+    }
+}
+
+#[test]
+fn compact_dirac_products_import_in_annotations_and_helpers() {
+    let source = r"OPENQASM 3;
+qubit q;
+pragma saria.def overlap(x: float) -> float = x * \re(⟨0|1⟩)
+@saria.requires overlap(1) == 0 && <0|1> == 0 || false
+@saria.ensures |0⟩⟨0| * |0> == |0>
+reset q;
+";
+    let explicit = source
+        .replace("⟨0|1⟩", "(<0| * |1>)")
+        .replace("<0|1>", "(<0| * |1>)")
+        .replace("|0⟩⟨0|", "(|0> * <0|)");
+    let program = frontend::parse_str(source, "compact.qasm").unwrap();
+    let expanded = frontend::parse_str(&explicit, "explicit.qasm").unwrap();
+    assert_eq!(program.spec_functions.len(), 1);
+    assert_eq!(
+        program.spec_functions[0].body,
+        expanded.spec_functions[0].body
+    );
+    assert_eq!(program.annotations.len(), 1);
+    let annotations = program.annotations.values().next().unwrap();
+    let expanded_annotations = expanded.annotations.values().next().unwrap();
+    assert_eq!(annotations.len(), 2);
+    for ((annotation, expanded), expected_text) in
+        annotations.iter().zip(expanded_annotations).zip([
+            "@saria.requires overlap(1) == 0 && <0|1> == 0 || false",
+            "@saria.ensures |0⟩⟨0| * |0> == |0>",
+        ])
+    {
+        assert_eq!(annotation.payload, expanded.payload);
+        assert_eq!(
+            &source[annotation.span.start..annotation.span.end],
+            expected_text
+        );
+    }
+}
+
+#[test]
 fn invalid_quantum_dimensions_and_operations_are_rejected() {
     for source in [
         "|>", "<|", "|2>", "|psi>", "|i>", "|0", "<0>", r"\XX", r"\Xfoo", r"\ifoo", r"\otimes",
-        "2|0>", "|0><0|", "<0|0>", "|0>|1>",
+        "2|0>", "|0>|1>",
     ] {
         assert!(parse_expression(source).is_err(), "accepted {source}");
     }
@@ -235,16 +386,11 @@ reset q;
             ));
         }
     }
-    let error = frontend::parse_str(
+    frontend::parse_str(
         "OPENQASM 3; qubit q;\n@saria.ensures q == |0>\nreset q;",
-        "unsupported-state-query.qasm",
+        "state-predicate.qasm",
     )
-    .unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("not a classical specification value")
-    );
+    .unwrap();
 }
 
 #[test]

@@ -265,25 +265,30 @@ fn primary(p: Pair<'_, Rule>) -> Result<SpecExpr, AnnotationParseError> {
         }),
         Rule::ket | Rule::bra => {
             let is_ket = p.as_rule() == Rule::ket;
-            let factors = p
-                .into_inner()
-                .map(|factor| match factor.as_str() {
-                    "0" => QubitState::Zero,
-                    "1" => QubitState::One,
-                    "+" => QubitState::Plus,
-                    "-" | "−" => QubitState::Minus,
-                    "+i" => QubitState::PlusI,
-                    "-i" | "−i" => QubitState::MinusI,
-                    _ => unreachable!(),
-                })
-                .collect::<Vec<_>>();
-            if factors.len() > MAX_QUANTUM_QUBITS {
-                return Err(error(offset, "quantum dimension budget exceeded"));
-            }
+            let factors = state_factors(p)?;
             if is_ket {
                 SpecExpr::Ket(factors)
             } else {
                 SpecExpr::Bra(factors)
+            }
+        }
+        Rule::inner_product | Rule::outer_product => {
+            let is_inner = p.as_rule() == Rule::inner_product;
+            let mut fields = p.into_inner();
+            let left = fields.next().unwrap();
+            let right = fields.next().unwrap();
+            let (left, right) = if is_inner {
+                (
+                    SpecExpr::Bra(state_factors(left)?),
+                    SpecExpr::Ket(state_factors(right)?),
+                )
+            } else {
+                (primary(left)?, primary(right)?)
+            };
+            SpecExpr::Binary {
+                op: BinaryOp::Mul,
+                left: Box::new(left),
+                right: Box::new(right),
             }
         }
         Rule::number => {
@@ -360,6 +365,27 @@ fn primary(p: Pair<'_, Rule>) -> Result<SpecExpr, AnnotationParseError> {
         }
         _ => unreachable!("unexpected primary {:?}", p.as_rule()),
     })
+}
+
+// Used by both standalone literals and the two labels of a compact inner product.
+fn state_factors(p: Pair<'_, Rule>) -> Result<Vec<QubitState>, AnnotationParseError> {
+    let offset = p.as_span().start();
+    let factors = p
+        .into_inner()
+        .map(|factor| match factor.as_str() {
+            "0" => QubitState::Zero,
+            "1" => QubitState::One,
+            "+" => QubitState::Plus,
+            "-" | "−" => QubitState::Minus,
+            "+i" => QubitState::PlusI,
+            "-i" | "−i" => QubitState::MinusI,
+            _ => unreachable!(),
+        })
+        .collect::<Vec<_>>();
+    if factors.len() > MAX_QUANTUM_QUBITS {
+        return Err(error(offset, "quantum dimension budget exceeded"));
+    }
+    Ok(factors)
 }
 
 fn arguments(p: Option<Pair<'_, Rule>>) -> Result<Vec<SpecExpr>, AnnotationParseError> {

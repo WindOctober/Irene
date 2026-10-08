@@ -75,6 +75,16 @@ fn compatible(actual: SpecType, expected: SpecType) -> bool {
         || (actual.numeric() && matches!(expected, SpecType::Float | SpecType::Angle))
 }
 
+// Admission of a state predicate only: neither purity nor the equality is proved.
+fn state_comparable(a: SpecType, b: SpecType) -> bool {
+    use SpecType::*;
+    match (a, b) {
+        (Qubit, Ket(1)) | (Ket(1), Qubit) => true,
+        (QubitRegister(n), Ket(m)) | (Ket(m), QubitRegister(n)) => n == m,
+        _ => false,
+    }
+}
+
 fn join(a: SpecType, b: SpecType) -> Result<SpecType, FunctionError> {
     if a == b && (a.quantum() || a == SpecType::Complex) {
         return Ok(a);
@@ -261,6 +271,7 @@ where
                         if (a.boolean() && b.boolean())
                             || (a.scalar() && b.scalar())
                             || (a.quantum() && a == b)
+                            || state_comparable(a, b)
                             || (a == SpecType::Bit && b.integer())
                             || (b == SpecType::Bit && a.integer()) =>
                     {
@@ -470,12 +481,14 @@ where
                         ty = join(ty, t?)?;
                     }
                     Ok(ty)
-                } else if self.check(value, depth + 1)?.integer() {
-                    Ok(SpecType::Bit)
                 } else {
-                    Err(fail(
-                        "indexing requires a classical integer/bit register or list",
-                    ))
+                    match self.check(value, depth + 1)? {
+                        SpecType::QubitRegister(_) => Ok(SpecType::Qubit),
+                        t if t.integer() => Ok(SpecType::Bit),
+                        _ => Err(fail(
+                            "indexing requires a quantum register, classical integer/bit register or list",
+                        )),
+                    }
                 }
             }
             SpecExpr::List(_) => Err(fail(
