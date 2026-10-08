@@ -144,6 +144,22 @@ impl Lowerer {
         ) {
             return Err(self.annotation_error(&annotations[0], "annotations currently require an executable statement, not a declaration/definition"));
         }
+        let mut counter = None;
+        for a in &annotations {
+            if a.kind == AnnotationKind::LoopCounter && counter.replace(a).is_some() {
+                return Err(self.annotation_error(a, "a loop can designate only one loop_counter"));
+            }
+        }
+        if counter.is_none()
+            && let Some(a) = annotations
+                .iter()
+                .find(|a| a.kind == AnnotationKind::ExitProbability)
+        {
+            return Err(self.annotation_error(
+                a,
+                "exit_probability requires a loop_counter on the same while statement",
+            ));
+        }
         for a in &mut annotations {
             let source_name = a.span.source.clone();
             let offset = a.span.start;
@@ -208,10 +224,54 @@ impl Lowerer {
             }
             if matches!(
                 a.kind,
-                AnnotationKind::Invariant | AnnotationKind::Terminates
+                AnnotationKind::Invariant
+                    | AnnotationKind::Terminates
+                    | AnnotationKind::LoopCounter
+                    | AnnotationKind::ExitProbability
             ) && !matches!(&statement, Stmt::WhileStmt(_))
             {
-                return Err(self.annotation_error(a, "invariant/terminates requires a while statement (static for loops are expanded)"));
+                return Err(self.annotation_error(a, "invariant/terminates/loop_counter/exit_probability requires a while statement (static for loops are expanded)"));
+            }
+            match &mut a.payload {
+                AnnotationPayload::LoopCounter { id, name } => {
+                    let binding = self
+                        .scopes
+                        .lookup(name)
+                        .map_err(|_| error(format!("unknown loop counter `{name}`")))?;
+                    let integer_variable = matches!(
+                        binding.kind,
+                        BindingKind::Ghost(SpecType::Int(_) | SpecType::Uint(_))
+                            | BindingKind::ClassicalBit(BitType::Uint { .. })
+                            | BindingKind::Scalar {
+                                ty: ScalarType::Int { .. },
+                                is_const: false,
+                                assignable: true,
+                                ..
+                            }
+                            | BindingKind::NumericInput(NumericType::Int(_) | NumericType::Uint(_))
+                    );
+                    if !integer_variable {
+                        return Err(error(
+                            "loop_counter requires an int/uint program or ghost variable".into(),
+                        ));
+                    }
+                    *id = Some(binding.id);
+                }
+                AnnotationPayload::ExitProbability { bound, .. } => {
+                    let ty = check_expression(bound, &self.spec_functions, |name| {
+                        self.resolve_spec_name(name)
+                    })
+                    .map_err(|e| error(e.to_string()))?;
+                    if !matches!(
+                        ty,
+                        SpecType::Int(_) | SpecType::Uint(_) | SpecType::Float(_) | SpecType::Real
+                    ) {
+                        return Err(error(
+                            "exit_probability requires an int/uint/float/real expression".into(),
+                        ));
+                    }
+                }
+                _ => {}
             }
             if let AnnotationPayload::Expression(e) = &mut a.payload {
                 let ty =

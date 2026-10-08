@@ -1,6 +1,11 @@
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
 expression_file = { SOI ~ expression ~ EOI }
-annotation_file = { SOI ~ "@saria." ~ (ghost_declaration | ghost_assignment | annotation_kind ~ (termination | expression)) ~ EOI }
+annotation_file = { SOI ~ "@saria." ~ (ghost_declaration | ghost_assignment | loop_counter | exit_probability | annotation_kind ~ (termination | expression)) ~ EOI }
+loop_counter = { loop_counter_keyword ~ identifier }
+loop_counter_keyword = @{ "loop_counter" ~ !ident_continue }
+exit_probability = { exit_probability_keyword ~ probability_relation ~ expression }
+exit_probability_keyword = @{ "exit_probability" ~ !ident_continue }
+probability_relation = { "==" | ">=" | "<=" }
 ghost_declaration = { ghost_keyword ~ identifier ~ ":" ~ scalar_type ~ ("=" ~ expression)? }
 ghost_assignment = { set_keyword ~ identifier ~ "=" ~ expression }
 ghost_keyword = @{ "ghost" ~ !ident_continue }
