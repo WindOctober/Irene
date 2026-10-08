@@ -12,15 +12,18 @@ pragma saria.def remaining(k: int) -> float = \cosh(1) - \sum(j in 0..k, a(j))
 pragma saria.def stop_probability(k: int) -> float = k >= 5 ? 1 : a(k)/remaining(k)
 @saria.requires n == 0 && !stop
 @saria.invariant n <= 5 && stop_probability(n) > 0
+@saria.loop_counter n
+@saria.exit_probability == stop_probability(n)
 @saria.terminates almost_sure
 @saria.ensures stop
 while (!stop) { /* original loop body */ }
 ```
 
 This is a syntax example, not a proof of these properties. `Requires`,
-`Ensures`, `Assert`, `Invariant`, and `Terminates` are `AnnotationKind` variants.
-`AnnotationPayload` holds either a `SpecExpr` tree or the typed termination
-mode `AlmostSure`, never an opaque expression string. Source spans record the
+`Ensures`, `Assert`, `Invariant`, `Terminates`, `LoopCounter`, and `ExitProbability` are
+`AnnotationKind` variants. `AnnotationPayload` stores typed expressions,
+termination modes, counter bindings, probability relations, and ghost updates,
+never opaque expression strings. Source spans record the
 original filename and exclusive UTF-8 byte range. Use
 `program.annotations.get(&statement.ast_id())` to inspect a statement's list.
 
@@ -45,6 +48,27 @@ IQIR anchors each assertion to an empty `Scope` sequence in the existing
 annotation table. This preserves source order, AST identity, and spans without
 adding an executable gate or a new statement kind. Consumers generate a proof
 goal there; the annotation is not an assumption.
+
+## Counter-indexed exit probability
+
+`@saria.loop_counter n` selects one existing `int`/`uint` program or ghost
+variable. It neither initializes nor updates it; resetting or decreasing the
+counter is allowed. The payload resolves the name to its lexical `SymbolId`.
+Constants, bit registers, and expressions such as `n + 1` are not counters.
+
+`@saria.exit_probability R p` accepts `==`, `>=`, or `<=` and an `int`, `uint`,
+`float`, or `real` expression, using the ordinary specification name and helper resolver.
+Each annotated `while` must designate its own counter; nested loops do not
+inherit one. Multiple probability clauses are conjunctive. Counter designation
+and probability clauses may appear in either order, with names declared before use.
+
+For every admissible active loop-head state, `p` uses this iteration's entry
+values and bounds the probability of normal exit during the iteration: a `break`
+targeting this loop or reaching the next guard with that guard false. Divergence
+and other control transfers contribute no normal-exit probability. This is not
+cumulative or eventual termination probability. An initially false guard starts
+no iteration. Proving the bound defined, within `[0, 1]`, and satisfied is the
+consumer's task; these annotations do not imply `terminates almost_sure`.
 
 ## Expression syntax
 
@@ -204,7 +228,8 @@ inversion/composition changes specification boundaries.
 ## Supported scope and proof boundaries
 
 Initial scope: executable statements at top level and in control-flow blocks.
-`invariant` and `terminates` require a retained `while`, not an expanded `for`.
+`invariant`, `terminates`, `loop_counter`, and `exit_probability` require a
+retained `while`, not an expanded `for`.
 Annotations on declarations/definitions and inside gate/subroutine definitions
 are explicitly rejected, including unused definitions. Other annotation namespaces
 and pragmas other than top-level `saria.def` are unsupported. Each annotation occupies

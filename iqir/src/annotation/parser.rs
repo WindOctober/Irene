@@ -108,6 +108,39 @@ pub fn parse_expression(text: &str) -> Result<SpecExpr, AnnotationParseError> {
 pub fn parse_annotation(text: &str, span: SourceSpan) -> Result<Annotation, AnnotationParseError> {
     let mut fields = parse(Rule::annotation_file, text)?.into_inner();
     let first = fields.next().unwrap();
+    if matches!(first.as_rule(), Rule::loop_counter | Rule::exit_probability) {
+        let counter = first.as_rule() == Rule::loop_counter;
+        let mut parts = first.into_inner();
+        parts.next(); // annotation keyword
+        let (kind, payload) = if counter {
+            (
+                AnnotationKind::LoopCounter,
+                AnnotationPayload::LoopCounter {
+                    id: None,
+                    name: parts.next().unwrap().as_str().to_owned(),
+                },
+            )
+        } else {
+            let relation = match parts.next().unwrap().as_str() {
+                "==" => ProbabilityRelation::Equal,
+                ">=" => ProbabilityRelation::AtLeast,
+                "<=" => ProbabilityRelation::AtMost,
+                _ => unreachable!(),
+            };
+            (
+                AnnotationKind::ExitProbability,
+                AnnotationPayload::ExitProbability {
+                    relation,
+                    bound: expression(parts.next().unwrap())?,
+                },
+            )
+        };
+        return Ok(Annotation {
+            kind,
+            payload,
+            span,
+        });
+    }
     if matches!(
         first.as_rule(),
         Rule::ghost_declaration | Rule::ghost_assignment
