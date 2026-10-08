@@ -53,6 +53,21 @@ impl ScalarType {
         if !self.contains_integer(a) || !self.contains_integer(b) {
             return Err("integer operand outside its type");
         }
+        if let Self::Int {
+            width,
+            signed: false,
+        } = self
+        {
+            let (a, b) = (a as u128, b as u128);
+            let value = match op {
+                A::Add => a.wrapping_add(b),
+                A::Sub => a.wrapping_sub(b),
+                A::Mul => a.wrapping_mul(b),
+                A::Div => a.checked_div(b).ok_or("zero divisor")?,
+                A::Rem => a.checked_rem(b).ok_or("zero divisor")?,
+            };
+            return Ok((value & ((1u128 << width) - 1)) as i128);
+        }
         if matches!(op, A::Div | A::Rem)
             && b == -1
             && matches!(self, Self::Int { signed: true, .. })
@@ -189,7 +204,9 @@ impl ScalarExpr {
                     return Ok(None);
                 };
                 match v {
-                    V::Integer(v) => V::Integer(v.checked_neg().ok_or("integer overflow")?),
+                    V::Integer(v) => {
+                        V::Integer(self.ty.checked_integer_arithmetic(A::Sub, 0, v)?)
+                    }
                     V::Float32(v) => V::Float32((-f32::from_bits(v)).to_bits()),
                     V::Float64(v) => V::Float64((-f64::from_bits(v)).to_bits()),
                 }
