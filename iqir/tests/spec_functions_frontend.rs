@@ -17,7 +17,7 @@ fn qasm_import_keeps_function_ids_and_does_not_execute_definitions() {
     for tail in [
         "pragma saria.def f(x: int) -> int = n+x",
         "pragma saria.def f(x: qubit) -> int = 0",
-        "pragma saria.def f(x: int[8]) -> int = x",
+        "pragma saria.def f(x: int[0]) -> int = x",
         "@saria.requires f(1) == 1\nreset q;\npragma saria.def f(x: int) -> int = x",
         "if (true) {\npragma saria.def f(x: int) -> int = x\n}",
         "def unused(qubit q) {\npragma saria.def f(x: int) -> int = x\n}",

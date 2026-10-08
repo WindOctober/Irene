@@ -191,8 +191,8 @@ fn helper_signature_is_parsed_without_resolving_or_executing_it() {
     assert_eq!(f.name, "remaining");
     assert_eq!(f.parameters.len(), 1);
     assert_eq!(f.parameters[0].name, "n");
-    assert_eq!(f.parameters[0].ty, SpecType::Int);
-    assert_eq!(f.result, SpecType::Float);
+    assert_eq!(f.parameters[0].ty, SpecType::Int(None));
+    assert_eq!(f.result, SpecType::Float(None));
     assert_eq!(f.span, span);
     assert!(matches!(
         f.body,

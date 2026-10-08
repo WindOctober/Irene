@@ -117,7 +117,7 @@ pub fn parse_annotation(text: &str, span: SourceSpan) -> Result<Annotation, Anno
         parts.next(); // ghost/set keyword
         let name = parts.next().unwrap().as_str().to_owned();
         let (kind, payload) = if declaration {
-            let ty = scalar_type(parts.next().unwrap());
+            let ty = scalar_type(parts.next().unwrap())?;
             let initializer = parts.next().map(expression).transpose()?;
             (
                 AnnotationKind::GhostDeclare,
@@ -185,12 +185,12 @@ pub fn parse_function(text: &str, span: SourceSpan) -> Result<SpecFunction, Anno
             let mut parts = p.into_inner();
             parameters.push(Parameter {
                 name: parts.next().unwrap().as_str().into(),
-                ty: scalar_type(parts.next().unwrap()),
+                ty: scalar_type(parts.next().unwrap())?,
             });
         }
         next = fields.next().unwrap();
     }
-    let result = scalar_type(next);
+    let result = scalar_type(next)?;
     let body = expression(fields.next().unwrap())?;
     Ok(SpecFunction {
         name,
@@ -201,16 +201,36 @@ pub fn parse_function(text: &str, span: SourceSpan) -> Result<SpecFunction, Anno
     })
 }
 
-fn scalar_type(p: Pair<'_, Rule>) -> SpecType {
-    match p.as_str() {
+fn scalar_type(p: Pair<'_, Rule>) -> Result<SpecType, AnnotationParseError> {
+    let offset = p.as_span().start();
+    let text = p.as_str().replace(char::is_whitespace, "");
+    let (name, width) = match text.split_once('[') {
+        Some((name, width)) => (
+            name,
+            Some(
+                width
+                    .trim_end_matches(']')
+                    .parse::<usize>()
+                    .map_err(|_| error(offset, "invalid type width"))?,
+            ),
+        ),
+        None => (text.as_str(), None),
+    };
+    if width.is_some_and(|w| w == 0 || w > 64)
+        || (name == "float" && width.is_some_and(|w| !matches!(w, 32 | 64)))
+        || (matches!(name, "bool" | "bit") && width.is_some())
+    {
+        return Err(error(offset, "unsupported scalar type width"));
+    }
+    Ok(match name {
         "bool" => SpecType::Bool,
         "bit" => SpecType::Bit,
-        "int" => SpecType::Int,
-        "uint" => SpecType::Uint,
-        "float" => SpecType::Float,
-        "angle" => SpecType::Angle,
+        "int" => SpecType::Int(width),
+        "uint" => SpecType::Uint(width),
+        "float" => SpecType::Float(width),
+        "angle" => SpecType::Angle(width),
         _ => unreachable!(),
-    }
+    })
 }
 
 fn expression(p: Pair<'_, Rule>) -> Result<SpecExpr, AnnotationParseError> {
@@ -340,11 +360,19 @@ fn primary(p: Pair<'_, Rule>) -> Result<SpecExpr, AnnotationParseError> {
                 return Err(error(offset, "numeric exponent budget exceeded"));
             }
             let power = BigInt::from(10).pow(scale.unsigned_abs() as u32);
-            SpecExpr::Number(if scale >= 0 {
+            let value = SpecExpr::Number(if scale >= 0 {
                 BigRational::new(digits, power)
             } else {
                 BigRational::from_integer(digits * power)
-            })
+            });
+            if p.as_str().contains(['.', 'e', 'E']) {
+                SpecExpr::Cast {
+                    ty: SpecType::Float(None),
+                    operand: Box::new(value),
+                }
+            } else {
+                value
+            }
         }
         Rule::call | Rule::builtin_call => {
             let is_builtin = p.as_rule() == Rule::builtin_call;
@@ -381,11 +409,11 @@ fn primary(p: Pair<'_, Rule>) -> Result<SpecExpr, AnnotationParseError> {
             let name = f.next().unwrap().as_str().to_owned();
             let mut lo = f.next().unwrap();
             let ty = if lo.as_rule() == Rule::scalar_type {
-                let t = scalar_type(lo);
+                let t = scalar_type(lo)?;
                 lo = f.next().unwrap();
                 t
             } else {
-                SpecType::Int
+                SpecType::Int(None)
             };
             let lower = Box::new(expression(lo)?);
             let inclusive = f.next().unwrap().as_str() == "..=";

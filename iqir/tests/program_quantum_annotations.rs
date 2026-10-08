@@ -97,7 +97,7 @@ fn register_predicates_and_indices_preserve_quantum_types() {
             let (id, ty) = match name {
                 "q" => (0, SpecType::Qubit),
                 "r" => (1, SpecType::QubitRegister(2)),
-                "n" => (2, SpecType::Int),
+                "n" => (2, SpecType::Int(None)),
                 "b" => (3, SpecType::Bool),
                 _ => return Err(format!("unknown {name}")),
             };
@@ -192,7 +192,7 @@ fn quantum_binding_recognition_obeys_lexical_shadowing() {
         else {
             panic!()
         };
-        let SpecExpr::Symbol { id, name } = left.as_ref() else {
+        let SpecExpr::Symbol { id, name } = left.uncast() else {
             panic!()
         };
         assert_eq!(name, "q");
@@ -226,6 +226,6 @@ fn static_loop_specializes_quantum_indices_without_losing_register_identity() {
                 name: "r".into()
             }
         );
-        assert_eq!(index.as_ref(), &parse_expression(&i.to_string()).unwrap());
+        assert_eq!(index.uncast(), &parse_expression(&i.to_string()).unwrap());
     }
 }

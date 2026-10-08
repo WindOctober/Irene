@@ -2,8 +2,8 @@
 //!
 //! Pest parses syntax; checking resolves symbols/helpers, sorts and dimensions.
 //! Neither proves predicates or mathematical domains (e.g. factorial requires a
-//! nonnegative integer). Numbers are exact mathematical rationals, not
-//! finite-width program arithmetic. Quantum terms include symbolic linear algebra
+//! nonnegative integer). Classical types use OpenQASM widths and arithmetic.
+//! Quantum terms include symbolic linear algebra
 //! and program quantum references in state predicates; checking does not extract
 //! a circuit state or prove purity.
 
@@ -18,18 +18,18 @@ mod parser;
 pub use functions::{FunctionError, check_expression, define_function, instantiate_function};
 pub use parser::{AnnotationParseError, parse_annotation, parse_expression, parse_function};
 
-/// Mathematical specification types and program quantum-reference types.
-/// Specification arithmetic has no machine-width wrapping/rounding.
-/// Uint carries a nonnegative domain obligation. Quantum dimensions are qubit
+/// OpenQASM classical types and quantum specification types.
+/// Omitted widths use the same target defaults as executable declarations.
+/// Quantum dimensions are qubit
 /// counts, not vector lengths; no exponentially sized matrix is allocated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpecType {
     Bool,
     Bit,
-    Int,
-    Uint,
-    Float,
-    Angle,
+    Int(Option<usize>),
+    Uint(Option<usize>),
+    Float(Option<usize>),
+    Angle(Option<usize>),
     Complex,
     Ket(usize),
     Bra(usize),
@@ -38,6 +38,25 @@ pub enum SpecType {
     Qubit,
     /// A program quantum register; unlike a scalar qubit, it can be indexed.
     QubitRegister(usize),
+}
+
+impl std::fmt::Display for SpecType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let (name, width) = match self {
+            Self::Bool => ("bool", None),
+            Self::Bit => ("bit", None),
+            Self::Int(w) => ("int", *w),
+            Self::Uint(w) => ("uint", *w),
+            Self::Float(w) => ("float", *w),
+            Self::Angle(w) => ("angle", *w),
+            _ => return write!(f, "{self:?}"),
+        };
+        write!(f, "{name}")?;
+        if let Some(w) = width {
+            write!(f, "[{w}]")?;
+        }
+        Ok(())
+    }
 }
 
 /// Normalized one-qubit states in the computational, X and Y bases.
@@ -208,6 +227,11 @@ pub enum MathFunction {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SpecExpr {
+    /// Preserve declared types at reads, constants and implicit conversions.
+    Cast {
+        ty: SpecType,
+        operand: Box<SpecExpr>,
+    },
     Number(BigRational),
     ImaginaryUnit,
     /// Product-state factors in written tensor order, leftmost first.
@@ -276,6 +300,30 @@ pub enum SpecExpr {
 }
 
 impl SpecExpr {
+    /// Integer literals can be specialized to the other operand's type.
+    pub fn literal(&self) -> Option<BigRational> {
+        match self {
+            Self::Number(n) => Some(n.clone()),
+            Self::Unary {
+                op: UnaryOp::Neg,
+                operand,
+            } => operand.literal().map(|n| -n),
+            _ => None,
+        }
+    }
+    pub fn cast(self, ty: SpecType) -> Self {
+        Self::Cast {
+            ty,
+            operand: Box::new(self),
+        }
+    }
+
+    pub fn uncast(&self) -> &Self {
+        match self {
+            Self::Cast { operand, .. } => operand.uncast(),
+            _ => self,
+        }
+    }
     pub fn children(&self) -> Vec<&Self> {
         functions::children(self)
     }
