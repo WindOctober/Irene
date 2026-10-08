@@ -108,36 +108,21 @@ pub fn parse_expression(text: &str) -> Result<SpecExpr, AnnotationParseError> {
 pub fn parse_annotation(text: &str, span: SourceSpan) -> Result<Annotation, AnnotationParseError> {
     let mut fields = parse(Rule::annotation_file, text)?.into_inner();
     let first = fields.next().unwrap();
-    if matches!(first.as_rule(), Rule::loop_counter | Rule::exit_probability) {
-        let counter = first.as_rule() == Rule::loop_counter;
+    if first.as_rule() == Rule::exit_probability {
         let mut parts = first.into_inner();
         parts.next(); // annotation keyword
-        let (kind, payload) = if counter {
-            (
-                AnnotationKind::LoopCounter,
-                AnnotationPayload::LoopCounter {
-                    id: None,
-                    name: parts.next().unwrap().as_str().to_owned(),
-                },
-            )
-        } else {
-            let relation = match parts.next().unwrap().as_str() {
-                "==" => ProbabilityRelation::Equal,
-                ">=" => ProbabilityRelation::AtLeast,
-                "<=" => ProbabilityRelation::AtMost,
-                _ => unreachable!(),
-            };
-            (
-                AnnotationKind::ExitProbability,
-                AnnotationPayload::ExitProbability {
-                    relation,
-                    bound: expression(parts.next().unwrap())?,
-                },
-            )
+        let relation = match parts.next().unwrap().as_str() {
+            "==" => ProbabilityRelation::Equal,
+            ">=" => ProbabilityRelation::AtLeast,
+            "<=" => ProbabilityRelation::AtMost,
+            _ => unreachable!(),
         };
         return Ok(Annotation {
-            kind,
-            payload,
+            kind: AnnotationKind::ExitProbability,
+            payload: AnnotationPayload::ExitProbability {
+                relation,
+                bound: expression(parts.next().unwrap())?,
+            },
             span,
         });
     }

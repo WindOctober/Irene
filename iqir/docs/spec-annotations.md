@@ -12,7 +12,6 @@ pragma saria.def remaining(k: int) -> float = \cosh(1) - \sum(j in 0..k, a(j))
 pragma saria.def stop_probability(k: int) -> float = k >= 5 ? 1 : a(k)/remaining(k)
 @saria.requires n == 0 && !stop
 @saria.invariant n <= 5 && stop_probability(n) > 0
-@saria.loop_counter n
 @saria.exit_probability == stop_probability(n)
 @saria.terminates almost_sure
 @saria.ensures stop
@@ -20,9 +19,9 @@ while (!stop) { /* original loop body */ }
 ```
 
 This is a syntax example, not a proof of these properties. `Requires`,
-`Ensures`, `Assert`, `Invariant`, `Terminates`, `LoopCounter`, and `ExitProbability` are
+`Ensures`, `Assert`, `Invariant`, `Terminates`, and `ExitProbability` are
 `AnnotationKind` variants. `AnnotationPayload` stores typed expressions,
-termination modes, counter bindings, probability relations, and ghost updates,
+termination modes, probability relations, and ghost updates,
 never opaque expression strings. Source spans record the
 original filename and exclusive UTF-8 byte range. Use
 `program.annotations.get(&statement.ast_id())` to inspect a statement's list.
@@ -49,18 +48,13 @@ annotation table. This preserves source order, AST identity, and spans without
 adding an executable gate or a new statement kind. Consumers generate a proof
 goal there; the annotation is not an assumption.
 
-## Counter-indexed exit probability
-
-`@saria.loop_counter n` selects one existing `int`/`uint` program or ghost
-variable. It neither initializes nor updates it; resetting or decreasing the
-counter is allowed. The payload resolves the name to its lexical `SymbolId`.
-Constants, bit registers, and expressions such as `n + 1` are not counters.
+## Per-iteration exit probability
 
 `@saria.exit_probability R p` accepts `==`, `>=`, or `<=` and an `int`, `uint`,
 `float`, or `real` expression, using the ordinary specification name and helper resolver.
-Each annotated `while` must designate its own counter; nested loops do not
-inherit one. Multiple probability clauses are conjunctive. Counter designation
-and probability clauses may appear in either order, with names declared before use.
+The expression may use constants and any in-scope program or ghost variables;
+no dedicated counter declaration is needed. Multiple probability clauses are
+conjunctive, and each clause applies to its annotated `while`.
 
 For every admissible active loop-head state, `p` uses this iteration's entry
 values and bounds the probability of normal exit during the iteration: a `break`
@@ -229,7 +223,7 @@ inversion/composition changes specification boundaries.
 ## Supported scope and proof boundaries
 
 Initial scope: executable statements at top level and in control-flow blocks.
-`invariant`, `terminates`, `loop_counter`, and `exit_probability` require a
+`invariant`, `terminates`, and `exit_probability` require a
 retained `while`, not an expanded `for`.
 Annotations on declarations/definitions and inside gate/subroutine definitions
 are explicitly rejected, including unused definitions. Other annotation namespaces
