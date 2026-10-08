@@ -57,7 +57,7 @@ impl SpecType {
     fn numeric(self) -> bool {
         matches!(
             self,
-            Self::Int(_) | Self::Uint(_) | Self::Float(_) | Self::Angle(_)
+            Self::Int(_) | Self::Uint(_) | Self::Float(_) | Self::Angle(_) | Self::Real
         )
     }
     fn scalar(self) -> bool {
@@ -110,6 +110,13 @@ fn tensor_type(a: SpecType, b: SpecType) -> Result<SpecType, FunctionError> {
 }
 
 fn compatible(actual: SpecType, expected: SpecType) -> bool {
+    if actual == SpecType::Real || expected == SpecType::Real {
+        return expected == SpecType::Real
+            && matches!(
+                actual,
+                SpecType::Real | SpecType::Int(_) | SpecType::Uint(_) | SpecType::Float(_)
+            );
+    }
     actual == expected
         || (actual.boolean() && expected.boolean())
         || (actual.integer() && expected.integer())
@@ -142,6 +149,12 @@ fn join(a: SpecType, b: SpecType) -> Result<SpecType, FunctionError> {
         )));
     }
     use SpecType::*;
+    if a == Real || b == Real {
+        if matches!(a, Angle(_)) || matches!(b, Angle(_)) {
+            return Err(fail("angle and real require an explicit conversion"));
+        }
+        return Ok(Real);
+    }
     let width = |t| match t {
         Int(w) | Uint(w) => w.unwrap_or(32),
         Float(w) => w.unwrap_or(64),
@@ -396,7 +409,13 @@ where
                     Add | Mul if a.numeric() && b.numeric() => join(a, b),
                     Sub | Div if a.numeric() && b.numeric() => join(a, b),
                     Pow if a.numeric() && b.numeric() => {
-                        Ok(if a.integer() && b.integer() { a } else { FLOAT })
+                        Ok(if a == SpecType::Real || b == SpecType::Real {
+                            SpecType::Real
+                        } else if a.integer() && b.integer() {
+                            a
+                        } else {
+                            FLOAT
+                        })
                     }
                     Mod if a.integer() && b.integer() => join(a, b),
                     _ => Err(fail(format!("invalid operands {a:?}, {b:?} for {op:?}"))),
@@ -465,6 +484,19 @@ where
                     .iter_mut()
                     .map(|a| self.check(a, depth + 1))
                     .collect::<Result<Vec<_>, _>>()?;
+                if *function == Real {
+                    if !SpecType::Real.accepts(types[0]) {
+                        return Err(fail("real expects an int, uint, float or real value"));
+                    }
+                    *e = arguments[0].clone().cast(types[0]).cast(SpecType::Real);
+                    return Ok(SpecType::Real);
+                }
+                if *function == Factorial {
+                    if !types[0].integer() {
+                        return Err(fail("factorial expects a nonnegative integer"));
+                    }
+                    return Ok(SpecType::Real);
+                }
                 if *function == Adjoint {
                     return match types[0] {
                         SpecType::Ket(n) => Ok(SpecType::Bra(n)),
@@ -480,6 +512,8 @@ where
                     }
                     return Ok(if *function == Conjugate {
                         types[0]
+                    } else if types[0] == SpecType::Real {
+                        SpecType::Real
                     } else {
                         FLOAT
                     });
@@ -502,16 +536,16 @@ where
                 Ok(match function {
                     Floor | Ceil => INT,
                     Abs => {
-                        if types[0].integer() {
+                        if types[0] == SpecType::Real {
+                            SpecType::Real
+                        } else if types[0].integer() {
                             UINT
                         } else {
                             FLOAT
                         }
                     }
-                    Min | Max => types
-                        .into_iter()
-                        .reduce(|a, b| join(a, b).unwrap())
-                        .unwrap(),
+                    Min | Max => types.iter().copied().skip(1).try_fold(types[0], join)?,
+                    _ if types.contains(&SpecType::Real) => SpecType::Real,
                     _ => FLOAT,
                 })
             }

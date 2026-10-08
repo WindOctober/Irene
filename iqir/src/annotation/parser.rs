@@ -118,6 +118,12 @@ pub fn parse_annotation(text: &str, span: SourceSpan) -> Result<Annotation, Anno
         let name = parts.next().unwrap().as_str().to_owned();
         let (kind, payload) = if declaration {
             let ty = scalar_type(parts.next().unwrap())?;
+            if ty == SpecType::Real {
+                return Err(error(
+                    0,
+                    "ghost storage uses OpenQASM types, not mathematical real",
+                ));
+            }
             let initializer = parts.next().map(expression).transpose()?;
             (
                 AnnotationKind::GhostDeclare,
@@ -219,11 +225,12 @@ fn scalar_type(p: Pair<'_, Rule>) -> Result<SpecType, AnnotationParseError> {
     };
     if width.is_some_and(|w| w == 0 || w > 64)
         || (name == "float" && width.is_some_and(|w| !matches!(w, 32 | 64)))
-        || (matches!(name, "bool" | "bit") && width.is_some())
+        || (matches!(name, "bool" | "bit" | "real") && width.is_some())
     {
         return Err(error(offset, "unsupported scalar type width"));
     }
     Ok(match name {
+        "real" => SpecType::Real,
         "bool" => SpecType::Bool,
         "bit" => SpecType::Bit,
         "int" => SpecType::Int(width),
@@ -486,6 +493,8 @@ fn binary(r: Rule) -> BinaryOp {
 fn builtin(name: &str) -> Option<(MathFunction, usize, usize)> {
     use MathFunction::*;
     let f = match name {
+        "real" => Real,
+        "factorial" => Factorial,
         "abs" => Abs,
         "sqrt" => Sqrt,
         "exp" => Exp,

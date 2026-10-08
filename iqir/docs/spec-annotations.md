@@ -145,6 +145,14 @@ Parameter/return types are classical scalar categories `bool`, `bit`, `int`,
 `uint`, `float`, `angle`, with optional numeric widths such as `int[32]` and
 `float[64]`. These are OpenQASM types: helpers and ghosts use the same finite-width
 arithmetic, IEEE rounding, conversions and default widths as program variables.
+Helpers additionally accept the widthless mathematical type `real`; ghost storage
+does not. `\real(e)` embeds a finite machine value after evaluation: `\real(1/2)`
+is zero, whereas `\real(1)/2` is exact one-half. `\real(0.1)` preserves the
+binary64 value; use `\real(1)/10` for exact one-tenth. A real result type alone
+does not change machine operations inside a helper body. There is no implicit
+real-to-float conversion. `\factorial(n)` is exact and real-valued, with
+nonnegative integer domain; postfix `n!` retains its machine result type.
+Analytic builtins on real arguments return real results.
 `bool`/`bit` are compatible but not implicitly numeric arithmetic operands;
 bit-versus-integer equality is admitted. Source helper signatures cannot take or return
 qubits, quantum vectors/operators, complex scalars or arrays. Their bodies may
