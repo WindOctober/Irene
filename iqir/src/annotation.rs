@@ -122,7 +122,6 @@ pub enum AnnotationKind {
     Ensures,
     Invariant,
     Terminates,
-    LoopCounter,
     ExitProbability,
     GhostDeclare,
     GhostAssign,
@@ -145,11 +144,6 @@ pub enum ProbabilityRelation {
 pub enum AnnotationPayload {
     Expression(SpecExpr),
     Termination(TerminationKind),
-    /// An existing integer variable; designation does not initialize or update it.
-    LoopCounter {
-        id: Option<SymbolId>,
-        name: String,
-    },
     /// Probability of normal exit during this iteration, for each admissible
     /// active loop-head state. The bound reads values at that iteration's entry,
     /// not after the body. Clauses on the same loop are conjunctive.
