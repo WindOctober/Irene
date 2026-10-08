@@ -114,6 +114,7 @@ pub enum BinderKind {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AnnotationKind {
+    Assert,
     Requires,
     Ensures,
     Invariant,

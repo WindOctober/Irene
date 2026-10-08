@@ -18,7 +18,7 @@ while (!stop) { /* original loop body */ }
 ```
 
 This is a syntax example, not a proof of these properties. `Requires`,
-`Ensures`, `Invariant`, and `Terminates` are `AnnotationKind` variants.
+`Ensures`, `Assert`, `Invariant`, and `Terminates` are `AnnotationKind` variants.
 `AnnotationPayload` holds either a `SpecExpr` tree or the typed termination
 mode `AlmostSure`, never an opaque expression string. Source spans record the
 original filename and exclusive UTF-8 byte range. Use
@@ -33,6 +33,18 @@ state literals, Pauli matrices, symbolic linear algebra, and comparisons between
 program quantum references and same-width kets, such as `q == |0>`.
 General state-extraction and matrix functions from the initial prototype remain
 reserved and are explicitly rejected rather than given implicit semantics.
+
+## Standalone assertions
+
+`@saria.assert P` observes its own program point and requires a Boolean predicate.
+It does not attach to the next statement and may end a block or file. Names are
+resolved before leaving that block's scope. A preceding statement-attached
+annotation still needs its executable statement; an assert cannot consume it.
+
+IQIR anchors each assertion to an empty `Scope` sequence in the existing
+annotation table. This preserves source order, AST identity, and spans without
+adding an executable gate or a new statement kind. Consumers generate a proof
+goal there; the annotation is not an assumption.
 
 ## Expression syntax
 

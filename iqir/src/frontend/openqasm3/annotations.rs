@@ -5,6 +5,9 @@ use crate::annotation::{
     check_expression, define_function, parse_annotation, parse_function,
 };
 
+/// `None` denotes a standalone assertion rather than an attached source statement.
+type AnnotatedStatement = (Vec<Annotation>, Option<Stmt>);
+
 impl Lowerer {
     pub(super) fn declare_spec_function(
         &mut self,
@@ -34,7 +37,7 @@ impl Lowerer {
     pub(super) fn annotated_statements(
         &self,
         statements: impl Iterator<Item = Stmt>,
-    ) -> Result<Vec<(Vec<Annotation>, Stmt)>, FrontendError> {
+    ) -> Result<Vec<AnnotatedStatement>, FrontendError> {
         let mut result = Vec::new();
         let mut pending = Vec::new();
         for statement in statements {
@@ -53,9 +56,16 @@ impl Lowerer {
                             message: e.message,
                         }
                     })?;
-                pending.push(annotation);
+                if annotation.kind == AnnotationKind::Assert {
+                    if let Some(a) = pending.first() {
+                        return Err(self.annotation_error(a, "statement annotations require an executable statement before a standalone assert"));
+                    }
+                    result.push((vec![annotation], None));
+                } else {
+                    pending.push(annotation);
+                }
             } else {
-                result.push((std::mem::take(&mut pending), statement));
+                result.push((std::mem::take(&mut pending), Some(statement)));
             }
         }
         if let Some(a) = pending.first() {
@@ -64,6 +74,26 @@ impl Lowerer {
             );
         }
         Ok(result)
+    }
+
+    /// An empty executable sequence anchors a proof boundary without changing
+    /// program state or requiring a following source statement.
+    pub(super) fn lower_assertion(
+        &mut self,
+        mut annotations: Vec<Annotation>,
+    ) -> Result<Statement, FrontendError> {
+        let a = &mut annotations[0];
+        let AnnotationPayload::Expression(e) = &mut a.payload else {
+            unreachable!()
+        };
+        let ty = check_expression(e, &self.spec_functions, |name| self.resolve_spec_name(name))
+            .map_err(|e| self.annotation_error(a, e.to_string()))?;
+        if !matches!(ty, SpecType::Bool | SpecType::Bit) {
+            return Err(self.annotation_error(a, "assert must be a Boolean predicate"));
+        }
+        let boundary = self.sequence(Vec::new());
+        self.annotations.insert(boundary.ast_id(), annotations);
+        Ok(boundary)
     }
 
     fn annotation_error(&self, a: &Annotation, message: impl Into<String>) -> FrontendError {

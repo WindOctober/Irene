@@ -360,6 +360,10 @@ impl Lowerer {
         }
         let mut body = self.ids.node(BlockData::default());
         for (annotations, statement) in self.annotated_statements(source.statements())? {
+            let Some(statement) = statement else {
+                body.statements.push(self.lower_assertion(annotations)?);
+                continue;
+            };
             if annotations.is_empty() {
                 self.lower_top_level(statement, &mut body)?;
             } else {
@@ -1839,6 +1843,10 @@ impl Lowerer {
     fn lower_block_contents(&mut self, block: ast::BlockExpr) -> Result<Block, FrontendError> {
         let mut lowered = self.ids.node(BlockData::default());
         for (annotations, statement) in self.annotated_statements(block.statements())? {
+            let Some(statement) = statement else {
+                lowered.statements.push(self.lower_assertion(annotations)?);
+                continue;
+            };
             if !annotations.is_empty() {
                 lowered
                     .statements
