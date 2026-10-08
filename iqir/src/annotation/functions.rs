@@ -1,4 +1,4 @@
-//! Classical sort checking and pure, non-recursive helper functions.
+//! Specification sort/dimension checking and pure, non-recursive helpers.
 use super::*;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -17,8 +17,55 @@ impl SpecType {
         matches!(self, Self::Int | Self::Uint)
     }
     fn numeric(self) -> bool {
-        !self.boolean()
+        matches!(self, Self::Int | Self::Uint | Self::Float | Self::Angle)
     }
+    fn scalar(self) -> bool {
+        self.numeric() || self == Self::Complex
+    }
+    fn quantum(self) -> bool {
+        matches!(self, Self::Ket(_) | Self::Bra(_) | Self::Operator(_))
+    }
+}
+
+fn quantum_width(width: usize) -> Result<usize, FunctionError> {
+    if (1..=MAX_QUANTUM_QUBITS).contains(&width) {
+        Ok(width)
+    } else {
+        Err(fail("quantum dimension must be between 1 and 64 qubits"))
+    }
+}
+
+/// Square operators and vectors only; rectangular maps are not implicit.
+fn linear_product(a: SpecType, b: SpecType) -> Option<SpecType> {
+    use SpecType::*;
+    if a.scalar() && b.quantum() {
+        return Some(b);
+    }
+    if a.quantum() && b.scalar() {
+        return Some(a);
+    }
+    match (a, b) {
+        (Operator(n), Ket(m)) if n == m => Some(Ket(n)),
+        (Bra(n), Operator(m)) if n == m => Some(Bra(n)),
+        (Operator(n), Operator(m)) if n == m => Some(Operator(n)),
+        (Bra(n), Ket(m)) if n == m => Some(Complex),
+        (Ket(n), Bra(m)) if n == m => Some(Operator(n)),
+        _ => None,
+    }
+}
+
+fn tensor_type(a: SpecType, b: SpecType) -> Result<SpecType, FunctionError> {
+    use SpecType::*;
+    let (n, m, make): (usize, usize, fn(usize) -> SpecType) = match (a, b) {
+        (Ket(n), Ket(m)) => (n, m, Ket),
+        (Bra(n), Bra(m)) => (n, m, Bra),
+        (Operator(n), Operator(m)) => (n, m, Operator),
+        _ => return Err(fail("tensor requires two kets, two bras or two operators")),
+    };
+    let width = n
+        .checked_add(m)
+        .ok_or_else(|| fail("quantum dimension overflow"))?;
+    Ok(make(quantum_width(width)?))
 }
 
 fn compatible(actual: SpecType, expected: SpecType) -> bool {
@@ -29,11 +76,19 @@ fn compatible(actual: SpecType, expected: SpecType) -> bool {
 }
 
 fn join(a: SpecType, b: SpecType) -> Result<SpecType, FunctionError> {
+    if a == b && (a.quantum() || a == SpecType::Complex) {
+        return Ok(a);
+    }
+    if a.scalar() && b.scalar() && (a == SpecType::Complex || b == SpecType::Complex) {
+        return Ok(SpecType::Complex);
+    }
     if a.boolean() && b.boolean() {
         return Ok(SpecType::Bool);
     }
     if !a.numeric() || !b.numeric() {
-        return Err(fail("cannot mix Boolean and numeric values"));
+        return Err(fail(format!(
+            "incompatible types or quantum dimensions: {a:?}, {b:?}"
+        )));
     }
     Ok(if !a.integer() || !b.integer() {
         SpecType::Float
@@ -53,7 +108,7 @@ struct Checker<'a, F> {
     resolve: F,
 }
 
-/// Resolve names/calls and check classical sorts. Domains, convergence,
+/// Resolve names/calls and check sorts and quantum dimensions. Domains, convergence,
 /// nonnegative Uint values and proof obligations are NOT discharged here.
 pub fn check_expression(
     expression: &mut SpecExpr,
@@ -81,12 +136,7 @@ pub fn define_function(
     if functions.len() >= 128 || f.parameters.len() > 32 {
         return Err(fail("helper function budget exceeded"));
     }
-    if functions.iter().any(|old| old.name == f.name)
-        || parser::builtin(&f.name).is_some()
-        || matches!(
-            f.name.as_str(),
-            "sum" | "product" | "forall" | "exists" | "sup" | "infimum" | "inf" | "true" | "false"
-        )
+    if functions.iter().any(|old| old.name == f.name) || matches!(f.name.as_str(), "true" | "false")
     {
         return Err(fail(format!(
             "duplicate or reserved helper name `{}`",
@@ -95,7 +145,7 @@ pub fn define_function(
     }
     let mut names = BTreeSet::new();
     for p in &f.parameters {
-        if !names.insert(&p.name) || matches!(p.name.as_str(), "true" | "false" | "inf") {
+        if !names.insert(&p.name) || matches!(p.name.as_str(), "true" | "false") {
             return Err(fail(format!(
                 "duplicate or reserved parameter `{}`",
                 p.name
@@ -109,17 +159,9 @@ pub fn define_function(
         next_local: 0,
         work: 0,
         resolve: |name: &str| {
-            let c = match name {
-                "pi" | "π" => NumericConstant::Pi,
-                "tau" | "τ" => NumericConstant::Tau,
-                "euler" | "ℇ" => NumericConstant::Euler,
-                _ => {
-                    return Err(format!(
-                        "helper cannot capture `{name}`; declare it as a parameter"
-                    ));
-                }
-            };
-            Ok((SpecExpr::Constant(c), SpecType::Float))
+            Err(format!(
+                "helper cannot capture `{name}`; declare it as a parameter"
+            ))
         },
     };
     let ty = checker.check(&mut f.body, 0)?;
@@ -155,6 +197,10 @@ where
                 Float
             }),
             SpecExpr::Bool(_) => Ok(Bool),
+            SpecExpr::ImaginaryUnit => Ok(SpecType::Complex),
+            SpecExpr::Ket(factors) => Ok(SpecType::Ket(quantum_width(factors.len())?)),
+            SpecExpr::Bra(factors) => Ok(SpecType::Bra(quantum_width(factors.len())?)),
+            SpecExpr::Pauli(_) => Ok(SpecType::Operator(1)),
             SpecExpr::Constant(_) | SpecExpr::Infinity => Ok(Float),
             SpecExpr::Name(name) => {
                 if let Some((_, id, ty)) = self.locals.iter().rev().find(|(n, ..)| n == name) {
@@ -198,6 +244,7 @@ where
                 let t = self.check(operand, depth + 1)?;
                 match op {
                     UnaryOp::Not if t.boolean() => Ok(Bool),
+                    UnaryOp::Neg if t.quantum() || t == SpecType::Complex => Ok(t),
                     UnaryOp::Neg if t.numeric() => Ok(if t.integer() { Int } else { Float }),
                     UnaryOp::Factorial if t.integer() => Ok(Uint),
                     _ => Err(fail(format!("invalid operand {t:?} for {op:?}"))),
@@ -208,16 +255,30 @@ where
                 let b = self.check(right, depth + 1)?;
                 use BinaryOp::*;
                 match op {
+                    Tensor => tensor_type(a, b),
                     And | Or | Implies if a.boolean() && b.boolean() => Ok(Bool),
                     Eq | Ne
                         if (a.boolean() && b.boolean())
-                            || (a.numeric() && b.numeric())
+                            || (a.scalar() && b.scalar())
+                            || (a.quantum() && a == b)
                             || (a == SpecType::Bit && b.integer())
                             || (b == SpecType::Bit && a.integer()) =>
                     {
                         Ok(Bool)
                     }
                     Lt | Le | Gt | Ge if a.numeric() && b.numeric() => Ok(Bool),
+                    Add | Sub if a.quantum() && a == b => Ok(a),
+                    Add | Sub | Mul | Div
+                        if a.scalar()
+                            && b.scalar()
+                            && (a == SpecType::Complex || b == SpecType::Complex) =>
+                    {
+                        Ok(SpecType::Complex)
+                    }
+                    Mul if a.quantum() || b.quantum() => linear_product(a, b)
+                        .ok_or_else(|| fail(format!("invalid linear product: {a:?} * {b:?}"))),
+                    Div if a.quantum() && b.scalar() => Ok(a),
+                    Pow if a == SpecType::Complex && b.integer() => Ok(SpecType::Complex),
                     Add | Mul if a.numeric() && b.numeric() => join(a, b),
                     Sub if a.numeric() && b.numeric() => Ok(if a.integer() && b.integer() {
                         Int
@@ -282,7 +343,7 @@ where
                     Diag | Trace | Normalize | AvgDensity | TraceDistance
                 ) {
                     return Err(fail(
-                        "quantum/matrix specification operators are reserved; classical checking does not interpret them",
+                        "program-state queries and general matrix specification functions are reserved",
                     ));
                 }
                 let required = if matches!(function, Binomial) { 2 } else { 1 };
@@ -295,6 +356,28 @@ where
                     .iter_mut()
                     .map(|a| self.check(a, depth + 1))
                     .collect::<Result<Vec<_>, _>>()?;
+                if *function == Adjoint {
+                    return match types[0] {
+                        SpecType::Ket(n) => Ok(SpecType::Bra(n)),
+                        SpecType::Bra(n) => Ok(SpecType::Ket(n)),
+                        SpecType::Operator(n) => Ok(SpecType::Operator(n)),
+                        t if t.scalar() => Ok(t),
+                        _ => Err(fail("adjoint expects a scalar, ket, bra or operator")),
+                    };
+                }
+                if matches!(function, Conjugate | RealPart | ImagPart) {
+                    if !types[0].scalar() {
+                        return Err(fail("conj/re/im expect a real or complex scalar"));
+                    }
+                    return Ok(if *function == Conjugate {
+                        types[0]
+                    } else {
+                        Float
+                    });
+                }
+                if *function == Abs && types[0] == SpecType::Complex {
+                    return Ok(Float);
+                }
                 if *function == Probability {
                     if !types[0].boolean() {
                         return Err(fail("probability expects a Boolean event"));
@@ -332,7 +415,7 @@ where
                 body,
                 ..
             } => {
-                if matches!(variable.name.as_str(), "true" | "false" | "inf") {
+                if matches!(variable.name.as_str(), "true" | "false") {
                     return Err(fail("reserved bound-variable name"));
                 }
                 let lo = self.check(lower, depth + 1)?;
@@ -363,6 +446,10 @@ where
                         return Err(fail("quantifier body must be Boolean"));
                     }
                     Ok(Bool)
+                } else if (matches!(kind, BinderKind::Sum) && (ty.scalar() || ty.quantum()))
+                    || (matches!(kind, BinderKind::Product) && ty.scalar())
+                {
+                    Ok(ty)
                 } else {
                     if !ty.numeric() {
                         return Err(fail("sum/product/extremum body must be numeric"));

@@ -76,7 +76,7 @@ fn binds_multiple_annotations_to_while_and_keeps_source_offsets() {
 fn broadcast_annotation_is_on_the_whole_sequence() {
     let p = frontend::parse_str(
         "OPENQASM 3; include \"stdgates.inc\"; qubit[2] q;\n\
-        @saria.ensures cosh(0) == 1\nh q;",
+        @saria.ensures \\cosh(0) == 1\nh q;",
         "broadcast.qasm",
     )
     .unwrap();
@@ -181,7 +181,7 @@ fn fails_closed_on_dangling_unknown_misplaced_and_unbound_annotations() {
 #[test]
 fn quantum_expression_structure_is_reserved_but_not_admitted_by_classical_checking() {
     let expr = parse_expression(
-        "trace_distance(avg_density(q[0]), normalize(diag(cosh(1), cosh(0.5)))) <= 1e-6",
+        "\\trace_distance(\\avg_density(q[0]), \\normalize(\\diag(\\cosh(1), \\cosh(0.5)))) <= 1e-6",
     )
     .unwrap();
     let SpecExpr::Binary { left, .. } = expr else {
@@ -195,7 +195,7 @@ fn quantum_expression_structure_is_reserved_but_not_admitted_by_classical_checki
         }
     ));
     let error = frontend::parse_str("OPENQASM 3; qubit[2] q; bool stop = false;\n\
-        @saria.ensures trace_distance(avg_density(q[0]), normalize(diag(cosh(1), cosh(0.5)))) <= 1e-6\n\
+        @saria.ensures \\trace_distance(\\avg_density(q[0]), \\normalize(\\diag(\\cosh(1), \\cosh(0.5)))) <= 1e-6\n\
         while (!stop) { stop = true; }", "density.qasm").unwrap_err();
     assert!(error.to_string().contains("reserved"));
 }
@@ -204,7 +204,7 @@ fn quantum_expression_structure_is_reserved_but_not_admitted_by_classical_checki
 fn builtin_constant_names_respect_program_shadowing_and_constants_fold_exactly() {
     let p = frontend::parse_str(
         "OPENQASM 3; qubit q; const int n = 5; const float f = 0.5;\n\
-         @saria.requires n! > f && pi > 3\nreset q;\n\
+         @saria.requires n! > f && \\pi > 3\nreset q;\n\
          if (true) { bit pi;\n@saria.ensures pi == 0\nreset q; }",
         "constants.qasm",
     )

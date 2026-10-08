@@ -128,7 +128,11 @@ impl Lowerer {
             .lookup(name)
             .map_err(|_| format!("unknown specification identifier `{name}`"))?;
         let ty = match binding.kind {
-            BindingKind::Constant(_) => SpecType::Float,
+            BindingKind::Constant(_) => {
+                return Err(format!(
+                    "`{name}` is a mathematical builtin; use a backslash-prefixed constant in specifications"
+                ));
+            }
             BindingKind::ClassicalBit(t) | BindingKind::StaticBits { ty: t, .. } => match t {
                 BitType::Bool => SpecType::Bool,
                 BitType::Bit => SpecType::Bit,
@@ -157,7 +161,7 @@ impl Lowerer {
             },
             _ => {
                 return Err(format!(
-                    "`{name}` is not a classical specification value; quantum operators are reserved"
+                    "`{name}` is not a classical specification value; program quantum-state queries are not supported"
                 ));
             }
         };
