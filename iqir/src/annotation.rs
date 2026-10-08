@@ -1,21 +1,25 @@
 //! Specification syntax, separate from executable IR expressions.
 //!
-//! Pest parses syntax; classical checking resolves symbols/helpers and sorts.
+//! Pest parses syntax; checking resolves symbols/helpers, sorts and dimensions.
 //! Neither proves predicates or mathematical domains (e.g. factorial requires a
 //! nonnegative integer). Numbers are exact mathematical rationals, not
-//! finite-width program arithmetic. Quantum operators remain reserved.
+//! finite-width program arithmetic. Quantum terms are symbolic linear algebra;
+//! they do not implicitly read a program's quantum state.
 
 use num_rational::BigRational;
 
 use crate::{NumericConstant, SymbolId};
+
+const MAX_QUANTUM_QUBITS: usize = 64;
 
 mod functions;
 mod parser;
 pub use functions::{FunctionError, check_expression, define_function, instantiate_function};
 pub use parser::{AnnotationParseError, parse_annotation, parse_expression, parse_function};
 
-/// Classical specification types. These use mathematical arithmetic, not
-/// machine-width wrapping/rounding. Uint carries a nonnegative domain obligation.
+/// Mathematical specification types, without machine-width wrapping/rounding.
+/// Uint carries a nonnegative domain obligation. Quantum dimensions are qubit
+/// counts, not vector lengths; no exponentially sized matrix is allocated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpecType {
     Bool,
@@ -24,6 +28,35 @@ pub enum SpecType {
     Uint,
     Float,
     Angle,
+    Complex,
+    Ket(usize),
+    Bra(usize),
+    Operator(usize),
+}
+
+/// Normalized one-qubit states in the computational, X and Y bases.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QubitState {
+    Zero,
+    One,
+    /// (|0> + |1>) / \sqrt(2).
+    Plus,
+    /// (|0> - |1>) / \sqrt(2).
+    Minus,
+    /// (|0> + i |1>) / \sqrt(2).
+    PlusI,
+    /// (|0> - i |1>) / \sqrt(2).
+    MinusI,
+}
+
+/// One-qubit matrices in the ordered basis |0>, |1>.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pauli {
+    I,
+    X,
+    /// [[0, -i], [i, 0]].
+    Y,
+    Z,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -101,6 +134,7 @@ pub enum BinaryOp {
     Add,
     Sub,
     Mul,
+    Tensor,
     Div,
     Mod,
     Pow,
@@ -137,6 +171,10 @@ pub enum MathFunction {
     Expectation,
     Min,
     Max,
+    Conjugate,
+    RealPart,
+    ImagPart,
+    Adjoint,
     Diag,
     Trace,
     Normalize,
@@ -150,6 +188,12 @@ pub enum MathFunction {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SpecExpr {
     Number(BigRational),
+    ImaginaryUnit,
+    /// Product-state factors in written tensor order, leftmost first.
+    Ket(Vec<QubitState>),
+    /// The conjugate transpose of the corresponding ket literal.
+    Bra(Vec<QubitState>),
+    Pauli(Pauli),
     Bool(bool),
     Constant(NumericConstant),
     Infinity,

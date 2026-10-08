@@ -11,16 +11,30 @@ identifier = @{ (XID_START | "_") ~ ident_continue* }
 ident_continue = _{ XID_CONTINUE }
 number = @{ ((ASCII_DIGIT+ ~ ("." ~ !"." ~ ASCII_DIGIT*)?) | ("." ~ ASCII_DIGIT+)) ~ (("e" | "E") ~ ("+" | "-")? ~ ASCII_DIGIT+)? }
 boolean = @{ ("true" | "false") ~ !ident_continue }
-infinity = @{ "inf" ~ !ident_continue }
+infinity = @{ "\\inf" ~ !ident_continue }
+constant = @{ "\\" ~ ("pi" | "tau" | "euler") ~ !ident_continue }
 expression = { pratt ~ ("?" ~ expression ~ ":" ~ expression)? }
 pratt = { prefix* ~ primary ~ postfix* ~ (infix ~ prefix* ~ primary ~ postfix*)* }
-primary = _{ binder | call | boolean | infinity | number | identifier | list | "(" ~ expression ~ ")" }
+// Quantifiers consume a complete expression to their right, including nested
+// quantifiers and implication. Parentheses can explicitly end their scope.
+primary = _{ quantifier | binder | ket | bra | pauli | imaginary | builtin_call | constant | infinity | call | boolean | number | identifier | list | "(" ~ expression ~ ")" }
+// Explicit multiplication keeps Dirac notation distinct from Boolean || and <.
+ket = { "|" ~ qubit_state+ ~ (">" | "⟩") }
+bra = { ("<" | "⟨") ~ qubit_state+ ~ "|" }
+qubit_state = @{ "+i" | "-i" | "−i" | "0" | "1" | "+" | "-" | "−" }
+pauli = @{ "\\" ~ ("I" | "X" | "Y" | "Z") ~ !ident_continue }
+imaginary = @{ "\\i" ~ !ident_continue }
 call = { identifier ~ "(" ~ arguments? ~ ")" }
+builtin_call = { builtin_name ~ "(" ~ arguments? ~ ")" }
+builtin_name = @{ "\\" ~ identifier }
 arguments = { expression ~ ("," ~ expression)* }
 list = { "[" ~ arguments? ~ "]" }
-binder = { binder_kind ~ "(" ~ identifier ~ (":" ~ scalar_type)? ~ in_keyword ~ expression ~ range_op ~ expression ~ "," ~ expression ~ ")" }
+quantifier = { quantifier_kind ~ binding ~ ";" ~ expression }
+binder = { binder_kind ~ "(" ~ binding ~ "," ~ expression ~ ")" }
+binding = _{ identifier ~ (":" ~ scalar_type)? ~ in_keyword ~ expression ~ range_op ~ expression }
 in_keyword = @{ "in" ~ !ident_continue }
-binder_kind = @{ ("sum" | "product" | "forall" | "exists" | "sup" | "infimum") ~ !ident_continue }
+quantifier_kind = @{ "\\" ~ ("forall" | "exists") ~ !ident_continue }
+binder_kind = @{ "\\" ~ ("sum" | "product" | "sup" | "infimum") ~ !ident_continue }
 range_op = { "..=" | ".." }
 prefix = _{ neg | pos | not }
 neg = { "-" }
@@ -29,7 +43,8 @@ not = { "!" }
 postfix = _{ factorial | index }
 factorial = @{ "!" ~ !"=" }
 index = { "[" ~ expression ~ "]" }
-infix = _{ implies | or | and | eq | ne | le | ge | lt | gt | add | sub | pow | mul | div | modulo }
+infix = _{ implies | or | and | eq | ne | le | ge | lt | gt | add | sub | pow | tensor | mul | div | modulo }
+tensor = @{ ("\\otimes" ~ !ident_continue) | "⊗" }
 implies = { "=>" }
 or = { "||" }
 and = { "&&" }

@@ -42,6 +42,7 @@ static PRATT: LazyLock<PrattParser<Rule>> = LazyLock::new(|| {
             | Op::infix(gt, Left)
             | Op::infix(ge, Left))
         .op(Op::infix(add, Left) | Op::infix(sub, Left))
+        .op(Op::infix(tensor, Left))
         .op(Op::infix(mul, Left) | Op::infix(div, Left) | Op::infix(modulo, Left))
         .op(Op::prefix(neg) | Op::prefix(pos) | Op::prefix(not))
         .op(Op::infix(pow, Right))
@@ -50,22 +51,27 @@ static PRATT: LazyLock<PrattParser<Rule>> = LazyLock::new(|| {
 
 fn parse(rule: Rule, text: &str) -> Result<Pair<'_, Rule>, AnnotationParseError> {
     // Admission only, not a second lexer. Bound recursive grammar/Pratt work
-    // before invoking the library, including unparenthesized ternary chains.
+    // before invoking the library, including unparenthesized ternary/quantifier
+    // chains. Every quantifier introduces one semicolon.
     if text.len() > 16384 {
         return Err(error(0, "specification byte budget exceeded"));
     }
     let mut nesting = 0usize;
     let mut conditionals = 0usize;
+    let mut quantifiers = 0usize;
     let mut operators = 0usize;
     for (offset, c) in text.char_indices() {
         match c {
             '(' | '[' => nesting += 1,
             ')' | ']' => nesting = nesting.saturating_sub(1),
             '?' => conditionals += 1,
-            '+' | '-' | '!' | '*' | '/' | '^' | '%' | '=' | '<' | '>' | '&' | '|' => operators += 1,
+            ';' => quantifiers += 1,
+            '+' | '-' | '!' | '*' | '/' | '^' | '%' | '=' | '<' | '>' | '&' | '|' | '\\' | '⊗' => {
+                operators += 1
+            }
             _ => {}
         }
-        if nesting > 48 || conditionals > 32 || operators > 256 {
+        if nesting > 48 || conditionals + quantifiers > 32 || operators > 256 {
             return Err(error(offset, "specification complexity budget exceeded"));
         }
     }
@@ -243,6 +249,43 @@ fn primary(p: Pair<'_, Rule>) -> Result<SpecExpr, AnnotationParseError> {
         Rule::identifier => SpecExpr::Name(p.as_str().into()),
         Rule::boolean => SpecExpr::Bool(p.as_str() == "true"),
         Rule::infinity => SpecExpr::Infinity,
+        Rule::constant => SpecExpr::Constant(match p.as_str() {
+            r"\pi" => NumericConstant::Pi,
+            r"\tau" => NumericConstant::Tau,
+            r"\euler" => NumericConstant::Euler,
+            _ => unreachable!(),
+        }),
+        Rule::imaginary => SpecExpr::ImaginaryUnit,
+        Rule::pauli => SpecExpr::Pauli(match p.as_str() {
+            r"\I" => Pauli::I,
+            r"\X" => Pauli::X,
+            r"\Y" => Pauli::Y,
+            r"\Z" => Pauli::Z,
+            _ => unreachable!(),
+        }),
+        Rule::ket | Rule::bra => {
+            let is_ket = p.as_rule() == Rule::ket;
+            let factors = p
+                .into_inner()
+                .map(|factor| match factor.as_str() {
+                    "0" => QubitState::Zero,
+                    "1" => QubitState::One,
+                    "+" => QubitState::Plus,
+                    "-" | "−" => QubitState::Minus,
+                    "+i" => QubitState::PlusI,
+                    "-i" | "−i" => QubitState::MinusI,
+                    _ => unreachable!(),
+                })
+                .collect::<Vec<_>>();
+            if factors.len() > MAX_QUANTUM_QUBITS {
+                return Err(error(offset, "quantum dimension budget exceeded"));
+            }
+            if is_ket {
+                SpecExpr::Ket(factors)
+            } else {
+                SpecExpr::Bra(factors)
+            }
+        }
         Rule::number => {
             if p.as_str().len() > 128 {
                 return Err(error(offset, "numeric literal budget exceeded"));
@@ -260,11 +303,15 @@ fn primary(p: Pair<'_, Rule>) -> Result<SpecExpr, AnnotationParseError> {
                 BigRational::from_integer(digits * power)
             })
         }
-        Rule::call => {
+        Rule::call | Rule::builtin_call => {
+            let is_builtin = p.as_rule() == Rule::builtin_call;
             let mut fields = p.into_inner();
             let name = fields.next().unwrap().as_str().to_owned();
             let arguments = arguments(fields.next())?;
-            if let Some((function, min, max)) = builtin(&name) {
+            if is_builtin {
+                let (function, min, max) = builtin(&name[1..]).ok_or_else(|| {
+                    error(offset, format!("unknown specification builtin {name}"))
+                })?;
                 if !(min..=max).contains(&arguments.len()) {
                     return Err(error(offset, format!("wrong argument count for `{name}`")));
                 }
@@ -277,15 +324,15 @@ fn primary(p: Pair<'_, Rule>) -> Result<SpecExpr, AnnotationParseError> {
             }
         }
         Rule::list => SpecExpr::List(arguments(p.into_inner().next())?),
-        Rule::binder => {
+        Rule::binder | Rule::quantifier => {
             let mut f = p.into_inner().filter(|p| p.as_rule() != Rule::in_keyword);
             let kind = match f.next().unwrap().as_str() {
-                "sum" => BinderKind::Sum,
-                "product" => BinderKind::Product,
-                "forall" => BinderKind::Forall,
-                "exists" => BinderKind::Exists,
-                "sup" => BinderKind::Sup,
-                "infimum" => BinderKind::Inf,
+                r"\sum" => BinderKind::Sum,
+                r"\product" => BinderKind::Product,
+                r"\forall" => BinderKind::Forall,
+                r"\exists" => BinderKind::Exists,
+                r"\sup" => BinderKind::Sup,
+                r"\infimum" => BinderKind::Inf,
                 _ => unreachable!(),
             };
             let name = f.next().unwrap().as_str().to_owned();
@@ -326,6 +373,7 @@ fn binary(r: Rule) -> BinaryOp {
         Rule::add => Add,
         Rule::sub => Sub,
         Rule::mul => Mul,
+        Rule::tensor => Tensor,
         Rule::div => Div,
         Rule::pow => Pow,
         Rule::modulo => Mod,
@@ -342,7 +390,7 @@ fn binary(r: Rule) -> BinaryOp {
     }
 }
 
-pub(super) fn builtin(name: &str) -> Option<(MathFunction, usize, usize)> {
+fn builtin(name: &str) -> Option<(MathFunction, usize, usize)> {
     use MathFunction::*;
     let f = match name {
         "abs" => Abs,
@@ -360,6 +408,10 @@ pub(super) fn builtin(name: &str) -> Option<(MathFunction, usize, usize)> {
         "atan" => Atan,
         "floor" => Floor,
         "ceil" => Ceil,
+        "conj" => Conjugate,
+        "re" => RealPart,
+        "im" => ImagPart,
+        "adjoint" => Adjoint,
         "expectation" => Expectation,
         "trace" => Trace,
         "normalize" => Normalize,
