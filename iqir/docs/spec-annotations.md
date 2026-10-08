@@ -29,9 +29,10 @@ The intended boundaries are statement entry (`requires`), normal exit
 is an obligation, not permission to assume termination. A consumer must check
 preconditions in context and prove invariants rather than treating annotations
 as established facts. [Quantum expressions](quantum-expressions.md) include typed
-state literals, Pauli matrices and symbolic linear algebra. Program-state queries
-and general matrix functions from the initial prototype remain reserved and are
-explicitly rejected rather than given implicit semantics.
+state literals, Pauli matrices, symbolic linear algebra, and comparisons between
+program quantum references and same-width kets, such as `q == |0>`.
+General state-extraction and matrix functions from the initial prototype remain
+reserved and are explicitly rejected rather than given implicit semantics.
 
 ## Expression syntax
 
@@ -156,6 +157,10 @@ call just because its definition has not been supplied. `check_expression` and
 `define_function` resolve and check them before OpenQASM import returns.
 OpenQASM import resolves names in the actual lexical scope into `SymbolId`
 references; it substitutes constants and specialized static-loop indices.
+Quantum variables retain their program symbol IDs and their qubit/register
+checking types. Equality/inequality with matching-width kets is admitted without
+requiring a purity or state-equality proof. Register indexing and conditional ket
+targets are supported; program quantum references are not general vector operands.
 Mutable variables are never replaced by their known initializers. Constant
 floats retain their already-rounded program value, represented exactly as a
 rational. Scalar Boolean constants are substituted as Booleans; constant bit

@@ -3,8 +3,9 @@
 //! Pest parses syntax; checking resolves symbols/helpers, sorts and dimensions.
 //! Neither proves predicates or mathematical domains (e.g. factorial requires a
 //! nonnegative integer). Numbers are exact mathematical rationals, not
-//! finite-width program arithmetic. Quantum terms are symbolic linear algebra;
-//! they do not implicitly read a program's quantum state.
+//! finite-width program arithmetic. Quantum terms include symbolic linear algebra
+//! and program quantum references in state predicates; checking does not extract
+//! a circuit state or prove purity.
 
 use num_rational::BigRational;
 
@@ -17,7 +18,8 @@ mod parser;
 pub use functions::{FunctionError, check_expression, define_function, instantiate_function};
 pub use parser::{AnnotationParseError, parse_annotation, parse_expression, parse_function};
 
-/// Mathematical specification types, without machine-width wrapping/rounding.
+/// Mathematical specification types and program quantum-reference types.
+/// Specification arithmetic has no machine-width wrapping/rounding.
 /// Uint carries a nonnegative domain obligation. Quantum dimensions are qubit
 /// counts, not vector lengths; no exponentially sized matrix is allocated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,6 +34,10 @@ pub enum SpecType {
     Ket(usize),
     Bra(usize),
     Operator(usize),
+    /// A program qubit reference, not an assumption that its state is pure.
+    Qubit,
+    /// A program quantum register; unlike a scalar qubit, it can be indexed.
+    QubitRegister(usize),
 }
 
 /// Normalized one-qubit states in the computational, X and Y bases.
@@ -199,6 +205,8 @@ pub enum SpecExpr {
     Infinity,
     /// Only returned by standalone parsing. OpenQASM import resolves all names.
     Name(String),
+    /// A classical or quantum program reference, preserving its declaration ID.
+    /// Quantum references are not converted into mathematical ket literals.
     Symbol {
         id: SymbolId,
         name: String,

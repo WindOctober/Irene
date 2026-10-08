@@ -128,6 +128,10 @@ impl Lowerer {
             .lookup(name)
             .map_err(|_| format!("unknown specification identifier `{name}`"))?;
         let ty = match binding.kind {
+            BindingKind::QuantumVariable(QuantumType::Scalar) => SpecType::Qubit,
+            BindingKind::QuantumVariable(QuantumType::Register { width }) => {
+                SpecType::QubitRegister(width)
+            }
             BindingKind::Constant(_) => {
                 return Err(format!(
                     "`{name}` is a mathematical builtin; use a backslash-prefixed constant in specifications"
@@ -161,7 +165,7 @@ impl Lowerer {
             },
             _ => {
                 return Err(format!(
-                    "`{name}` is not a classical specification value; program quantum-state queries are not supported"
+                    "`{name}` is not a classical specification value or program quantum variable"
                 ));
             }
         };
@@ -194,7 +198,8 @@ impl Lowerer {
             }
             BindingKind::Scalar { .. }
             | BindingKind::ClassicalBit(_)
-            | BindingKind::NumericInput(_) => SpecExpr::Symbol {
+            | BindingKind::NumericInput(_)
+            | BindingKind::QuantumVariable(_) => SpecExpr::Symbol {
                 id: binding.id,
                 name: name.to_owned(),
             },
