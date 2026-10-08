@@ -82,9 +82,9 @@ fn linear_algebra_preserves_dimensions_and_complex_sorts() {
         (r"\adjoint(\Y)", Operator(1)),
         (r"\adjoint(1 + \i)", Complex),
         (r"\conj(1 + \i)", Complex),
-        (r"\abs(1 + \i)", Float),
-        ("\\re(<0| * |1>)", Float),
-        ("\\im(<0| * |1>)", Float),
+        (r"\abs(1 + \i)", Float(None)),
+        ("\\re(<0| * |1>)", Float(None)),
+        ("\\im(<0| * |1>)", Float(None)),
         (r"(1 + \i) / (1 - \i)", Complex),
         (r"\i^2", Complex),
         ("true ? |0> : |1>", Ket(1)),
@@ -417,7 +417,7 @@ fn helper_instantiation_traverses_amplitudes_and_keeps_quantum_leaves() {
     let SpecExpr::Call {
         function: MathFunction::RealPart,
         arguments,
-    } = instantiated
+    } = instantiated.uncast()
     else {
         panic!()
     };
@@ -440,7 +440,7 @@ fn helper_instantiation_traverses_amplitudes_and_keeps_quantum_leaves() {
         panic!()
     };
     assert_ne!(*local, 0, "substitution must freshen the helper's binder");
-    assert_eq!(**upper, argument);
+    assert_eq!(upper.uncast(), &argument);
     let SpecExpr::Binary {
         op: BinaryOp::Mul,
         left,

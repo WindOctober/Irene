@@ -55,7 +55,7 @@ fn binds_multiple_annotations_to_while_and_keeps_source_offsets() {
     else {
         panic!()
     };
-    let SpecExpr::Symbol { id, name } = operand.as_ref() else {
+    let SpecExpr::Symbol { id, name } = operand.uncast() else {
         panic!("mutable n was folded")
     };
     assert_eq!(name, "n");
@@ -95,7 +95,7 @@ fn annotated_symbols(b: &Block, p: &iqir::Program, out: &mut Vec<iqir::SymbolId>
             let AnnotationPayload::Expression(SpecExpr::Binary { left, .. }) = &a[0].payload else {
                 panic!()
             };
-            let SpecExpr::Symbol { id, .. } = left.as_ref() else {
+            let SpecExpr::Symbol { id, .. } = left.uncast() else {
                 panic!()
             };
             out.push(*id);
@@ -150,7 +150,7 @@ fn static_expansion_specializes_annotation_index_and_keeps_each_instance() {
         let SpecExpr::Unary { operand, .. } = left.as_ref() else {
             panic!()
         };
-        indices.push(operand.as_ref().clone());
+        indices.push(operand.uncast().clone());
     }
     assert_eq!(indices, vec![number(0), number(1), number(2)]);
 }
@@ -226,7 +226,13 @@ fn builtin_constant_names_respect_program_shadowing_and_constants_fold_exactly()
     else {
         panic!()
     };
-    assert_eq!(factorial.as_ref(), &unary(UnaryOp::Factorial, number(5)));
+    assert_eq!(
+        factorial.as_ref(),
+        &unary(
+            UnaryOp::Factorial,
+            number(5).cast(iqir::annotation::SpecType::Int(None))
+        )
+    );
     assert_eq!(f.as_ref(), &parse_expression("0.5").unwrap());
     let SpecExpr::Binary { left: pi, .. } = right.as_ref() else {
         panic!()

@@ -138,7 +138,7 @@ impl Lowerer {
                             self.resolve_spec_name(n)
                         })
                         .map_err(|e| error(e.to_string()))?;
-                        if !ty.accepts(actual) {
+                        if !ty.accepts_value(actual, value) {
                             return Err(error(format!(
                                 "ghost `{name}` expects {ty:?}, got {actual:?}"
                             )));
@@ -165,7 +165,7 @@ impl Lowerer {
                         self.resolve_spec_name(n)
                     })
                     .map_err(|e| error(e.to_string()))?;
-                    if !ty.accepts(actual) {
+                    if !ty.accepts_value(actual, value) {
                         return Err(error(format!(
                             "ghost `{name}` expects {ty:?}, got {actual:?}"
                         )));
@@ -271,28 +271,34 @@ impl Lowerer {
             BindingKind::ClassicalBit(t) | BindingKind::StaticBits { ty: t, .. } => match t {
                 BitType::Bool => SpecType::Bool,
                 BitType::Bit => SpecType::Bit,
-                BitType::Angle { .. } => SpecType::Angle,
-                _ => SpecType::Uint,
+                BitType::Angle { width } => SpecType::Angle(Some(width)),
+                BitType::Uint {
+                    width,
+                    explicit_width,
+                } => SpecType::Uint(explicit_width.then_some(width)),
+                BitType::Register { width } => SpecType::Uint(Some(width)),
             },
             BindingKind::Scalar {
-                ty: ScalarType::Int { signed, .. },
+                ty: ScalarType::Int { signed, width },
+                explicit_width,
                 ..
             } => {
                 if signed {
-                    SpecType::Int
+                    SpecType::Int(explicit_width.then_some(width as usize))
                 } else {
-                    SpecType::Uint
+                    SpecType::Uint(explicit_width.then_some(width as usize))
                 }
             }
             BindingKind::Scalar {
-                ty: ScalarType::Float { .. },
+                ty: ScalarType::Float { width },
+                explicit_width,
                 ..
-            } => SpecType::Float,
+            } => SpecType::Float(explicit_width.then_some(width as usize)),
             BindingKind::NumericInput(t) => match t {
-                NumericType::Int(_) => SpecType::Int,
-                NumericType::Uint(_) => SpecType::Uint,
-                NumericType::Float(_) => SpecType::Float,
-                NumericType::Angle(_) => SpecType::Angle,
+                NumericType::Int(w) => SpecType::Int(w),
+                NumericType::Uint(w) => SpecType::Uint(w),
+                NumericType::Float(w) => SpecType::Float(w),
+                NumericType::Angle(w) => SpecType::Angle(w),
             },
             _ => {
                 return Err(format!(
@@ -325,7 +331,16 @@ impl Lowerer {
                     _ => BigRational::from_float(v.as_float().ok_or("invalid float constant")?)
                         .ok_or("non-finite specification constant")?,
                 };
-                SpecExpr::Number(number)
+                if v.as_float()
+                    .is_some_and(|v| v == 0.0 && v.is_sign_negative())
+                {
+                    SpecExpr::Unary {
+                        op: crate::annotation::UnaryOp::Neg,
+                        operand: Box::new(SpecExpr::Number(number).cast(ty)),
+                    }
+                } else {
+                    SpecExpr::Number(number)
+                }
             }
             BindingKind::Ghost(_)
             | BindingKind::Scalar { .. }
@@ -341,6 +356,14 @@ impl Lowerer {
                     binding.kind.description()
                 ));
             }
+        };
+        let expression = if matches!(
+            ty,
+            SpecType::Int(_) | SpecType::Uint(_) | SpecType::Float(_) | SpecType::Angle(_)
+        ) {
+            expression.cast(ty)
+        } else {
+            expression
         };
         Ok((expression, ty))
     }

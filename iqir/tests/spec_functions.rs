@@ -130,7 +130,7 @@ fn helper_substitution_is_symbolic_and_capture_avoiding() {
         id: Some(local),
         body,
         ..
-    } = body
+    } = body.uncast().clone()
     else {
         panic!()
     };
@@ -138,7 +138,7 @@ fn helper_substitution_is_symbolic_and_capture_avoiding() {
     let SpecExpr::Binary { left, right, .. } = *body else {
         panic!()
     };
-    assert_eq!(*left, SpecExpr::BoundVariable(0));
+    assert_eq!(left.uncast(), &SpecExpr::BoundVariable(0));
     assert_eq!(*right, SpecExpr::BoundVariable(local));
     let shadow = define(
         &mut table,
@@ -147,10 +147,10 @@ fn helper_substitution_is_symbolic_and_capture_avoiding() {
     .unwrap();
     let value = parse_expression("5").unwrap();
     let body = instantiate_function(&table, shadow, std::slice::from_ref(&value)).unwrap();
-    let SpecExpr::Binder { upper, body, .. } = body else {
+    let SpecExpr::Binder { upper, body, .. } = body.uncast().clone() else {
         panic!()
     };
-    assert_eq!(*upper, value);
+    assert_eq!(upper.uncast(), &value);
     assert!(matches!(*body, SpecExpr::BoundVariable(_)));
 }
 
@@ -283,12 +283,12 @@ fn quantifier_helper_substitution_avoids_capturing_arguments() {
         upper,
         body,
         ..
-    } = body
+    } = body.uncast().clone()
     else {
         panic!()
     };
     assert_ne!(outer, 0);
-    assert_eq!(*upper, SpecExpr::BoundVariable(0));
+    assert_eq!(upper.uncast(), &SpecExpr::BoundVariable(0));
     let SpecExpr::Binder {
         id: Some(inner),
         lower,
@@ -302,7 +302,7 @@ fn quantifier_helper_substitution_avoids_capturing_arguments() {
     assert_ne!(inner, 0);
     assert_ne!(inner, outer);
     assert_eq!(*lower, SpecExpr::BoundVariable(outer));
-    assert_eq!(*upper, SpecExpr::BoundVariable(0));
+    assert_eq!(upper.uncast(), &SpecExpr::BoundVariable(0));
     let SpecExpr::Binary { left, right, .. } = *body else {
         panic!()
     };

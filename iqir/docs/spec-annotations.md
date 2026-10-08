@@ -7,7 +7,7 @@ parser from [spec.pest](../src/annotation/spec.pest); Pest's
 There is no handwritten token scanner.
 
 ```qasm
-pragma saria.def a(k: int) -> float = 1 / (2*k)!
+pragma saria.def a(k: int) -> float = 1.0 / (2*k)!
 pragma saria.def remaining(k: int) -> float = \cosh(1) - \sum(j in 0..k, a(j))
 pragma saria.def stop_probability(k: int) -> float = k >= 5 ? 1 : a(k)/remaining(k)
 @saria.requires n == 0 && !stop
@@ -50,7 +50,8 @@ type names and annotation/pragma syntax are unchanged.
 - `+ - * / %`, right-associative powers `^` or `**`, comparisons, `&&`, `||`,
   prefix `!`, and postfix factorial `!`. Power binds tighter than unary minus;
   factorial/indexing bind tighter than power. Write `0 <= n && n <= 5`, not
-  chained comparisons. Division is mathematical, not OpenQASM integer division.
+  chained comparisons. Classical division follows OpenQASM operand types:
+  `1 / 2` is integer division; `1.0 / 2.0` is floating-point division.
   `%` is integer remainder (truncation-toward-zero convention). `=>` is logical
   implication (lower precedence than `||`); `condition ? a : b` is a piecewise
   expression. Empty/unselected branches do not bypass static sort checking.
@@ -58,7 +59,7 @@ type names and annotation/pragma syntax are unchanged.
   `\tanh`, `\asin`, `\acos`, `\atan`, `\floor`, `\ceil`, `\min`, `\max`, `\binom`.
   `\ln` aliases `\log`. `\binom(x,k)` is the generalized binomial coefficient
   for real x and nonnegative integer k, permitting the rewinding formula
-  `(-1)^(m+1)*\binom(1/2,m)`. Factorial has domain nonnegative integers, with 0!=1.
+  `(-1)^(m+1)*\binom(0.5,m)`. Factorial has domain nonnegative integers, with 0!=1.
 - Aggregates: `\sum(j in 0..n, body)`, `\product(j in 1..=n, body)`,
   `\sup(x: float in 0..=1, body)`, `\infimum(x: float in 0..1, body)`.
   Quantifiers: `\forall j in 0..n; predicate`,
@@ -129,13 +130,11 @@ recursion and implicit capture of program state are rejected, even for unused
 helpers. To use program state, pass it explicitly: `stop_probability(n)`.
 
 Parameter/return types are classical scalar categories `bool`, `bit`, `int`,
-`uint`, `float`, `angle`. They describe mathematical values, not machine storage:
-no sized type spellings, IEEE rounding or wraparound occur in helper arithmetic.
-`float`/`angle` admit real-valued formulas; integer arguments can be promoted to
-them, not vice versa. `bool`/`bit` are compatible but not implicitly numeric
-arithmetic operands; bit-versus-integer equality is admitted. Int/uint conversion
-retains a nonnegative-value obligation when targeting uint; this checker does
-not prove that obligation. Source helper signatures cannot take or return
+`uint`, `float`, `angle`, with optional numeric widths such as `int[32]` and
+`float[64]`. These are OpenQASM types: helpers and ghosts use the same finite-width
+arithmetic, IEEE rounding, conversions and default widths as program variables.
+`bool`/`bit` are compatible but not implicitly numeric arithmetic operands;
+bit-versus-integer equality is admitted. Source helper signatures cannot take or return
 qubits, quantum vectors/operators, complex scalars or arrays. Their bodies may
 contain quantum expressions whose final result has a classical signature type,
 such as `\abs(<0| * (\cos(t)*|0> + \sin(t)*|1>))^2` returning `float`.
@@ -165,7 +164,7 @@ Mutable variables are never replaced by their known initializers. Constant
 floats retain their already-rounded program value, represented exactly as a
 rational. Scalar Boolean constants are substituted as Booleans; constant bit
 arrays and fixed-width angle constants are not yet admitted in specifications.
-Specification operations themselves have no program bit-width wraparound.
+Classical operations preserve the types and widths of their operands.
 Unknown names/functions/annotation kinds, trailing tokens, wrong arities,
 misplaced loop annotations and dangling annotations are errors. Resource budgets
 limit expression bytes, nodes, nesting and numeric exponent size.

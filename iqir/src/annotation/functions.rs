@@ -9,19 +9,56 @@ fn fail(message: impl Into<String>) -> FunctionError {
     FunctionError(message.into())
 }
 
+fn preserve_type(expression: &mut SpecExpr, ty: SpecType) -> SpecType {
+    if ty.numeric() {
+        let value = std::mem::replace(expression, SpecExpr::Bool(false));
+        *expression = value.cast(ty);
+    }
+    ty
+}
+
 impl SpecType {
+    /// Target representation shared with executable scalar expressions.
+    pub fn scalar_type(self) -> Option<crate::ScalarType> {
+        use crate::ScalarType;
+        match self {
+            Self::Int(w) => Some(ScalarType::Int {
+                width: w.unwrap_or(32) as u32,
+                signed: true,
+            }),
+            Self::Uint(w) => Some(ScalarType::Int {
+                width: w.unwrap_or(32) as u32,
+                signed: false,
+            }),
+            Self::Float(w) => Some(ScalarType::Float {
+                width: w.unwrap_or(64) as u32,
+            }),
+            _ => None,
+        }
+    }
     /// Implicit conversion used by helper parameters and ghost assignments.
     pub fn accepts(self, actual: Self) -> bool {
         compatible(actual, self)
+    }
+    pub fn accepts_value(self, actual: Self, expression: &SpecExpr) -> bool {
+        self.accepts(actual)
+            || (self.boolean()
+                && expression.literal().is_some_and(|n| {
+                    n == BigRational::from_integer(0.into())
+                        || n == BigRational::from_integer(1.into())
+                }))
     }
     fn boolean(self) -> bool {
         matches!(self, Self::Bool | Self::Bit)
     }
     fn integer(self) -> bool {
-        matches!(self, Self::Int | Self::Uint)
+        matches!(self, Self::Int(_) | Self::Uint(_))
     }
     fn numeric(self) -> bool {
-        matches!(self, Self::Int | Self::Uint | Self::Float | Self::Angle)
+        matches!(
+            self,
+            Self::Int(_) | Self::Uint(_) | Self::Float(_) | Self::Angle(_)
+        )
     }
     fn scalar(self) -> bool {
         self.numeric() || self == Self::Complex
@@ -76,7 +113,7 @@ fn compatible(actual: SpecType, expected: SpecType) -> bool {
     actual == expected
         || (actual.boolean() && expected.boolean())
         || (actual.integer() && expected.integer())
-        || (actual.numeric() && matches!(expected, SpecType::Float | SpecType::Angle))
+        || (actual.numeric() && matches!(expected, SpecType::Float(_) | SpecType::Angle(_)))
 }
 
 // Admission of a state predicate only: neither purity nor the equality is proved.
@@ -104,12 +141,27 @@ fn join(a: SpecType, b: SpecType) -> Result<SpecType, FunctionError> {
             "incompatible types or quantum dimensions: {a:?}, {b:?}"
         )));
     }
-    Ok(if !a.integer() || !b.integer() {
-        SpecType::Float
-    } else if a == SpecType::Uint && b == SpecType::Uint {
-        SpecType::Uint
-    } else {
-        SpecType::Int
+    use SpecType::*;
+    let width = |t| match t {
+        Int(w) | Uint(w) => w.unwrap_or(32),
+        Float(w) => w.unwrap_or(64),
+        Angle(w) => w.unwrap_or(32),
+        _ => unreachable!(),
+    };
+    let w = Some(width(a).max(width(b)));
+    Ok(match (a, b) {
+        (Angle(_), Angle(_)) => Angle(w),
+        (Float(_), Float(_)) => Float(w),
+        (Float(_), _) => a,
+        (_, Float(_)) => b,
+        (Angle(_), _) | (_, Angle(_)) => {
+            return Err(fail(
+                "angle arithmetic requires angles or an explicitly permitted integer operation",
+            ));
+        }
+        (Int(_), Int(_)) => Int(w),
+        (Uint(_), Uint(_)) => Uint(w),
+        _ => Int(w),
     })
 }
 
@@ -179,7 +231,7 @@ pub fn define_function(
         },
     };
     let ty = checker.check(&mut f.body, 0)?;
-    if !compatible(ty, f.result) {
+    if !f.result.accepts_value(ty, &f.body) {
         return Err(fail(format!(
             "helper `{}` returns {ty:?}, expected {:?}",
             f.name, f.result
@@ -199,23 +251,27 @@ where
         if depth > 64 || self.work > 2048 {
             return Err(fail("specification checking budget exceeded"));
         }
-        use SpecType::{Bool, Float, Int, Uint};
+        use SpecType::Bool;
+        const FLOAT: SpecType = SpecType::Float(None);
+        const INT: SpecType = SpecType::Int(None);
+        const UINT: SpecType = SpecType::Uint(None);
         match e {
-            SpecExpr::Number(n) => Ok(if n.is_integer() {
-                if n < &mut num_rational::BigRational::from_integer(0.into()) {
-                    Int
-                } else {
-                    Uint
+            SpecExpr::Cast { ty, operand } => {
+                let actual = self.check(operand, depth + 1)?;
+                if !ty.accepts_value(actual, operand) {
+                    return Err(fail(format!(
+                        "invalid implicit conversion from {actual} to {ty}"
+                    )));
                 }
-            } else {
-                Float
-            }),
+                Ok(*ty)
+            }
+            SpecExpr::Number(n) => Ok(if n.is_integer() { INT } else { FLOAT }),
             SpecExpr::Bool(_) => Ok(Bool),
             SpecExpr::ImaginaryUnit => Ok(SpecType::Complex),
             SpecExpr::Ket(factors) => Ok(SpecType::Ket(quantum_width(factors.len())?)),
             SpecExpr::Bra(factors) => Ok(SpecType::Bra(quantum_width(factors.len())?)),
             SpecExpr::Pauli(_) => Ok(SpecType::Operator(1)),
-            SpecExpr::Constant(_) | SpecExpr::Infinity => Ok(Float),
+            SpecExpr::Constant(_) | SpecExpr::Infinity => Ok(FLOAT),
             SpecExpr::Name(name) => {
                 if let Some((_, id, ty)) = self.locals.iter().rev().find(|(n, ..)| n == name) {
                     let ty = *ty;
@@ -249,7 +305,8 @@ where
                 .ok_or_else(|| fail("unbound quantified variable")),
             SpecExpr::Symbol { name, id } => {
                 let (resolved, ty) = (self.resolve)(name).map_err(fail)?;
-                if !matches!(resolved, SpecExpr::Symbol { id: found, .. } if found == *id) {
+                if !matches!(resolved.uncast(), SpecExpr::Symbol { id: found, .. } if *found == *id)
+                {
                     return Err(fail("symbol does not belong to this scope"));
                 }
                 Ok(ty)
@@ -259,14 +316,34 @@ where
                 match op {
                     UnaryOp::Not if t.boolean() => Ok(Bool),
                     UnaryOp::Neg if t.quantum() || t == SpecType::Complex => Ok(t),
-                    UnaryOp::Neg if t.numeric() => Ok(if t.integer() { Int } else { Float }),
-                    UnaryOp::Factorial if t.integer() => Ok(Uint),
+                    UnaryOp::Neg if t.numeric() => Ok(t),
+                    UnaryOp::Factorial if t.integer() => Ok(UINT),
                     _ => Err(fail(format!("invalid operand {t:?} for {op:?}"))),
                 }
             }
             SpecExpr::Binary { op, left, right } => {
-                let a = self.check(left, depth + 1)?;
-                let b = self.check(right, depth + 1)?;
+                let mut a = self.check(left, depth + 1)?;
+                let mut b = self.check(right, depth + 1)?;
+                if a.numeric() && b.numeric() {
+                    if left.literal().is_some() && right.literal().is_none() && b.accepts(a) {
+                        a = b;
+                    }
+                    if right.literal().is_some() && left.literal().is_none() && a.accepts(b) {
+                        b = a;
+                    }
+                    if matches!(op, BinaryOp::Mul | BinaryOp::Div) {
+                        if let SpecType::Angle(w) = a
+                            && right.literal().is_some_and(|n| n.is_integer())
+                        {
+                            b = SpecType::Uint(w);
+                        }
+                        if let SpecType::Angle(w) = b
+                            && left.literal().is_some_and(|n| n.is_integer())
+                        {
+                            a = SpecType::Uint(w);
+                        }
+                    }
+                }
                 use BinaryOp::*;
                 match op {
                     Tensor => tensor_type(a, b),
@@ -294,17 +371,34 @@ where
                         .ok_or_else(|| fail(format!("invalid linear product: {a:?} * {b:?}"))),
                     Div if a.quantum() && b.scalar() => Ok(a),
                     Pow if a == SpecType::Complex && b.integer() => Ok(SpecType::Complex),
-                    Add | Mul if a.numeric() && b.numeric() => join(a, b),
-                    Sub if a.numeric() && b.numeric() => Ok(if a.integer() && b.integer() {
-                        Int
-                    } else {
-                        Float
-                    }),
-                    Div if a.numeric() && b.numeric() => Ok(Float),
-                    Pow if a.numeric() && b.numeric() => {
-                        Ok(if a.integer() && b == Uint { a } else { Float })
+                    Add | Sub | Mul | Div
+                        if matches!(a, SpecType::Angle(_)) || matches!(b, SpecType::Angle(_)) =>
+                    {
+                        use SpecType::{Angle, Uint};
+                        match (*op, a, b) {
+                            (Add | Sub, Angle(w), Angle(v))
+                                if w.unwrap_or(32) == v.unwrap_or(32) =>
+                            {
+                                Ok(a)
+                            }
+                            (Div, Angle(w), Angle(v)) if w.unwrap_or(32) == v.unwrap_or(32) => {
+                                Ok(Uint(w))
+                            }
+                            (Mul | Div, Angle(w), Uint(v))
+                                if w.unwrap_or(32) == v.unwrap_or(32) =>
+                            {
+                                Ok(a)
+                            }
+                            (Mul, Uint(w), Angle(v)) if w.unwrap_or(32) == v.unwrap_or(32) => Ok(b),
+                            _ => Err(fail("invalid angle operands or widths")),
+                        }
                     }
-                    Mod if a.integer() && b.integer() => Ok(Int),
+                    Add | Mul if a.numeric() && b.numeric() => join(a, b),
+                    Sub | Div if a.numeric() && b.numeric() => join(a, b),
+                    Pow if a.numeric() && b.numeric() => {
+                        Ok(if a.integer() && b.integer() { a } else { FLOAT })
+                    }
+                    Mod if a.integer() && b.integer() => join(a, b),
                     _ => Err(fail(format!("invalid operands {a:?}, {b:?} for {op:?}"))),
                 }
             }
@@ -318,7 +412,7 @@ where
                 }
                 let a = self.check(then_value, depth + 1)?;
                 let b = self.check(else_value, depth + 1)?;
-                join(a, b)
+                Ok(preserve_type(e, join(a, b)?))
             }
             SpecExpr::NamedCall { name, arguments } => {
                 let (index, f) = self
@@ -387,17 +481,17 @@ where
                     return Ok(if *function == Conjugate {
                         types[0]
                     } else {
-                        Float
+                        FLOAT
                     });
                 }
                 if *function == Abs && types[0] == SpecType::Complex {
-                    return Ok(Float);
+                    return Ok(FLOAT);
                 }
                 if *function == Probability {
                     if !types[0].boolean() {
                         return Err(fail("probability expects a Boolean event"));
                     }
-                    return Ok(Float);
+                    return Ok(FLOAT);
                 }
                 if types.iter().any(|t| !t.numeric()) {
                     return Err(fail("mathematical function expects numeric arguments"));
@@ -406,19 +500,19 @@ where
                     return Err(fail("binom second argument must be an integer"));
                 }
                 Ok(match function {
-                    Floor | Ceil => Int,
+                    Floor | Ceil => INT,
                     Abs => {
                         if types[0].integer() {
-                            Uint
+                            UINT
                         } else {
-                            Float
+                            FLOAT
                         }
                     }
                     Min | Max => types
                         .into_iter()
                         .reduce(|a, b| join(a, b).unwrap())
                         .unwrap(),
-                    _ => Float,
+                    _ => FLOAT,
                 })
             }
             SpecExpr::Binder {
@@ -484,7 +578,7 @@ where
                     for t in types {
                         ty = join(ty, t?)?;
                     }
-                    Ok(ty)
+                    Ok(preserve_type(e, ty))
                 } else {
                     match self.check(value, depth + 1)? {
                         SpecType::QubitRegister(_) => Ok(SpecType::Qubit),
@@ -515,7 +609,7 @@ where
         }
         for (arg, parameter) in args.iter_mut().zip(&f.parameters) {
             let actual = self.check(arg, depth + 1)?;
-            if !compatible(actual, parameter.ty) {
+            if !parameter.ty.accepts_value(actual, arg) {
                 return Err(fail(format!(
                     "helper `{}` parameter `{}` expects {:?}, got {actual:?}",
                     f.name, parameter.name, parameter.ty
@@ -557,15 +651,20 @@ pub fn instantiate_function(
         stack.extend(children(e));
     }
     let mut body = f.body.clone();
+    let args: Vec<_> = args
+        .iter()
+        .zip(&f.parameters)
+        .map(|(arg, parameter)| arg.clone().cast(parameter.ty))
+        .collect();
     substitute(
         &mut body,
-        args,
+        &args,
         &mut BTreeMap::new(),
         &mut next,
         &mut 4096,
         0,
     )?;
-    Ok(body)
+    Ok(body.cast(f.result))
 }
 
 fn substitute(
@@ -634,7 +733,7 @@ fn substitute(
 
 pub(super) fn children(e: &SpecExpr) -> Vec<&SpecExpr> {
     match e {
-        SpecExpr::Unary { operand, .. } => vec![operand],
+        SpecExpr::Unary { operand, .. } | SpecExpr::Cast { operand, .. } => vec![operand],
         SpecExpr::Binary { left, right, .. } => vec![left, right],
         SpecExpr::Index { value, index } => vec![value, index],
         SpecExpr::Conditional {
@@ -655,7 +754,7 @@ pub(super) fn children(e: &SpecExpr) -> Vec<&SpecExpr> {
 
 fn children_mut(e: &mut SpecExpr) -> Vec<&mut SpecExpr> {
     match e {
-        SpecExpr::Unary { operand, .. } => vec![operand],
+        SpecExpr::Unary { operand, .. } | SpecExpr::Cast { operand, .. } => vec![operand],
         SpecExpr::Binary { left, right, .. } => vec![left, right],
         SpecExpr::Index { value, index } => vec![value, index],
         SpecExpr::Conditional {
