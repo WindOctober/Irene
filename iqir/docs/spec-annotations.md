@@ -34,8 +34,8 @@ preconditions in context and prove invariants rather than treating annotations
 as established facts. [Quantum expressions](quantum-expressions.md) include typed
 state literals, Pauli matrices, symbolic linear algebra, and comparisons between
 program quantum references and same-width kets, such as `q == |0>`.
-General state-extraction and matrix functions from the initial prototype remain
-reserved and are explicitly rejected rather than given implicit semantics.
+`\avg_density` and `\trace_distance` describe ensemble output comparisons.
+General matrix constructors `\diag`, `\trace`, and `\normalize` remain reserved.
 
 ## Standalone assertions
 
@@ -176,7 +176,8 @@ binary64 value; use `\real(1)/10` for exact one-tenth. A real result type alone
 does not change machine operations inside a helper body. There is no implicit
 real-to-float conversion. `\factorial(n)` is exact and real-valued, with
 nonnegative integer domain; postfix `n!` retains its machine result type.
-Analytic builtins on real arguments return real results.
+Analytic builtins on real arguments return real results. Probability, real
+expectation and trace distance are also real-valued quantities.
 `bool`/`bit` are compatible but not implicitly numeric arithmetic operands;
 bit-versus-integer equality is admitted. Source helper signatures cannot take or return
 qubits, quantum vectors/operators, complex scalars or arrays. Their bodies may

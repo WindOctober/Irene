@@ -142,8 +142,12 @@ lexical binding and capture-avoiding helper substitution apply. Quantum leaves
 representing literals do not introduce program symbol IDs; program quantum
 references retain their declaration IDs. Source helper signatures remain classical.
 
-General program-state queries such as `state(q)` and `\avg_density(q)` are not
-implemented; admitting `q == |0>` does not evaluate or prove it.
-General matrix functions `\diag`, `\trace`, `\normalize` and
-`\trace_distance` remain reserved. Equivalence checking continues to ignore all
+`\avg_density(q)` accepts a program qubit or register and returns its normalized
+mean reduced density operator over executions reaching the boundary. Positive
+reachability is a domain obligation. `\trace_distance(A, B)` accepts two
+same-dimensional operators and denotes half the trace norm of their difference.
+These are typed claims, not frontend state extraction or probability evaluation.
+
+General matrix functions `\diag`, `\trace`, and `\normalize` remain reserved.
+Equivalence checking continues to ignore all
 specification annotations; this frontend does not change circuit semantics.

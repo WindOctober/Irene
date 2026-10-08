@@ -466,15 +466,16 @@ where
                 arguments,
             } => {
                 use MathFunction::*;
-                if matches!(
-                    function,
-                    Diag | Trace | Normalize | AvgDensity | TraceDistance
-                ) {
+                if matches!(function, Diag | Trace | Normalize) {
                     return Err(fail(
                         "program-state queries and general matrix specification functions are reserved",
                     ));
                 }
-                let required = if matches!(function, Binomial) { 2 } else { 1 };
+                let required = if matches!(function, Binomial | TraceDistance) {
+                    2
+                } else {
+                    1
+                };
                 if (matches!(function, Min | Max) && arguments.len() < 2)
                     || (!matches!(function, Min | Max) && arguments.len() != required)
                 {
@@ -496,6 +497,21 @@ where
                         return Err(fail("factorial expects a nonnegative integer"));
                     }
                     return Ok(SpecType::Real);
+                }
+                if *function == AvgDensity {
+                    return match types[0] {
+                        SpecType::Qubit => Ok(SpecType::Operator(1)),
+                        SpecType::QubitRegister(n) => Ok(SpecType::Operator(n)),
+                        _ => Err(fail("avg_density expects a program quantum reference")),
+                    };
+                }
+                if *function == TraceDistance {
+                    return match (types[0], types[1]) {
+                        (SpecType::Operator(a), SpecType::Operator(b)) if a == b => {
+                            Ok(SpecType::Real)
+                        }
+                        _ => Err(fail("trace_distance expects same-dimensional operators")),
+                    };
                 }
                 if *function == Adjoint {
                     return match types[0] {
@@ -525,7 +541,7 @@ where
                     if !types[0].boolean() {
                         return Err(fail("probability expects a Boolean event"));
                     }
-                    return Ok(FLOAT);
+                    return Ok(SpecType::Real);
                 }
                 if types.iter().any(|t| !t.numeric()) {
                     return Err(fail("mathematical function expects numeric arguments"));
@@ -545,7 +561,9 @@ where
                         }
                     }
                     Min | Max => types.iter().copied().skip(1).try_fold(types[0], join)?,
-                    _ if types.contains(&SpecType::Real) => SpecType::Real,
+                    _ if *function == Expectation || types.contains(&SpecType::Real) => {
+                        SpecType::Real
+                    }
                     _ => FLOAT,
                 })
             }
