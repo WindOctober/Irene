@@ -5,7 +5,7 @@ ghost_declaration = { ghost_keyword ~ identifier ~ ":" ~ scalar_type ~ ("=" ~ ex
 ghost_assignment = { set_keyword ~ identifier ~ "=" ~ expression }
 ghost_keyword = @{ "ghost" ~ !ident_continue }
 set_keyword = @{ "set" ~ !ident_continue }
-annotation_kind = @{ ("requires" | "ensures" | "invariant" | "terminates") ~ !ident_continue }
+annotation_kind = @{ ("assert" | "requires" | "ensures" | "invariant" | "terminates") ~ !ident_continue }
 termination = { "almost_sure" ~ !ident_continue }
 function_file = { SOI ~ "pragma" ~ "saria.def" ~ identifier ~ "(" ~ parameters? ~ ")" ~ "->" ~ scalar_type ~ "=" ~ expression ~ EOI }
 parameters = { parameter ~ ("," ~ parameter)* }

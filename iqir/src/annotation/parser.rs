@@ -146,6 +146,7 @@ pub fn parse_annotation(text: &str, span: SourceSpan) -> Result<Annotation, Anno
         });
     }
     let kind = match first.as_str() {
+        "assert" => AnnotationKind::Assert,
         "requires" => AnnotationKind::Requires,
         "ensures" => AnnotationKind::Ensures,
         "invariant" => AnnotationKind::Invariant,
