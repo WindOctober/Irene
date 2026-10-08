@@ -51,3 +51,25 @@ n+=1;
         assert!(parse(body).is_err(), "{body}");
     }
 }
+
+#[test]
+fn density_and_distance_have_checked_quantum_dimensions() {
+    parse(
+        r"qubit[2] q;
+@saria.assert \trace_distance(\avg_density(q[0]), (|0><0| + |1><1|)/2.0) < 1e-7
+@saria.assert \trace_distance(\avg_density(q), |00><00|) <= 1.0",
+    )
+    .unwrap();
+    for e in [
+        r"\avg_density(1) == \I",
+        r"\avg_density(|0>) == \I",
+        r"\trace_distance(\avg_density(q), |0><0|) < 1.0",
+        r"\trace_distance(|0>, |1>) < 1.0",
+        r"\trace_distance(1, 2) < 1.0",
+    ] {
+        assert!(
+            parse(&format!("qubit[2] q;\n@saria.assert {e}")).is_err(),
+            "{e}"
+        );
+    }
+}

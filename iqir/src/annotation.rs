@@ -247,7 +247,7 @@ pub enum MathFunction {
     Diag,
     Trace,
     Normalize,
-    /// Ensemble reduced density operator at the annotated boundary.
+    /// Normalized ensemble reduced density operator at a reached boundary.
     AvgDensity,
     /// One half of the trace norm of the difference of density operators.
     TraceDistance,
