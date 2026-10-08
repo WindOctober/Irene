@@ -29,6 +29,8 @@ pub enum SpecType {
     Int(Option<usize>),
     Uint(Option<usize>),
     Float(Option<usize>),
+    /// Exact mathematical reals, distinct from OpenQASM floating-point storage.
+    Real,
     Angle(Option<usize>),
     Complex,
     Ket(usize),
@@ -48,6 +50,7 @@ impl std::fmt::Display for SpecType {
             Self::Int(w) => ("int", *w),
             Self::Uint(w) => ("uint", *w),
             Self::Float(w) => ("float", *w),
+            Self::Real => ("real", None),
             Self::Angle(w) => ("angle", *w),
             _ => return write!(f, "{self:?}"),
         };
@@ -193,6 +196,10 @@ pub enum BinaryOp {
 /// Closed initial vocabulary: unknown functions are errors, not opaque strings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MathFunction {
+    /// Lift a finite classical numeric value into mathematical real arithmetic.
+    Real,
+    /// Exact factorial of a nonnegative integer, with a real-valued result.
+    Factorial,
     Abs,
     Sqrt,
     Exp,

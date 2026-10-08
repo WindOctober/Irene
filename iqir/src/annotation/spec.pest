@@ -10,7 +10,7 @@ termination = { "almost_sure" ~ !ident_continue }
 function_file = { SOI ~ "pragma" ~ "saria.def" ~ identifier ~ "(" ~ parameters? ~ ")" ~ "->" ~ scalar_type ~ "=" ~ expression ~ EOI }
 parameters = { parameter ~ ("," ~ parameter)* }
 parameter = { identifier ~ ":" ~ scalar_type }
-scalar_type = ${ ("bool" | "bit" | "uint" | "int" | "float" | "angle") ~ !ident_continue ~ (WHITESPACE* ~ "[" ~ WHITESPACE* ~ ASCII_DIGIT+ ~ WHITESPACE* ~ "]")? }
+scalar_type = ${ ("bool" | "bit" | "uint" | "int" | "float" | "angle" | "real") ~ !ident_continue ~ (WHITESPACE* ~ "[" ~ WHITESPACE* ~ ASCII_DIGIT+ ~ WHITESPACE* ~ "]")? }
 identifier = @{ (XID_START | "_") ~ ident_continue* }
 ident_continue = _{ XID_CONTINUE }
 number = @{ ((ASCII_DIGIT+ ~ ("." ~ !"." ~ ASCII_DIGIT*)?) | ("." ~ ASCII_DIGIT+)) ~ (("e" | "E") ~ ("+" | "-")? ~ ASCII_DIGIT+)? }
