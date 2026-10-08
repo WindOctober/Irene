@@ -184,9 +184,8 @@ impl Lowerer {
                             &binary
                         )
                     })?;
-                // On this no-overflow subset, widening integer
-                // promotions cannot change the mathematical result. A source
-                // overflow is refused rather than interpreted as exact integers.
+                // Evaluate at the resolved width: unsigned results wrap, while
+                // signed overflow and division by zero are rejected.
                 Ok(StaticInteger {
                     value,
                     width: Some(width),
