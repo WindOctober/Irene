@@ -1,6 +1,10 @@
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
 expression_file = { SOI ~ expression ~ EOI }
-annotation_file = { SOI ~ "@saria." ~ annotation_kind ~ (termination | expression) ~ EOI }
+annotation_file = { SOI ~ "@saria." ~ (ghost_declaration | ghost_assignment | annotation_kind ~ (termination | expression)) ~ EOI }
+ghost_declaration = { ghost_keyword ~ identifier ~ ":" ~ scalar_type ~ ("=" ~ expression)? }
+ghost_assignment = { set_keyword ~ identifier ~ "=" ~ expression }
+ghost_keyword = @{ "ghost" ~ !ident_continue }
+set_keyword = @{ "set" ~ !ident_continue }
 annotation_kind = @{ ("requires" | "ensures" | "invariant" | "terminates") ~ !ident_continue }
 termination = { "almost_sure" ~ !ident_continue }
 function_file = { SOI ~ "pragma" ~ "saria.def" ~ identifier ~ "(" ~ parameters? ~ ")" ~ "->" ~ scalar_type ~ "=" ~ expression ~ EOI }
