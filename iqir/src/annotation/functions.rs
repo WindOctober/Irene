@@ -10,6 +10,10 @@ fn fail(message: impl Into<String>) -> FunctionError {
 }
 
 impl SpecType {
+    /// Implicit conversion used by helper parameters and ghost assignments.
+    pub fn accepts(self, actual: Self) -> bool {
+        compatible(actual, self)
+    }
     fn boolean(self) -> bool {
         matches!(self, Self::Bool | Self::Bit)
     }

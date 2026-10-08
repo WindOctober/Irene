@@ -54,6 +54,7 @@ impl BitType {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum BindingKind {
+    Ghost(crate::annotation::SpecType),
     Scalar {
         ty: ScalarType,
         explicit_width: bool,
@@ -84,6 +85,7 @@ impl BindingKind {
 
     pub(super) fn description(self) -> &'static str {
         match self {
+            Self::Ghost(_) => "ghost variable (specification-only)",
             Self::Scalar {
                 ty: ScalarType::Int { signed: true, .. },
                 ..

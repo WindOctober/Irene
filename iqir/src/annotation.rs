@@ -99,6 +99,8 @@ pub enum AnnotationKind {
     Ensures,
     Invariant,
     Terminates,
+    GhostDeclare,
+    GhostAssign,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -111,6 +113,19 @@ pub enum TerminationKind {
 pub enum AnnotationPayload {
     Expression(SpecExpr),
     Termination(TerminationKind),
+    GhostDeclare {
+        id: Option<SymbolId>,
+        name: String,
+        ty: SpecType,
+        initializer: Option<SpecExpr>,
+        /// Declarations attached to compound statements end with that statement.
+        scoped: bool,
+    },
+    GhostAssign {
+        id: Option<SymbolId>,
+        name: String,
+        value: SpecExpr,
+    },
 }
 
 /// UTF-8 byte offsets into the original source, with an exclusive end.
@@ -258,4 +273,10 @@ pub enum SpecExpr {
     },
     /// Vector or nested matrix literal.
     List(Vec<Self>),
+}
+
+impl SpecExpr {
+    pub fn children(&self) -> Vec<&Self> {
+        functions::children(self)
+    }
 }

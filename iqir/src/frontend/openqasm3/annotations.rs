@@ -76,8 +76,30 @@ impl Lowerer {
 
     pub(super) fn lower_annotated_statement(
         &mut self,
+        annotations: Vec<Annotation>,
+        statement: Stmt,
+    ) -> Result<Statement, FrontendError> {
+        let scoped = matches!(
+            &statement,
+            Stmt::WhileStmt(_) | Stmt::ForStmt(_) | Stmt::IfStmt(_)
+        ) && annotations
+            .iter()
+            .any(|a| a.kind == AnnotationKind::GhostDeclare);
+        if scoped {
+            self.scopes.enter(ScopeKind::Block);
+        }
+        let result = self.lower_annotations(annotations, statement, scoped);
+        if scoped {
+            self.scopes.exit();
+        }
+        result
+    }
+
+    fn lower_annotations(
+        &mut self,
         mut annotations: Vec<Annotation>,
         statement: Stmt,
+        statement_scoped: bool,
     ) -> Result<Statement, FrontendError> {
         if !matches!(
             &statement,
@@ -93,6 +115,67 @@ impl Lowerer {
             return Err(self.annotation_error(&annotations[0], "annotations currently require an executable statement, not a declaration/definition"));
         }
         for a in &mut annotations {
+            let source_name = a.span.source.clone();
+            let offset = a.span.start;
+            let error = |message: String| FrontendError::Annotation {
+                source_name: source_name.clone(),
+                offset,
+                message,
+            };
+            match &mut a.payload {
+                AnnotationPayload::GhostDeclare {
+                    id,
+                    name,
+                    ty,
+                    initializer,
+                    scoped,
+                } => {
+                    if matches!(name.as_str(), "true" | "false") {
+                        return Err(error("reserved ghost variable name".into()));
+                    }
+                    if let Some(value) = initializer {
+                        let actual = check_expression(value, &self.spec_functions, |n| {
+                            self.resolve_spec_name(n)
+                        })
+                        .map_err(|e| error(e.to_string()))?;
+                        if !ty.accepts(actual) {
+                            return Err(error(format!(
+                                "ghost `{name}` expects {ty:?}, got {actual:?}"
+                            )));
+                        }
+                        self.check_ghost_value(value).map_err(&error)?;
+                    }
+                    let binding = self
+                        .scopes
+                        .declare(name.clone(), BindingKind::Ghost(*ty))
+                        .map_err(|e| error(format!("invalid ghost declaration: {e:?}")))?;
+                    *id = Some(binding.id);
+                    *scoped = statement_scoped;
+                    continue;
+                }
+                AnnotationPayload::GhostAssign { id, name, value } => {
+                    let binding = self
+                        .scopes
+                        .lookup(name)
+                        .map_err(|_| error(format!("unknown ghost variable `{name}`")))?;
+                    let BindingKind::Ghost(ty) = binding.kind else {
+                        return Err(error(format!("`{name}` is not a ghost variable")));
+                    };
+                    let actual = check_expression(value, &self.spec_functions, |n| {
+                        self.resolve_spec_name(n)
+                    })
+                    .map_err(|e| error(e.to_string()))?;
+                    if !ty.accepts(actual) {
+                        return Err(error(format!(
+                            "ghost `{name}` expects {ty:?}, got {actual:?}"
+                        )));
+                    }
+                    self.check_ghost_value(value).map_err(&error)?;
+                    *id = Some(binding.id);
+                    continue;
+                }
+                _ => {}
+            }
             if matches!(
                 a.kind,
                 AnnotationKind::Invariant | AnnotationKind::Terminates
@@ -122,12 +205,60 @@ impl Lowerer {
         Ok(lowered)
     }
 
+    fn check_ghost_value(&self, expression: &SpecExpr) -> Result<(), String> {
+        let mut pending = vec![expression.clone()];
+        let mut work = 0;
+        while let Some(e) = pending.pop() {
+            work += 1;
+            if work > 4096 {
+                return Err("ghost expression checking budget exceeded".into());
+            }
+            match &e {
+                SpecExpr::Symbol { name, .. } => {
+                    if matches!(
+                        self.resolve_spec_name(name)?.1,
+                        SpecType::Qubit | SpecType::QubitRegister(_)
+                    ) {
+                        return Err(
+                            "ghost values read classical values, not program quantum states".into(),
+                        );
+                    }
+                }
+                SpecExpr::Call {
+                    function:
+                        crate::annotation::MathFunction::Probability
+                        | crate::annotation::MathFunction::Expectation,
+                    ..
+                } => {
+                    return Err("probability/expectation are state predicates, not per-execution ghost values".into());
+                }
+                SpecExpr::HelperCall {
+                    function,
+                    arguments,
+                } => {
+                    pending.push(
+                        crate::annotation::instantiate_function(
+                            &self.spec_functions,
+                            *function,
+                            arguments,
+                        )
+                        .map_err(|e| e.to_string())?,
+                    );
+                }
+                _ => {}
+            }
+            pending.extend(e.children().into_iter().cloned());
+        }
+        Ok(())
+    }
+
     fn resolve_spec_name(&self, name: &str) -> Result<(SpecExpr, SpecType), String> {
         let binding = self
             .scopes
             .lookup(name)
             .map_err(|_| format!("unknown specification identifier `{name}`"))?;
         let ty = match binding.kind {
+            BindingKind::Ghost(ty) => ty,
             BindingKind::QuantumVariable(QuantumType::Scalar) => SpecType::Qubit,
             BindingKind::QuantumVariable(QuantumType::Register { width }) => {
                 SpecType::QubitRegister(width)
@@ -196,7 +327,8 @@ impl Lowerer {
                 };
                 SpecExpr::Number(number)
             }
-            BindingKind::Scalar { .. }
+            BindingKind::Ghost(_)
+            | BindingKind::Scalar { .. }
             | BindingKind::ClassicalBit(_)
             | BindingKind::NumericInput(_)
             | BindingKind::QuantumVariable(_) => SpecExpr::Symbol {

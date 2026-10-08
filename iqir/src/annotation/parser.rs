@@ -107,7 +107,45 @@ pub fn parse_expression(text: &str) -> Result<SpecExpr, AnnotationParseError> {
 
 pub fn parse_annotation(text: &str, span: SourceSpan) -> Result<Annotation, AnnotationParseError> {
     let mut fields = parse(Rule::annotation_file, text)?.into_inner();
-    let kind = match fields.next().unwrap().as_str() {
+    let first = fields.next().unwrap();
+    if matches!(
+        first.as_rule(),
+        Rule::ghost_declaration | Rule::ghost_assignment
+    ) {
+        let declaration = first.as_rule() == Rule::ghost_declaration;
+        let mut parts = first.into_inner();
+        parts.next(); // ghost/set keyword
+        let name = parts.next().unwrap().as_str().to_owned();
+        let (kind, payload) = if declaration {
+            let ty = scalar_type(parts.next().unwrap());
+            let initializer = parts.next().map(expression).transpose()?;
+            (
+                AnnotationKind::GhostDeclare,
+                AnnotationPayload::GhostDeclare {
+                    id: None,
+                    name,
+                    ty,
+                    initializer,
+                    scoped: false,
+                },
+            )
+        } else {
+            (
+                AnnotationKind::GhostAssign,
+                AnnotationPayload::GhostAssign {
+                    id: None,
+                    name,
+                    value: expression(parts.next().unwrap())?,
+                },
+            )
+        };
+        return Ok(Annotation {
+            kind,
+            payload,
+            span,
+        });
+    }
+    let kind = match first.as_str() {
         "requires" => AnnotationKind::Requires,
         "ensures" => AnnotationKind::Ensures,
         "invariant" => AnnotationKind::Invariant,
