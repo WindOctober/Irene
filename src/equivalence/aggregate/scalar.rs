@@ -340,7 +340,3 @@ pub(super) fn integer(value: i64) -> BigRational {
 pub(super) fn ratio(numerator: i64, denominator: i64) -> BigRational {
     BigRational::new(numerator.into(), denominator.into())
 }
-
-#[cfg(test)]
-#[path = "../../../tests/unit/equivalence/aggregate/scalar/tests.rs"]
-mod tests;

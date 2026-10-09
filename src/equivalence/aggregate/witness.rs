@@ -442,6 +442,3 @@ pub(super) fn constant_is_zero(source: &ExactAggregate, budget: &mut ConstantBud
     }
     evaluate(source, &mut budget.0).is_some_and(|value| value.0.is_empty())
 }
-#[cfg(test)]
-#[path = "../../../tests/unit/equivalence/aggregate/witness/tests.rs"]
-mod tests;

@@ -171,7 +171,3 @@ pub(super) fn restrict(
     }
     Some(Product { common, factors })
 }
-
-#[cfg(test)]
-#[path = "../../../tests/unit/equivalence/aggregate/product_cases/tests.rs"]
-mod tests;

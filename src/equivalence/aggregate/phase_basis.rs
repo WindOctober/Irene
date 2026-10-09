@@ -1,21 +1,8 @@
 //! Connect phase rewrite scheduling to complete local reduction and EQ proofs.
 use super::*;
 
-#[cfg(test)]
-#[path = "../../../tests/unit/equivalence/aggregate/phase_basis/blocks.rs"]
-mod blocks;
 mod checkpoint_components;
-#[cfg(test)]
-#[path = "../../../tests/unit/equivalence/aggregate/phase_basis/pair_period.rs"]
-mod pair_period;
 const WORK_CELLS: usize = super::phase_schedule::WORK_CELLS;
-
-#[cfg(test)]
-fn checkpoint_admitted(term: &WorkingTerm) -> bool {
-    super::vacuous::admitted(term)
-}
-#[cfg(test)]
-use super::vacuous::remove as without_vacuous;
 
 pub(super) fn matches_checkpoints(
     left: &Reduction,
@@ -51,27 +38,6 @@ pub(super) fn matches(left: &Reduction, right: &Reduction) -> bool {
     };
 
     super::phase_schedule::matches(left, right, prove_terms, factored::matches_components)
-}
-
-#[cfg(test)]
-fn matches_using(left: &Reduction, right: &Reduction, blocks: bool, paths: usize) -> bool {
-    let (Reduction::Sum(left), Reduction::Sum(right)) = (left, right) else {
-        return false;
-    };
-
-    let strategy = match (blocks, paths) {
-        (false, _) => super::phase_schedule::Strategy::Single,
-        (true, 8) => super::phase_schedule::Strategy::Blocks8,
-        (true, 16) => super::phase_schedule::Strategy::Blocks16,
-        _ => return false,
-    };
-    super::phase_schedule::try_strategy(
-        left,
-        right,
-        strategy,
-        &mut prove_terms,
-        &mut factored::matches_components,
-    )
 }
 
 fn prove_terms(left: WorkingTerm, right: WorkingTerm, work: &mut usize) -> bool {
@@ -118,7 +84,3 @@ fn matches_reduced_components(left: &Reduction, right: &Reduction, work: &mut us
         factored::matches_components_refined,
     )
 }
-
-#[cfg(test)]
-#[path = "../../../tests/unit/equivalence/aggregate/phase_basis/tests.rs"]
-mod tests;

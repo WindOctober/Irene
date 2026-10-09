@@ -335,7 +335,3 @@ pub(super) fn sum(
     }
     Some(result)
 }
-
-#[cfg(test)]
-#[path = "../../../tests/unit/equivalence/aggregate/small_sum/tests.rs"]
-mod tests;

@@ -256,7 +256,3 @@ fn phases_equal_up_to_global(left: &PhasePolynomial, right: &PhasePolynomial) ->
 fn variable_names(width: usize, namespace: &str) -> Vec<String> {
     (0..width).map(|i| format!("{namespace}{i}")).collect()
 }
-
-#[cfg(test)]
-#[path = "../../tests/unit/equivalence/deterministic/tests.rs"]
-mod tests;

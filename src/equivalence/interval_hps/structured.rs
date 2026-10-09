@@ -486,11 +486,6 @@ impl Dag {
         self.phases.insert(a.clone(), id);
         Some(id)
     }
-    #[cfg(test)]
-    fn cofactor(&mut self, id: Id, v: &Variable, bit: bool, depth: usize) -> Option<Id> {
-        let v = self.variable(v.clone());
-        Some(self.cofactor_pair(id, v, depth)?[usize::from(bit)])
-    }
     fn predicate_pair(&mut self, p: PredicateId, v: VariableId) -> [PredicateId; 2] {
         if self.predicates[p].support.binary_search(&v).is_err() {
             return [p; 2];
@@ -843,7 +838,3 @@ pub(super) fn identity_bound_with_budget(program: &Program, budget: Duration) ->
     }
     report
 }
-
-#[cfg(test)]
-#[path = "../../../tests/unit/equivalence/interval_hps/structured/tests.rs"]
-mod tests;

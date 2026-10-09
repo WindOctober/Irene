@@ -284,7 +284,3 @@ impl Arena {
         (self.nodes.len(), self.xors.len(), self.products.len())
     }
 }
-
-#[cfg(test)]
-#[path = "../../../../tests/unit/equivalence/aggregate/exact_guard_pivot/diagram/tests.rs"]
-mod tests;

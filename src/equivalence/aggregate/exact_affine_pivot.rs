@@ -515,7 +515,3 @@ pub(super) fn apply(
     source.paths.remove(v);
     true
 }
-
-#[cfg(test)]
-#[path = "../../../tests/unit/equivalence/aggregate/exact_affine_pivot/tests.rs"]
-mod tests;

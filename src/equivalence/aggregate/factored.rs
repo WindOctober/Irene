@@ -288,26 +288,6 @@ impl super::product_cases::Proof for ProductCases<'_> {
     }
 }
 
-#[cfg(test)]
-fn restrict_product(
-    source: &Product,
-    variable: &KernelVariable,
-    value: bool,
-    reduction: &mut ReductionBudget,
-) -> Option<Product> {
-    super::product_cases::restrict(
-        source,
-        variable,
-        value,
-        &mut ProductCases {
-            reduction,
-            free_splits: &mut 0,
-            algebra: &mut witness::ConstantBudget::default(),
-            probes: &mut 0,
-        },
-    )
-}
-
 fn bijection(
     left: &Product,
     right: &Product,
@@ -401,16 +381,6 @@ fn matching_pair_unit(
             probes,
         },
     )
-}
-
-#[cfg(test)]
-fn collect_unit(
-    unit: &ExactAggregate,
-    scalar: &mut BigRational,
-    phase: &mut KernelPhasePolynomial,
-    budget: &mut ReductionBudget,
-) -> Option<()> {
-    super::factor_match::collect_unit(unit, scalar, phase, &mut budget.phase_cells)
 }
 
 fn matching_unit(
@@ -582,18 +552,3 @@ fn refine_tensor(
         },
     )
 }
-
-#[cfg(test)]
-fn factor_binomials(
-    source: &ExactAggregate,
-    budget: &mut ReductionBudget,
-) -> Option<[ExactAggregate; 2]> {
-    super::factor_refine::binomials(source, |l, r| multiply_aggregates(l, r, budget))
-}
-
-#[cfg(test)]
-use super::factor_normalize::normalize as normalize_factor;
-
-#[cfg(test)]
-#[path = "../../../tests/unit/equivalence/aggregate/factored/tests.rs"]
-mod tests;

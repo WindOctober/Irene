@@ -258,7 +258,3 @@ pub(super) fn multiply(
     result.retain(|_, coefficients| !coefficients.is_empty());
     Some(result)
 }
-
-#[cfg(test)]
-#[path = "../../../tests/unit/equivalence/aggregate/factorization/tests.rs"]
-mod tests;

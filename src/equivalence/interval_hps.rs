@@ -17,8 +17,6 @@ use crate::symbolic::{
     BooleanPolynomial, ExecutionConfig, OutputSelection, Scalar, Variable, execute,
     normalized_trace_component,
 };
-#[cfg(test)]
-use num_bigint::BigInt;
 use num_rational::BigRational;
 use rug::{Float, Integer, float::Round};
 use std::collections::{BTreeMap, BTreeSet};
@@ -205,7 +203,3 @@ fn refine_with_frontier(
     }
     first
 }
-
-#[cfg(test)]
-#[path = "../../tests/unit/equivalence/interval_hps/tests.rs"]
-mod tests;

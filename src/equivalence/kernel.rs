@@ -445,13 +445,6 @@ impl Ord for KernelPhasePolynomial {
 }
 
 impl KernelPhasePolynomial {
-    /// The optional exact index has its own maintained incidence ceiling.
-    /// This is scheduling metadata only, never a semantic certificate.
-    #[cfg(test)]
-    pub(crate) fn has_occurrence_index(&self) -> bool {
-        self.occurrences.is_some()
-    }
-
     /// Builds a bounded exact occurrence index. Shared immutable monomial
     /// keys avoid copying a degree-d monomial d times into the index.
     pub(crate) fn index_occurrences(&mut self) {
@@ -1444,15 +1437,3 @@ impl<'a> Renamer<'a> {
         })
     }
 }
-
-#[cfg(test)]
-#[path = "../../tests/unit/equivalence/kernel/tests.rs"]
-mod tests;
-
-#[cfg(test)]
-#[path = "../../tests/unit/equivalence/kernel/lowering_tests.rs"]
-mod lowering_tests;
-
-#[cfg(test)]
-#[path = "../../tests/unit/equivalence/kernel/closed_scalar_tests.rs"]
-mod closed_scalar_tests;

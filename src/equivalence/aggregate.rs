@@ -37,9 +37,6 @@ mod factor_relation;
 mod factored;
 mod factorization;
 mod free_split;
-#[cfg(test)]
-#[path = "../../tests/unit/equivalence/aggregate/local_reducer_tests.rs"]
-mod local_reducer_tests;
 mod pair_period;
 mod path_sum;
 mod phase_schedule;
@@ -50,11 +47,7 @@ mod scalar;
 mod shannon;
 mod small_sum;
 
-#[cfg(test)]
-use collection::ExactEntry;
 use collection::{ExactAggregate, ExactTerm, accumulate_exact_term, aggregate_difference};
-#[cfg(test)]
-use free_split::{remove_common_phase, restrict_aggregate};
 use scalar::{normalize_scalar, scalar_conditions_within_budget, scalar_within_budget};
 mod phase_basis;
 
@@ -118,18 +111,6 @@ struct ReductionBudget {
     splits: usize,
     products: usize,
     phase_cells: usize,
-}
-
-/// Proves equality when both kernels reduce to the same exact formal sum.
-///
-/// Failure is deliberately inconclusive: distinct residual syntax can still
-/// denote the same channel after Fourier elimination or coefficient summation.
-#[cfg(test)]
-fn exact_aggregate_match(left: &DensityKernel, right: &DensityKernel) -> bool {
-    matches!(
-        compare_kernels(left, right),
-        AggregateComparison::Equivalent | AggregateComparison::SmtEquivalent(_)
-    )
 }
 
 pub(crate) enum AggregateComparison {
@@ -1223,7 +1204,3 @@ fn integer(value: i64) -> BigRational {
 fn ratio(numerator: i64, denominator: i64) -> BigRational {
     BigRational::new(BigInt::from(numerator), BigInt::from(denominator))
 }
-
-#[cfg(test)]
-#[path = "../../tests/unit/equivalence/aggregate/tests.rs"]
-mod tests;

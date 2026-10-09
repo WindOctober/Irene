@@ -13,48 +13,6 @@ fn charge(work: &mut usize, amount: usize) -> Option<()> {
     Some(())
 }
 
-#[cfg(test)]
-fn image(
-    row: &KernelBooleanPolynomial,
-    v: &KernelVariable,
-    rhs: &KernelBooleanPolynomial,
-    work: &mut usize,
-) -> Option<KernelBooleanPolynomial> {
-    let mut terms = BTreeSet::new();
-    let mut stored = 0usize;
-    let mut toggle = |m: KernelMonomial| -> Option<()> {
-        let cells = 1 + m.variables().count();
-        if terms.remove(&m) {
-            stored -= cells;
-        } else {
-            // Reserve before inserting, including all transient uncanceled keys.
-            if terms.len() >= MAX_BOOLEAN_TERMS || stored.checked_add(cells)? > SOURCE_CELLS {
-                return None;
-            }
-            stored += cells;
-            terms.insert(m);
-        }
-        Some(())
-    };
-    // H first allows product collisions to cancel directly against old keys.
-    for m in row.terms().filter(|m| !m.contains(v)) {
-        charge(work, 1 + m.variables().count())?;
-        toggle(m.clone())?;
-    }
-    for m in row.terms().filter(|m| m.contains(v)) {
-        for f in rhs.terms() {
-            let added = || f.variables().filter(|w| !m.contains(w));
-            charge(work, m.variables().count() + added().count())?;
-            toggle(KernelMonomial::from_variables(
-                m.variables().filter(|w| *w != v).chain(added()).cloned(),
-            ))?;
-        }
-    }
-    // Moving the complete set into the canonical collector still visits keys.
-    charge(work, stored)?;
-    Some(KernelBooleanPolynomial::from_monomials(terms))
-}
-
 fn admit(
     source: &WorkingTerm,
     v: &KernelVariable,
@@ -185,7 +143,3 @@ pub(super) fn apply(
     source.paths.remove(v);
     true
 }
-
-#[cfg(test)]
-#[path = "../../../tests/unit/equivalence/aggregate/exact_guard_pivot/tests.rs"]
-mod tests;

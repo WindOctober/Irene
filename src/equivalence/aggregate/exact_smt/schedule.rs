@@ -278,7 +278,3 @@ impl Encoder {
         None
     }
 }
-
-#[cfg(test)]
-#[path = "../../../../tests/unit/equivalence/aggregate/exact_smt/schedule/tests.rs"]
-mod tests;

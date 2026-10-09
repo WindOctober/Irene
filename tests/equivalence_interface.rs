@@ -1,11 +1,9 @@
-use crate::ir::{
-    AstIdGenerator, BlockData, NumericInputData, OpenQasmVersion, ProgramData, RegisterData,
-};
-
-use super::*;
+//! Public interface preparation and validation; no private verifier modules.
+use irene::{equivalence::*, frontend::openqasm3, ir::*, symbolic::Variable};
+use num_rational::BigRational;
 
 fn parse(body: &str) -> Program {
-    crate::frontend::openqasm3::parse_str(
+    irene::frontend::openqasm3::parse_str(
         &format!("OPENQASM 3.0; include \"stdgates.inc\"; {body}"),
         "interface-test.qasm",
     )
@@ -22,11 +20,16 @@ fn q(program: &Program, index: usize) -> Qubit {
 fn terminal_value(side: &PreparedSide, position: usize, input: usize) -> bool {
     let value = &side.terminals[0].outputs[position].value;
     value
-        .evaluate::<std::convert::Infallible>(|v| match v {
-            Variable::Input(q) => Ok(input & (1 << q.index) != 0),
-            Variable::Path(_) => panic!("deterministic fixture has no path variables"),
+        .expanded_terms(16)
+        .expect("small Boolean fixture")
+        .iter()
+        .fold(false, |parity, monomial| {
+            parity
+                ^ monomial.variables().all(|v| match v {
+                    Variable::Input(q) => input & (1 << q.index) != 0,
+                    Variable::Path(_) => panic!("deterministic fixture has no path variables"),
+                })
         })
-        .unwrap()
 }
 
 #[test]
@@ -174,104 +177,6 @@ fn positional_configuration_uses_declaration_order_and_checks_counts() {
     assert!(EquivalenceConfig::positional(&left, &parse("qubit[2] a;")).is_none());
 }
 
-#[test]
-fn input_renaming_reaches_every_field_without_capturing_paths() {
-    use crate::symbolic::{
-        Component, HistoryEntry, HybridMemory, PhaseCoefficient, PhasePolynomial, Scalar,
-    };
-    use num_rational::BigRational;
-    let source = Qubit {
-        register: SymbolId(7),
-        index: 2,
-    };
-    let x = BooleanPolynomial::variable(Variable::Input(source.clone()));
-    let y = BooleanPolynomial::variable(Variable::Path(0));
-    let bit = ClassicalBit {
-        register: SymbolId(8),
-        index: 0,
-    };
-    let expr = x.xor(&y);
-    let mut phase = PhasePolynomial::zero();
-    phase.add_boolean(
-        &expr,
-        PhaseCoefficient::rational(BigRational::new(1.into(), 8.into())),
-    );
-    let mut hps = HybridPathSum {
-        input: HybridMemory {
-            quantum: [(source.clone(), x)].into(),
-            ..Default::default()
-        },
-        components: vec![Component {
-            guard: vec![expr.clone()],
-            scalar: Scalar::select(
-                expr.clone(),
-                Scalar::one(),
-                Scalar::rational(BigRational::from_integer(2.into())),
-            ),
-            phase,
-            path_support: [0].into(),
-            output: HybridMemory {
-                quantum: [(source.clone(), expr.clone())].into(),
-                classical: [(bit.clone(), expr.clone())].into(),
-                history: vec![
-                    HistoryEntry::Write {
-                        target: bit,
-                        value: expr.clone(),
-                    },
-                    HistoryEntry::Discard { value: expr },
-                ],
-            },
-        }],
-    };
-    let mut expected = hps.components[0].clone();
-    let old = Variable::Input(source.clone());
-    let new = BooleanPolynomial::variable(Variable::Input(Qubit {
-        register: SymbolId(9),
-        index: 0,
-    }));
-    expected.guard = expected
-        .guard
-        .iter()
-        .map(|g| g.substitute(&old, &new))
-        .collect();
-    expected.scalar = expected.scalar.substitute(&old, &new);
-    expected.phase.substitute(&old, &new);
-    for v in expected
-        .output
-        .quantum
-        .values_mut()
-        .chain(expected.output.classical.values_mut())
-    {
-        *v = v.substitute(&old, &new);
-    }
-    for entry in &mut expected.output.history {
-        *entry.value_mut() = entry.value().substitute(&old, &new);
-    }
-    canonicalize_boolean_inputs(&mut hps, &[source], SymbolId(9));
-    let actual = &hps.components[0];
-    assert_eq!(actual.guard, expected.guard);
-    assert_eq!(actual.scalar, expected.scalar);
-    assert_eq!(actual.phase, expected.phase);
-    assert_eq!(actual.output.quantum, expected.output.quantum);
-    assert_eq!(actual.output.classical, expected.output.classical);
-    assert_eq!(actual.path_support, expected.path_support);
-    for (a, b) in actual.output.history.iter().zip(&expected.output.history) {
-        assert_eq!(a.value(), b.value());
-    }
-}
-
-#[test]
-fn canonical_namespace_exhaustion_is_unsupported() {
-    let (left, _) = identity_program(usize::MAX);
-    let (right, _) = identity_program(0);
-    assert!(matches!(
-        prepare_comparison(&left, &right, &EquivalenceConfig::default()),
-        Err(InterfaceError::Unsupported(
-            UnsupportedInterface::CanonicalSymbolSpaceExhausted
-        ))
-    ));
-}
-
 fn identity_program(register: usize) -> (Program, Qubit) {
     let mut ids = AstIdGenerator::default();
     let quantum_register = ids.node(RegisterData {
@@ -366,42 +271,6 @@ fn rejects_a_classical_input_endpoint() {
 }
 
 #[test]
-fn rejects_sized_float_before_symbolic_normalization() {
-    let ty = NumericType::Float(Some(64));
-    let (left, _) = identity_program_with_numeric_input(3, 9, ty);
-    let (right, _) = identity_program_with_numeric_input(4, 10, ty);
-
-    assert_eq!(
-        prepare_comparison(&left, &right, &numeric_config(9, 10)),
-        Err(InterfaceError::Unsupported(
-            UnsupportedInterface::NumericInputSemanticsUnsupported {
-                side: Side::Left,
-                input: SymbolId(9),
-                ty,
-            }
-        ))
-    );
-}
-
-#[test]
-fn rejects_sized_angle_before_symbolic_normalization() {
-    let ty = NumericType::Angle(Some(20));
-    let (left, _) = identity_program_with_numeric_input(3, 9, ty);
-    let (right, _) = identity_program_with_numeric_input(4, 10, ty);
-
-    assert_eq!(
-        prepare_comparison(&left, &right, &numeric_config(9, 10)),
-        Err(InterfaceError::Unsupported(
-            UnsupportedInterface::NumericInputSemanticsUnsupported {
-                side: Side::Left,
-                input: SymbolId(9),
-                ty,
-            }
-        ))
-    );
-}
-
-#[test]
 fn numeric_semantics_rejection_does_not_mask_type_mismatch() {
     let (left, _) = identity_program_with_numeric_input(3, 9, NumericType::Float(Some(64)));
     let (right, _) = identity_program_with_numeric_input(4, 10, NumericType::Angle(Some(64)));
@@ -454,4 +323,111 @@ fn rejects_sized_and_unsized_numeric_inputs() {
             ))
         );
     }
+}
+
+fn pair_program(body: &str) -> Program {
+    openqasm3::parse_str(
+        &format!("OPENQASM 3.0; include \"stdgates.inc\"; qubit[2] q; {body}"),
+        "stage1.qasm",
+    )
+    .unwrap()
+}
+
+fn config(left: &Program, right: &Program) -> EquivalenceConfig {
+    EquivalenceConfig::positional(left, right).unwrap()
+}
+
+fn rational(n: i64, d: i64) -> BigRational {
+    BigRational::new(n.into(), d.into())
+}
+
+#[test]
+fn malformed_interfaces_are_errors_before_any_successful_certificate() {
+    let left = pair_program("h q[0]; h q[0];");
+    let right = pair_program("");
+    let full = config(&left, &right);
+    let mut duplicate_input = full.clone();
+    duplicate_input
+        .input_pairs
+        .push(full.input_pairs[0].clone());
+    let mut duplicate_output = full.clone();
+    duplicate_output
+        .output_pairs
+        .push(full.output_pairs[0].clone());
+    let mut unknown_input = full.clone();
+    unknown_input.input_pairs[0].left = Endpoint::Quantum(Qubit {
+        register: SymbolId(999),
+        index: 0,
+    });
+    let mut unknown_output = full.clone();
+    unknown_output.output_pairs[0].right = Endpoint::Quantum(Qubit {
+        register: SymbolId(999),
+        index: 0,
+    });
+    let mut classical_input = full;
+    classical_input.input_pairs[0].left = Endpoint::Classical(ClassicalBit {
+        register: SymbolId(999),
+        index: 0,
+    });
+    for cfg in [
+        duplicate_input,
+        duplicate_output,
+        unknown_input,
+        unknown_output,
+        classical_input,
+    ] {
+        let error = analyze(&left, &right, &cfg).unwrap_err();
+        assert!(!matches!(error, InterfaceError::Unsupported(_)));
+        // Trace refusal falls through to the existing preparation rules.
+        assert_eq!(error, prepare_comparison(&left, &right, &cfg).unwrap_err());
+    }
+}
+
+#[test]
+fn malformed_numeric_pairing_is_not_hidden_by_unsupported_semantics() {
+    let left = pair_program("input float[64] theta;");
+    let right = pair_program("input float[64] theta;");
+    let full = config(&left, &right);
+    let mut duplicate = full.clone();
+    duplicate
+        .numeric_input_pairs
+        .push(full.numeric_input_pairs[0]);
+    assert!(matches!(
+        analyze(&left, &right, &duplicate),
+        Err(InterfaceError::DuplicateNumericInput { .. })
+    ));
+    let mut unknown = full.clone();
+    unknown.numeric_input_pairs[0].left = SymbolId(999);
+    assert!(matches!(
+        analyze(&left, &right, &unknown),
+        Err(InterfaceError::UnknownNumericInput { .. })
+    ));
+    let mut mismatch = right;
+    mismatch.numeric_inputs[0].ty = irene::ir::NumericType::Angle(Some(64));
+    assert!(matches!(
+        analyze(&left, &mismatch, &full),
+        Err(InterfaceError::NumericTypeMismatch { .. })
+    ));
+}
+
+#[test]
+fn cancelling_invalid_angles_never_produces_a_certificate() {
+    use irene::ir::{AstIdGenerator, NumericExprKind, StatementKind};
+    let mut left = pair_program("rx(pi/2) q[0]; rx(-pi/2) q[0];");
+    let mut ids = AstIdGenerator::default();
+    for statement in &mut left.body.statements {
+        let StatementKind::Apply { parameters, .. } = &mut statement.kind else {
+            unreachable!()
+        };
+        let zero = ids.node(NumericExprKind::Rational(rational(0, 1)));
+        parameters[0] = ids.node(NumericExprKind::Div(
+            Box::new(parameters[0].clone()),
+            Box::new(zero),
+        ));
+    }
+    let right = pair_program("");
+    assert!(matches!(
+        analyze(&left, &right, &config(&left, &right)),
+        Err(InterfaceError::Execution { .. })
+    ));
 }

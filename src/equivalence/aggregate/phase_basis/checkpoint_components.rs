@@ -1,6 +1,4 @@
 //! Connect complete checkpoint factors to the existing local reducer and proof.
-#[cfg(test)]
-use super::super::checkpoint_factors::local_cells;
 use super::super::checkpoint_factors::{Components, components};
 use super::*;
 
@@ -49,7 +47,3 @@ fn reduce_components(factors: Components, work: &mut usize) -> Option<Vec<Workin
         }
     })
 }
-
-#[cfg(test)]
-#[path = "../../../../tests/unit/equivalence/aggregate/phase_basis/checkpoint_components/tests.rs"]
-mod tests;

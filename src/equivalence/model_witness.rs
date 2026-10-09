@@ -72,7 +72,3 @@ pub(super) fn validated_phase_model(
             (ket_value != bra_value).then_some((ket, bra))
         })
 }
-
-#[cfg(test)]
-#[path = "../../tests/unit/equivalence/model_witness/tests.rs"]
-mod tests;

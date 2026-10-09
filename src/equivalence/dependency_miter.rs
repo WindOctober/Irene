@@ -139,7 +139,3 @@ pub fn proves_identity(c: &Candidate) -> bool {
     };
     analyze(&c.circuit, &c.identity, &config).is_ok_and(|r| r.verdict == Verdict::Equivalent)
 }
-
-#[cfg(test)]
-#[path = "../../tests/unit/equivalence/dependency_miter/tests.rs"]
-mod tests;

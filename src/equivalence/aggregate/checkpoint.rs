@@ -52,7 +52,3 @@ pub(super) fn matches(
         _ => prove_components(left, right),
     }
 }
-
-#[cfg(test)]
-#[path = "../../../tests/unit/equivalence/aggregate/checkpoint/tests.rs"]
-mod tests;

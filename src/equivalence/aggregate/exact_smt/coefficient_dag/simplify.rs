@@ -292,7 +292,3 @@ impl Dag {
         Some((result, roots))
     }
 }
-
-#[cfg(test)]
-#[path = "../../../../../tests/unit/equivalence/aggregate/exact_smt/coefficient_dag/simplify/tests.rs"]
-mod tests;

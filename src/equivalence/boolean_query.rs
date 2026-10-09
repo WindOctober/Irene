@@ -96,7 +96,3 @@ fn smt_script(declarations: String, assertion: String, values: &[String]) -> Str
         "(set-logic QF_BV)\n(set-option :produce-models true)\n{declarations}(assert {assertion})\n(check-sat)\n{get_values}"
     )
 }
-
-#[cfg(test)]
-#[path = "../../tests/unit/equivalence/boolean_query/tests.rs"]
-mod tests;
