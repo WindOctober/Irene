@@ -414,7 +414,3 @@ fn is_malformed_status(line: &str) -> bool {
             )
         })
 }
-
-#[cfg(test)]
-#[path = "../../tests/unit/equivalence/smt/tests.rs"]
-mod tests;

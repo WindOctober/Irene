@@ -24,7 +24,3 @@ pub(super) fn split(t: &WorkingTerm) -> Option<[Reduction; 2]> {
     let variable = t.paths.last()?.clone();
     children(t, &variable)
 }
-
-#[cfg(test)]
-#[path = "../../../tests/unit/equivalence/aggregate/conditioning/tests.rs"]
-mod tests;

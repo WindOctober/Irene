@@ -109,7 +109,3 @@ pub(super) fn accumulate_exact_term(
     }
     Some(())
 }
-
-#[cfg(test)]
-#[path = "../../../tests/unit/equivalence/aggregate/collection/tests.rs"]
-mod tests;

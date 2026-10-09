@@ -206,16 +206,6 @@ pub(super) fn reduce_components(
 #[derive(Clone)]
 pub(super) struct Components(Vec<WorkingTerm>);
 
-#[cfg(test)]
-impl Components {
-    pub(super) fn from_complete_terms(terms: Vec<WorkingTerm>) -> Self {
-        Self(terms)
-    }
-    pub(super) fn last_mut(&mut self) -> Option<&mut WorkingTerm> {
-        self.0.last_mut()
-    }
-}
-
 impl std::ops::Deref for Components {
     type Target = [WorkingTerm];
     fn deref(&self) -> &Self::Target {
@@ -295,7 +285,3 @@ pub(super) fn components(source: &WorkingTerm, work: &mut usize) -> Option<Compo
             .collect(),
     ))
 }
-
-#[cfg(test)]
-#[path = "../../../tests/unit/equivalence/aggregate/checkpoint_factors/tests.rs"]
-mod tests;

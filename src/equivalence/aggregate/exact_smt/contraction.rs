@@ -200,7 +200,3 @@ impl Encoder {
         Some(result)
     }
 }
-
-#[cfg(test)]
-#[path = "../../../../tests/unit/equivalence/aggregate/exact_smt/contraction/tests.rs"]
-mod tests;

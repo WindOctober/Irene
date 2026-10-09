@@ -179,7 +179,3 @@ fn compact_bounded<const MASKS: usize>(source: &mut WorkingTerm, work: &mut usiz
     }
     Some(true)
 }
-
-#[cfg(test)]
-#[path = "../../../tests/unit/equivalence/aggregate/pair_period/tests.rs"]
-mod tests;

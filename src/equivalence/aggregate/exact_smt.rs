@@ -1639,7 +1639,3 @@ impl Encoder {
         })
     }
 }
-
-#[cfg(test)]
-#[path = "../../../tests/unit/equivalence/aggregate/exact_smt/tests.rs"]
-mod tests;

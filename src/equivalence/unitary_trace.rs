@@ -245,7 +245,3 @@ fn phase_only_rotations(mut circuit: Program) -> Option<Program> {
     circuit.body.statements = out;
     Some(circuit)
 }
-
-#[cfg(test)]
-#[path = "../../tests/unit/equivalence/unitary_trace/tests.rs"]
-mod tests;

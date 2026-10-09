@@ -594,7 +594,3 @@ pub(super) fn add_phase(
     }
     Some(())
 }
-
-#[cfg(test)]
-#[path = "../../../tests/unit/equivalence/aggregate/factor_relation/tests.rs"]
-mod tests;

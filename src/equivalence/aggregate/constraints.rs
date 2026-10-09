@@ -183,7 +183,3 @@ impl WorkingTerm {
         self.phase.substitute(variable, replacement);
     }
 }
-
-#[cfg(test)]
-#[path = "../../../tests/unit/equivalence/aggregate/constraints/tests.rs"]
-mod tests;

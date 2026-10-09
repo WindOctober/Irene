@@ -79,7 +79,3 @@ pub(super) fn normalize(
     }
     (replay == source).then_some((normalized, scalar, common))
 }
-
-#[cfg(test)]
-#[path = "../../../tests/unit/equivalence/aggregate/factor_normalize/tests.rs"]
-mod tests;

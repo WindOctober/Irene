@@ -146,7 +146,3 @@ fn compare_with(
     a.solver_queries.push(result);
     Some(Ok(a))
 }
-
-#[cfg(test)]
-#[path = "../../tests/unit/equivalence/graph_compare/tests.rs"]
-mod tests;

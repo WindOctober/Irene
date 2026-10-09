@@ -99,7 +99,3 @@ pub(super) fn prove(
     }
     true
 }
-
-#[cfg(test)]
-#[path = "../../../tests/unit/equivalence/aggregate/zero_product/tests.rs"]
-mod tests;

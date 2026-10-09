@@ -220,7 +220,3 @@ pub(super) fn restrict_aggregate(
     result.retain(|_, coefficients| !coefficients.is_empty());
     Some(result)
 }
-
-#[cfg(test)]
-#[path = "../../../tests/unit/equivalence/aggregate/free_split/tests.rs"]
-mod tests;

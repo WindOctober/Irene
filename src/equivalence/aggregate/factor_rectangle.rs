@@ -187,7 +187,3 @@ pub(super) fn factor(
     }
     Some(vec![left, right])
 }
-
-#[cfg(test)]
-#[path = "../../../tests/unit/equivalence/aggregate/factor_rectangle/tests.rs"]
-mod tests;

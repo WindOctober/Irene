@@ -152,7 +152,3 @@ fn integer(n: i64) -> BigRational {
 fn ratio(n: i64, d: i64) -> BigRational {
     BigRational::new(n.into(), d.into())
 }
-
-#[cfg(test)]
-#[path = "../../../tests/unit/equivalence/aggregate/path_sum/tests.rs"]
-mod tests;

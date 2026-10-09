@@ -157,7 +157,3 @@ pub(super) fn build(
         factors: normalized,
     })
 }
-
-#[cfg(test)]
-#[path = "../../../tests/unit/equivalence/aggregate/product_form/tests.rs"]
-mod tests;

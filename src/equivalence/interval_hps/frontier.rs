@@ -9,10 +9,6 @@ const MAX_QUBITS: usize = 10;
 const MAX_CELL_STEPS: usize = 1_500_000_000;
 const MAX_SECONDS: u64 = 180;
 
-#[cfg(test)]
-#[path = "../../../tests/unit/equivalence/interval_hps/frontier/tests.rs"]
-mod tests;
-
 type Matrix = Vec<Vec<(usize, Complex)>>;
 fn block_matrix(
     program: &Program,
@@ -50,19 +46,6 @@ fn block_matrix(
             .map(|r| r.into_iter().filter(|(_, v)| !v.is_zero()).collect())
             .collect(),
     )
-}
-
-#[cfg(test)]
-fn identity_bound(program: &Program) -> Option<Report> {
-    identity_bound_with_tolerance(
-        program,
-        &BigRational::new(1.into(), 1_000_000_000_000i64.into()),
-    )
-}
-
-#[cfg(test)]
-pub(super) fn identity_bound_with_tolerance(program: &Program, target: &BigRational) -> Option<Report> {
-    identity_bound_with_witness_target(program, target, target)
 }
 
 pub(super) fn identity_bound_with_witness_target(

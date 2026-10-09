@@ -72,7 +72,3 @@ pub(super) fn find(
     }
     None
 }
-
-#[cfg(test)]
-#[path = "../../../tests/unit/equivalence/aggregate/factor_pair/tests.rs"]
-mod tests;

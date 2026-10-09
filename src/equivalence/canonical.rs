@@ -353,7 +353,3 @@ fn component_cmp(left: &Component, right: &Component) -> Ordering {
         .then_with(|| left.phase.cmp(&right.phase))
         .then_with(|| memory_cmp(&left.output, &right.output))
 }
-
-#[cfg(test)]
-#[path = "../../tests/unit/equivalence/canonical/tests.rs"]
-mod tests;

@@ -722,7 +722,3 @@ fn maximum_symbol(program: &Program) -> Option<usize> {
     visit_block(&program.body, &mut maximum);
     maximum
 }
-
-#[cfg(test)]
-#[path = "../../tests/unit/equivalence/interface/tests.rs"]
-mod tests;

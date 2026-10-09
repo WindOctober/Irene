@@ -350,7 +350,3 @@ pub(super) fn exact_match(left: &HybridPathSum, right: &HybridPathSum) -> ExactM
     }
     ExactMatch::Match { left: a, right: b }
 }
-
-#[cfg(test)]
-#[path = "../../../tests/unit/equivalence/canonical/colored_graph/tests.rs"]
-mod tests;

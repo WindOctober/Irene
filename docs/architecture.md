@@ -417,8 +417,14 @@ The exact-SMT encoder normally conditions later bound paths first, then applies
 exact reductions and independent-factor decomposition. Both outcomes are summed;
 free inputs remain free.
 
-- `tests/equivalence.rs`, `tests/unitary_miter.rs`: comparisons and inverse-circuit admission.
+- `tests/equivalence.rs`, `tests/equivalence_channels.rs`: public channel comparisons,
+  nonlinear feedback and exact density-certificate regressions.
+- `tests/equivalence_interface.rs`: interface preparation, pairing and validation.
+- `tests/equivalence_intervals.rs`: certified distance bounds and numerical refusal.
+- `tests/dependency_rewrites.rs`, `tests/unitary_miter.rs`: rewrite semantics and
+  inverse-circuit admission, including independent matrix-oracle checks.
 - `src/symbolic/tests.rs`, `src/symbolic/optimize/tests.rs`: HPS execution and reductions.
-- `tests/unit/equivalence/aggregate/exact_smt/tests.rs`, `exact_smt/coefficient_dag/tests.rs`
-  and `exact_smt/frontier/tests.rs`: encoding and contraction.
 - `tests/angles_constants.rs`, `tests/static_integers.rs` and frontend tests: source semantics.
+
+Equivalence integration tests import the public `irene` API. They are discovered
+by Cargo under `tests/`; implementation modules do not include test files.

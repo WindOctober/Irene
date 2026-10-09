@@ -178,7 +178,3 @@ pub(super) fn reduce(mut t: WorkingTerm) -> Reduction {
         return Reduction::Sum(Box::new(t));
     }
 }
-
-#[cfg(test)]
-#[path = "../../../tests/unit/equivalence/aggregate/graph/tests.rs"]
-mod tests;

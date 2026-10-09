@@ -74,7 +74,3 @@ fn run_graph_query_with(
         results: vec![result],
     })
 }
-
-#[cfg(test)]
-#[path = "../../tests/unit/equivalence/solver_query/tests.rs"]
-mod tests;

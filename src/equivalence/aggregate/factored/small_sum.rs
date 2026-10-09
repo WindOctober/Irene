@@ -7,7 +7,3 @@ pub(super) fn admitted(source: &WorkingTerm) -> bool {
 pub(super) fn sum(source: &WorkingTerm, budget: &mut ReductionBudget) -> Option<ExactAggregate> {
     super::super::small_sum::sum(source, &mut budget.splits, &mut budget.phase_cells)
 }
-
-#[cfg(test)]
-#[path = "../../../../tests/unit/equivalence/aggregate/factored/small_sum/tests.rs"]
-mod tests;

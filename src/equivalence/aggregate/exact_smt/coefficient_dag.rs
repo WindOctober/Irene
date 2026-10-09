@@ -762,7 +762,3 @@ pub(super) fn compare(left: &DensityKernel, right: &DensityKernel) -> Option<Agg
     }
     Some(query?.solve(left))
 }
-
-#[cfg(test)]
-#[path = "../../../../tests/unit/equivalence/aggregate/exact_smt/coefficient_dag/tests.rs"]
-mod tests;
