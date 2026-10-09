@@ -11,7 +11,7 @@ fn matcher() -> &'static Matcher {
     MATCHER.get_or_init(|| {
         let mut patterns = Vec::new();
         for &gate in rules::PAIRS {
-            let n = unitary::gate_shape(gate).0;
+            let n = crate::ir::gate_shape(gate).0;
             let mut graph = PortGraph::new();
             let a = graph.add_node(n, n);
             let b = graph.add_node(n, n);
@@ -24,7 +24,7 @@ fn matcher() -> &'static Matcher {
             patterns.push(WeightedPattern::from_weighted_portgraph(&graph, weights));
         }
         for &(first, gate, last) in rules::TRIPLES {
-            let n = unitary::gate_shape(gate).0;
+            let n = crate::ir::gate_shape(gate).0;
             let mut graph = PortGraph::new();
             let a = graph.add_node(1, 1);
             let b = graph.add_node(n, n);

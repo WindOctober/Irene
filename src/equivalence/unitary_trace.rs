@@ -1,7 +1,8 @@
 //! Full-unitary trace certificate, before independent density construction.
+use super::unitary_miter;
 use super::{Endpoint, EquivalenceConfig, InputPair, OutputPair};
 use crate::{
-    ir::{AstIdGenerator, Gate, Program, StatementKind, unitary},
+    ir::{AstIdGenerator, Gate, Program, StatementKind},
     symbolic::{
         ExecutionConfig, OutputSelection, PhaseCoefficient, Scalar, execute,
         normalized_trace_component,
@@ -60,7 +61,7 @@ pub(super) fn certificate(
     } else {
         (right, left)
     };
-    let Ok((circuit, _)) = unitary::miter(forward, inverse) else {
+    let Ok((circuit, _)) = unitary_miter::miter(forward, inverse) else {
         return None;
     };
     let was_mixing = circuit.body.statements.iter().any(|s| {
@@ -411,7 +412,7 @@ mod tests {
                 let a = parse(&format!("{gate}({angle}) {operands};"));
                 let b = parse(&decomposition.replace("ANGLE", angle));
                 assert!(proves(&a, &b, &config(&a, &b)), "{gate} {angle}");
-                let (m, _) = unitary::miter(&a, &b).unwrap();
+                let (m, _) = unitary_miter::miter(&a, &b).unwrap();
                 let lowered = phase_only_rotations(m).unwrap();
                 let mut seen = std::collections::BTreeSet::new();
                 lowered.visit_ast_ids(|id| assert!(seen.insert(id)));
@@ -460,7 +461,7 @@ mod tests {
                 ).unwrap();
                 let mut identity = a.clone();
                 identity.body.statements.clear();
-                let (m, _) = unitary::miter(&a, &identity).unwrap();
+                let (m, _) = unitary_miter::miter(&a, &identity).unwrap();
                 let b = phase_only_rotations(m).unwrap();
                 let mut c = config(&a, &b);
                 // Unused initialized spectator: same visible two-qubit channel,

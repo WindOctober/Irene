@@ -31,6 +31,9 @@ struct Boundary {
 impl Boundary {
     fn read(&mut self, expression: &ClassicalExpr) {
         match &expression.kind {
+            ClassicalExprKind::ScalarCompare { .. } => {
+                unreachable!("scalars must be rejected before region analysis")
+            }
             ClassicalExprKind::Bool(_) => {}
             ClassicalExprKind::Bit(bit) => {
                 self.classical.insert(bit.clone());

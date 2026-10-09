@@ -2,11 +2,9 @@
 mod common;
 
 use irene::{
+    equivalence::unitary_miter::{UnitaryMiterError, miter, validate},
     frontend::{openqasm2, openqasm3},
-    ir::{
-        Program, StatementKind,
-        unitary::{UnitaryMiterError, miter, validate},
-    },
+    ir::{Program, StatementKind},
 };
 
 fn parse(body: &str) -> Program {
@@ -193,4 +191,17 @@ fn relative_and_global_phases_are_not_removed_by_construction() {
             *z = (-z.0, -z.1);
         }
     });
+}
+
+#[test]
+fn structured_custom_gate_modifiers_remain_outside_miter_admission() {
+    let p = parse(
+        "gate a(theta) q {rx(theta) q; rz(theta/2) q;} gate b(theta) q {a(theta/2) q;} qubit[3] q; b(pi) q; ctrl @ inv @ pow(2) @ b(pi) q[0],q[1];",
+    );
+    assert!(
+        validate(&p)
+            .unwrap_err()
+            .to_string()
+            .contains("unitary miter")
+    );
 }

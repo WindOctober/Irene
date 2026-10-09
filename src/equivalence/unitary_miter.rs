@@ -21,13 +21,16 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{
+use crate::ir::{
     AstIdGenerator, Block, BlockData, ClassicalExprKind, Gate, NumericExpr, NumericExprKind,
     OpenQasmVersion, Program, ProgramData, Qubit, RegisterData, Statement, StatementKind, SymbolId,
+    gate_shape,
 };
 
 #[derive(Debug, thiserror::Error)]
 pub enum UnitaryMiterError {
+    #[error("unitary miter does not support this statement kind")]
+    UnsupportedStatement,
     #[error("unitary miter requires equal full quantum interface widths")]
     InterfaceWidth,
     #[error("unitary miter does not support runtime numeric inputs")]
@@ -40,25 +43,22 @@ pub enum UnitaryMiterError {
     InvalidOperands,
 }
 
-/// Returns the required (qubit count, parameter count) for an IR gate.
-pub fn gate_shape(gate: Gate) -> (usize, usize) {
-    match gate {
-        Gate::H | Gate::X | Gate::Y | Gate::Z | Gate::S | Gate::Sdg | Gate::T | Gate::Tdg => (1, 0),
-        Gate::Cx | Gate::Cy | Gate::Cz | Gate::Swap => (2, 0),
-        Gate::Ccx | Gate::Ccz => (3, 0),
-        Gate::P | Gate::Rx | Gate::Ry | Gate::Rz => (1, 1),
-        Gate::Cp | Gate::Crx | Gate::Cry | Gate::Crz => (2, 1),
-    }
-}
-
 /// Structural full-unitary admission, without building a miter or executing HPS.
 /// Numeric domains must still be checked before rewriting or execution.
+/// Specification annotations and helpers do not affect admission.
 pub fn validate(source: &Program) -> Result<(), UnitaryMiterError> {
     let wires = wire_map(source)?;
     let mut blocks = vec![&source.body];
     while let Some(block) = blocks.pop() {
         for s in &block.statements {
             match &s.kind {
+                StatementKind::While { .. }
+                | StatementKind::ScalarDeclare { .. }
+                | StatementKind::ScalarAssign { .. }
+                | StatementKind::GlobalPhase(_)
+                | StatementKind::Unitary { .. } => {
+                    return Err(UnitaryMiterError::UnsupportedStatement);
+                }
                 StatementKind::Scope(b) => blocks.push(b),
                 StatementKind::Assign { value, .. }
                     if matches!(value.kind, ClassicalExprKind::Bool(_)) => {}
@@ -106,6 +106,9 @@ pub fn validate(source: &Program) -> Result<(), UnitaryMiterError> {
 ///
 /// Both source programs must be unitary, not merely the side being inverted.
 /// No internal HPS paths are matched, and no source programs are modified.
+/// The generated programs contain executable operations only: source annotations
+/// and specification helpers are neither copied nor used as proof assumptions.
+/// Inversion/composition does not preserve their source statement boundaries.
 pub fn miter(
     forward: &Program,
     adjoint_of: &Program,
@@ -147,6 +150,8 @@ fn program(width: usize, statements: Vec<Statement>, ids: &mut AstIdGenerator) -
         statements,
     });
     ids.node(ProgramData {
+        annotations: Default::default(),
+        spec_functions: Vec::new(),
         version: OpenQasmVersion { major: 3, minor: 0 },
         numeric_inputs: Vec::new(),
         quantum_registers: vec![register],
@@ -269,6 +274,13 @@ fn append_block(
             // or control are admitted anywhere. Such writes cannot affect it.
             StatementKind::Assign { value, .. }
                 if matches!(value.kind, ClassicalExprKind::Bool(_)) => {}
+            StatementKind::While { .. }
+            | StatementKind::ScalarDeclare { .. }
+            | StatementKind::ScalarAssign { .. }
+            | StatementKind::GlobalPhase(_)
+            | StatementKind::Unitary { .. } => {
+                return Err(UnitaryMiterError::UnsupportedStatement);
+            }
             StatementKind::Reset(_)
             | StatementKind::Measure { .. }
             | StatementKind::Assign { .. }

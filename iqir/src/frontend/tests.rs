@@ -80,7 +80,6 @@ fn static_uint_specialization_rejects_missing_semantic_premises() {
     for body in [
         "const uint[2] n = 4;",
         "const uint[3] n = 7; qubit[n + 1] q;",
-        "const uint[3] n = 0; qubit[n - 1] q;",
         "const uint[3] n = 2; qubit[n / 0] q;",
         "qubit q; for uint[8] i in [0:0:1] x q;",
         "qubit q; for uint[8] i in [2:1] x q;",
@@ -136,14 +135,14 @@ fn static_uint_constants_obey_lexical_scope_and_definition_visibility() {
 }
 
 #[test]
-fn static_uint_arithmetic_checks_each_intermediate_not_just_final_value() {
+fn static_uint_arithmetic_wraps_and_rejects_zero_divisors() {
     for width in 1..=5 {
         for a in 0..(1_u64 << width) {
             for b in 0..(1_u64 << width) {
                 for (operator, expected) in [
-                    ("+", a.checked_add(b)),
-                    ("-", a.checked_sub(b)),
-                    ("*", a.checked_mul(b)),
+                    ("+", Some(a.wrapping_add(b))),
+                    ("-", Some(a.wrapping_sub(b))),
+                    ("*", Some(a.wrapping_mul(b))),
                     ("/", a.checked_div(b)),
                     ("%", a.checked_rem(b)),
                 ] {
@@ -156,7 +155,7 @@ fn static_uint_arithmetic_checks_each_intermediate_not_just_final_value() {
                     );
                     assert_eq!(
                         result.is_ok(),
-                        expected.is_some_and(|x| x < (1_u64 << width)),
+                        expected.is_some(),
                         "{expression}"
                     );
                 }
@@ -168,7 +167,7 @@ fn static_uint_arithmetic_checks_each_intermediate_not_just_final_value() {
             "OPENQASM 3.0; const uint[2] a=3; const uint[2] b=(a+1)-1;",
             "intermediate.qasm"
         )
-        .is_err()
+        .is_ok()
     );
 }
 

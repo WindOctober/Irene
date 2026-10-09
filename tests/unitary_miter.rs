@@ -1,11 +1,11 @@
 mod common;
 use irene::{
-    equivalence::{EquivalenceConfig, Verdict, analyze},
-    frontend::openqasm3,
-    ir::{
-        unitary::{UnitaryMiterError, miter},
-        *,
+    equivalence::{
+        EquivalenceConfig, Verdict, analyze,
+        unitary_miter::{UnitaryMiterError, miter},
     },
+    frontend::openqasm3,
+    ir::*,
 };
 
 fn parse(body: &str) -> Program {

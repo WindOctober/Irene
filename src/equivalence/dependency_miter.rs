@@ -1,8 +1,9 @@
 //! Optional full-unitary proof candidates. Approximate results are deliberately
 //! separate from `analyze`'s exact Verdict, and never certify non-equivalence.
+use super::unitary_miter;
 pub use super::unitary_rewrite::dependency::Statistics;
 use super::*;
-use crate::ir::{Program, unitary};
+use crate::ir::Program;
 use num_rational::BigRational;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -76,7 +77,7 @@ pub fn candidate(
         (right, left)
     };
     let started = std::time::Instant::now();
-    let (circuit, identity) = unitary::miter(forward, inverse).ok()?;
+    let (circuit, identity) = unitary_miter::miter(forward, inverse).ok()?;
     let (circuit, mut statistics) = if options.mode == Mode::Wire {
         let before = circuit.operation_count();
         let next = super::unitary_rewrite::preprocess_with(

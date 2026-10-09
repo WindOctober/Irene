@@ -187,7 +187,7 @@ impl Lowerer {
                         let zero = (0..bits.len())
                             .map(|_| self.ids.node(ClassicalExprKind::Bool(false)))
                             .collect();
-                        self.angle_add(zero, bits, true)
+                        self.add_word(zero, bits, true)
                     }
                     _ => return Err(unsupported!("angle unary operator", &p)),
                 };
@@ -246,7 +246,7 @@ impl Lowerer {
         }
         let result = match op {
             ast::ArithOp::Add | ast::ArithOp::Sub => {
-                self.angle_add(left, right, op == ast::ArithOp::Sub)
+                self.add_word(left, right, op == ast::ArithOp::Sub)
             }
             ast::ArithOp::BitAnd | ast::ArithOp::BitOr | ast::ArithOp::BitXor => left
                 .into_iter()
@@ -257,37 +257,6 @@ impl Lowerer {
         };
         Ok(TypedClassicalExpr::Angle(result))
     }
-
-    fn angle_add(
-        &mut self,
-        left: Vec<ClassicalExpr>,
-        right: Vec<ClassicalExpr>,
-        subtract: bool,
-    ) -> Vec<ClassicalExpr> {
-        let n = left.len();
-        let mut carry = self.ids.node(ClassicalExprKind::Bool(subtract));
-        let mut result = Vec::with_capacity(n);
-        for (i, (a, mut b)) in left.into_iter().zip(right).enumerate() {
-            if subtract {
-                b = self.ids.node(ClassicalExprKind::Not(Box::new(b)));
-            }
-            // Carry occurs only once in the next-carry expression; don't build
-            // an exponentially duplicated Boolean syntax tree.
-            let aa = self.clone_classical_expr(&a);
-            let bb = self.clone_classical_expr(&b);
-            let parity = self.bitwise_scalar(ast::ArithOp::BitXor, a, b);
-            let p = self.clone_classical_expr(&parity);
-            let c = self.clone_classical_expr(&carry);
-            result.push(self.bitwise_scalar(ast::ArithOp::BitXor, parity, c));
-            if i + 1 < n {
-                let generated = self.bitwise_scalar(ast::ArithOp::BitAnd, aa, bb);
-                let propagated = self.bitwise_scalar(ast::ArithOp::BitAnd, p, carry);
-                carry = self.bitwise_scalar(ast::ArithOp::BitXor, generated, propagated);
-            }
-        }
-        result
-    }
-
 
     pub(super) fn angle_gate(
         &mut self,

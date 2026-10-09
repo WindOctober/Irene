@@ -1,7 +1,38 @@
-//! Simultaneous assignment for classical words lowered to bit operations.
+//! Fixed-width arithmetic and simultaneous assignment for classical words.
 use super::*;
 
 impl Lowerer {
+    /// Adds or subtracts modulo 2^width, shared by angle and unsigned words.
+    pub(super) fn add_word(
+        &mut self,
+        left: Vec<ClassicalExpr>,
+        right: Vec<ClassicalExpr>,
+        subtract: bool,
+    ) -> Vec<ClassicalExpr> {
+        let n = left.len();
+        let mut carry = self.ids.node(ClassicalExprKind::Bool(subtract));
+        let mut result = Vec::with_capacity(n);
+        for (i, (a, mut b)) in left.into_iter().zip(right).enumerate() {
+            if subtract {
+                b = self.ids.node(ClassicalExprKind::Not(Box::new(b)));
+            }
+            // Carry occurs only once in the next-carry expression; don't build
+            // an exponentially duplicated Boolean syntax tree.
+            let aa = self.clone_classical_expr(&a);
+            let bb = self.clone_classical_expr(&b);
+            let parity = self.bitwise_scalar(ast::ArithOp::BitXor, a, b);
+            let p = self.clone_classical_expr(&parity);
+            let c = self.clone_classical_expr(&carry);
+            result.push(self.bitwise_scalar(ast::ArithOp::BitXor, parity, c));
+            if i + 1 < n {
+                let generated = self.bitwise_scalar(ast::ArithOp::BitAnd, aa, bb);
+                let propagated = self.bitwise_scalar(ast::ArithOp::BitAnd, p, carry);
+                carry = self.bitwise_scalar(ast::ArithOp::BitXor, generated, propagated);
+            }
+        }
+        result
+    }
+
     /// Scalar writes suffice unless an RHS reads a different destination bit.
     pub(super) fn assign_cells(
         &mut self,
@@ -15,6 +46,8 @@ impl Lowerer {
             destinations: &BTreeSet<ClassicalBit>,
         ) -> bool {
             match &e.kind {
+                // Numeric scalar reads never alias Boolean word destinations.
+                ClassicalExprKind::ScalarCompare { .. } => false,
                 ClassicalExprKind::Bool(_) => false,
                 ClassicalExprKind::Bit(b) => b != own && destinations.contains(b),
                 ClassicalExprKind::Not(a) => cross_read(a, own, destinations),

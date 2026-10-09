@@ -22,6 +22,8 @@ use super::{BooleanPolynomial, PhaseCoefficient, PhasePolynomial, Scalar, Variab
 pub enum SymbolicError {
     #[error("optional symbolic attempt exceeded its time budget")]
     TimeBudget,
+    #[error("symbolic execution does not support {0}")]
+    UnsupportedConstruct(&'static str),
     #[error("configured symbolic input is not declared by the program: {0:?}")]
     UnknownInput(Qubit),
     #[error("selected quantum output is not declared by the program: {0:?}")]
@@ -633,6 +635,13 @@ impl Executor {
         // Linear statements transform each existing component independently;
         // only classical `if` forms an explicit sum of components.
         match statement {
+            StatementKind::While { .. }
+            | StatementKind::ScalarDeclare { .. }
+            | StatementKind::ScalarAssign { .. }
+            | StatementKind::GlobalPhase(_)
+            | StatementKind::Unitary { .. } => {
+                Err(SymbolicError::UnsupportedConstruct("this statement kind"))
+            }
             StatementKind::Reset(qubit) => {
                 let value = component
                     .output
@@ -1078,6 +1087,11 @@ fn is_predicable_block(block: &Block, plan: &SlicePlan) -> bool {
                 StatementKind::Reset(_)
                 | StatementKind::Measure { .. }
                 | StatementKind::Assign { .. }
+                | StatementKind::While { .. }
+                | StatementKind::ScalarDeclare { .. }
+                | StatementKind::ScalarAssign { .. }
+                | StatementKind::GlobalPhase(_)
+                | StatementKind::Unitary { .. }
                 | StatementKind::If { .. } => false,
             }
         })
@@ -1120,6 +1134,9 @@ fn evaluate_classical(
     // Classical values use the same shared Boolean representation as wire values. For
     // example, if c0=x and c1=y, `c0 || c1` becomes x ⊕ y ⊕ xy.
     match &expression.kind {
+        ClassicalExprKind::ScalarCompare { .. } => {
+            Err(SymbolicError::UnsupportedConstruct("scalar comparison"))
+        }
         ClassicalExprKind::Bool(value) => Ok(BooleanPolynomial::from(*value)),
         ClassicalExprKind::Bit(bit) => memory
             .get(bit)

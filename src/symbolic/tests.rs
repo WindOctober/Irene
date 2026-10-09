@@ -148,6 +148,8 @@ fn numeric(kind: NumericExprKind) -> NumericExpr {
 
 fn program(qubits: usize, bits: usize, statements: Vec<Statement>) -> Program {
     node(ProgramData {
+        annotations: Default::default(),
+        spec_functions: Vec::new(),
         version: OpenQasmVersion { major: 3, minor: 0 },
         numeric_inputs: Vec::new(),
         quantum_registers: vec![node(RegisterData {

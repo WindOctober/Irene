@@ -14,13 +14,20 @@ use thiserror::Error;
 use crate::{
     AstIdGenerator, Block, BlockData, ClassicalBit, ClassicalExpr, ClassicalExprKind, Gate,
     NumericExpr, NumericExprKind, NumericInput, NumericInputData, NumericType, OpenQasmVersion,
-    Program, ProgramData, Qubit, Register, RegisterData, Statement, StatementKind, SymbolId,
+    Program, ProgramData, Qubit, Register, RegisterData, ScalarType, ScalarValue, Statement,
+    StatementKind, SymbolId,
 };
 
 use super::scope::{Binding, BindingKind, BitType, QuantumType, ScopeError, ScopeKind, ScopeStack};
 
 #[derive(Debug, Error)]
 pub enum FrontendError {
+    #[error("annotation in {source_name} at byte {offset}: {message}")]
+    Annotation {
+        source_name: String,
+        offset: usize,
+        message: String,
+    },
     #[error("OpenQASM parse failed: {0}")]
     Parse(String),
     #[error("unsupported OpenQASM construct: {construct}: {snippet}")]
@@ -80,9 +87,12 @@ macro_rules! expected {
 }
 
 mod angle;
+mod annotations;
 mod constants;
 mod controlled_u;
+mod custom_gates;
 mod power;
+mod scalar;
 mod static_integer;
 mod uint;
 mod word;
@@ -107,7 +117,11 @@ pub fn parse_str(source: &str, source_name: &str) -> Result<Program, FrontendErr
         return Err(FrontendError::Parse(diagnostics));
     }
 
-    Lowerer::default().lower(syntax.tree())
+    Lowerer {
+        source_name: source_name.to_owned(),
+        ..Lowerer::default()
+    }
+    .lower(syntax.tree())
 }
 
 /// Mutable context shared by one source-to-IR lowering pass.
@@ -116,6 +130,14 @@ pub fn parse_str(source: &str, source_name: &str) -> Result<Program, FrontendErr
 /// all emitted nodes. Subroutine definitions remain as syntax until a call is
 /// specialized to concrete caller-owned qubits.
 struct Lowerer {
+    source_name: String,
+    annotations: std::collections::BTreeMap<crate::AstId, Vec<crate::annotation::Annotation>>,
+    spec_functions: Vec<crate::annotation::SpecFunction>,
+    gates: HashMap<String, custom_gates::CustomGate>,
+    numeric_arguments: HashMap<SymbolId, NumericExpr>,
+    gate_depth: usize,
+    loop_depth: usize,
+    gate_work: usize,
     ids: AstIdGenerator,
     version: Option<OpenQasmVersion>,
     scopes: ScopeStack,
@@ -299,6 +321,14 @@ impl TypedClassicalExpr {
 impl Default for Lowerer {
     fn default() -> Self {
         Self {
+            source_name: String::new(),
+            annotations: Default::default(),
+            spec_functions: Vec::new(),
+            gates: HashMap::new(),
+            numeric_arguments: HashMap::new(),
+            gate_depth: 0,
+            loop_depth: 0,
+            gate_work: 0,
             ids: AstIdGenerator::default(),
             version: None,
             scopes: ScopeStack::new(),
@@ -329,8 +359,17 @@ impl Lowerer {
             self.known_bits = Some(power::KnownBits::default());
         }
         let mut body = self.ids.node(BlockData::default());
-        for statement in source.statements() {
-            self.lower_top_level(statement, &mut body)?;
+        for (annotations, statement) in self.annotated_statements(source.statements())? {
+            let Some(statement) = statement else {
+                body.statements.push(self.lower_assertion(annotations)?);
+                continue;
+            };
+            if annotations.is_empty() {
+                self.lower_top_level(statement, &mut body)?;
+            } else {
+                body.statements
+                    .push(self.lower_annotated_statement(annotations, statement)?);
+            }
         }
 
         let version = self.version.ok_or_else(|| FrontendError::Expected {
@@ -345,18 +384,37 @@ impl Lowerer {
         }
 
         let program = ProgramData {
+            annotations: self.annotations,
+            spec_functions: self.spec_functions,
             version,
             numeric_inputs: self.numeric_inputs,
             quantum_registers: self.quantum_registers,
             classical_registers: self.classical_registers,
             body,
         };
-        Ok(self.ids.node(program))
+        let program = self.ids.node(program);
+        let program = crate::compact_program_ids(program);
+        Ok(program)
     }
 
     /// Lowers declarations into program metadata and executable statements into the body.
     fn lower_top_level(&mut self, statement: Stmt, body: &mut Block) -> Result<(), FrontendError> {
+        // Templates are specialized later; do not silently lose specifications
+        // in unused definitions, or attach formal symbols to caller-owned IR.
+        if matches!(&statement, Stmt::Gate(_) | Stmt::Def(_))
+            && statement.syntax().descendants().any(|n| {
+                ast::AnnotationStatement::cast(n.clone()).is_some()
+                    || ast::PragmaStatement::cast(n).is_some()
+            })
+        {
+            return Err(unsupported!(
+                "annotations/pragmas inside gate/subroutine definitions",
+                &statement
+            ));
+        }
         match statement {
+            Stmt::PragmaStatement(pragma) => self.declare_spec_function(pragma),
+            Stmt::Gate(gate) => self.declare_custom_gate(gate),
             // `OPENQASM 3.0;` declares the source-language version.
             Stmt::VersionString(version) => self.lower_version(version),
             // `include "stdgates.inc";` makes the standard gate names visible.
@@ -385,14 +443,9 @@ impl Lowerer {
             }
             // `bit[4] c;` records the register; `bit c = true;` additionally
             // emits an assignment that initializes its storage at this point.
-            Stmt::ClassicalDeclarationStatement(declaration)
-                if declaration.const_token().is_some() =>
-            {
-                self.lower_static_constant(declaration)
-            }
             Stmt::ClassicalDeclarationStatement(declaration) => {
                 let (register, initializer) = self.lower_classical_declaration(declaration)?;
-                self.classical_registers.push(register);
+                self.classical_registers.extend(register);
                 if let Some(initializer) = initializer {
                     body.statements.push(initializer);
                 }
@@ -559,11 +612,29 @@ impl Lowerer {
         }))
     }
 
-    /// Declares `bool`, `bit`, or `bit[n]` and lowers an optional initializer.
-    ///
-    /// For `bit c = true;`, the register metadata is returned together with
-    /// `Some(Assign(c, true))`; `bit c;` has no executable initializer.
+    /// Common declaration entry for globals, blocks and subroutine bodies.
+    /// Constants occupy the symbol table; variables produce word storage or
+    /// scalar declaration nodes according to their type, not evaluation phase.
     fn lower_classical_declaration(
+        &mut self,
+        declaration: ast::ClassicalDeclarationStatement,
+    ) -> Result<(Option<Register>, Option<Statement>), FrontendError> {
+        if self.is_scalar_declaration(&declaration) {
+            return Ok((None, self.lower_scalar_declaration(declaration)?));
+        }
+        if declaration.const_token().is_some() {
+            let ty = declaration
+                .scalar_type()
+                .ok_or_else(|| expected!("a constant type", &declaration))?;
+            self.lower_bit_constant(declaration, ty)?;
+            return Ok((None, None));
+        }
+        let (register, initializer) = self.lower_bit_declaration(declaration)?;
+        Ok((Some(register), initializer))
+    }
+
+    /// Declares Boolean word storage and lowers its optional initializer.
+    fn lower_bit_declaration(
         &mut self,
         declaration: ast::ClassicalDeclarationStatement,
     ) -> Result<(Register, Option<Statement>), FrontendError> {
@@ -633,6 +704,7 @@ impl Lowerer {
     fn lower_statement_inner(&mut self, statement: Stmt) -> Result<Statement, FrontendError> {
         self.charge_static_expansion(&statement)?;
         match statement {
+            Stmt::WhileStmt(statement) => self.lower_while(statement),
             Stmt::ForStmt(statement) => self.lower_static_for(statement),
             // Barriers constrain scheduling, not the observable channel.
             // Keep operand validation, but emit no quantum/classical effect.
@@ -663,6 +735,7 @@ impl Lowerer {
                     .expr()
                     .ok_or_else(|| expected!("an expression statement", &expression_statement))?;
                 match expression {
+                    Expr::GPhaseCallExpr(call) => self.lower_global_phase(call),
                     Expr::GateCallExpr(call) => self.lower_gate(call),
                     Expr::ModifiedGateCallExpr(call) => self.lower_modified_gate(call),
                     Expr::CallExpr(call) => self.lower_subroutine_call(call, None),
@@ -705,6 +778,12 @@ impl Lowerer {
         &mut self,
         call: ast::ModifiedGateCallExpr,
     ) -> Result<Statement, FrontendError> {
+        if call
+            .gate_call_expr()
+            .is_some_and(|gate| self.is_composite_gate(&gate))
+        {
+            return self.lower_composite_modified_gate(call);
+        }
         let mut controls = 0usize;
         let mut inverse = false;
         let mut has_inverse = false;
@@ -801,6 +880,9 @@ impl Lowerer {
         call: ast::GateCallExpr,
         mut controls: usize,
     ) -> Result<Statement, FrontendError> {
+        if self.is_composite_gate(&call) {
+            return self.lower_composite_gate(call, controls, 1);
+        }
         if call.identifier().is_some_and(|name| name.string() == "cu") {
             return self.lower_standard_cu(call, controls);
         }
@@ -1008,6 +1090,13 @@ impl Lowerer {
     /// Preserves the structure of an OpenQASM numeric expression while
     /// normalizing finite literals to exact rationals.
     fn lower_numeric_expr(&mut self, expression: Expr) -> Result<NumericExpr, FrontendError> {
+        if let Expr::Identifier(id) = &expression {
+            let binding = self.scopes.lookup(&id.string()).map_err(scope_error)?;
+            if let Some(value) = self.numeric_arguments.get(&binding.id) {
+                custom_gates::charge_copy(&mut self.gate_work, value)?;
+                return Ok(self.ids.clone_numeric_expr(value));
+            }
+        }
         // Typed float constants keep IEEE arithmetic in their use sites too;
         // never reinterpret (rounded_const + 1) as exact real arithmetic.
         if self.has_float_binding(&expression)? {
@@ -1056,13 +1145,21 @@ impl Lowerer {
                 let name = identifier.string();
                 let binding = self.scopes.lookup(&name).map_err(scope_error)?;
                 match binding.kind {
-                    BindingKind::StaticFloat { bits, .. } => {
+                    BindingKind::Scalar {
+                        value: Some(value @ (ScalarValue::Float32(_) | ScalarValue::Float64(_))),
+                        ..
+                    } => {
                         self.check_constant_visibility(binding, &identifier)?;
                         Ok(self.ids.node(NumericExprKind::Rational(
-                            BigRational::from_float(f64::from_bits(bits)).expect("finite constant"),
+                            BigRational::from_float(value.as_float().unwrap())
+                                .expect("finite constant"),
                         )))
                     }
-                    BindingKind::StaticInteger { .. } => {
+                    BindingKind::Scalar {
+                        ty: ScalarType::Int { .. },
+                        value: Some(_),
+                        ..
+                    } => {
                         let value = self.static_integer(Expr::Identifier(identifier), false)?;
                         Ok(self
                             .ids
@@ -1208,6 +1305,22 @@ impl Lowerer {
         &mut self,
         assignment: ast::AssignmentStmt,
     ) -> Result<Statement, FrontendError> {
+        if let Some(id) = assignment.identifier() {
+            let binding = self.scopes.lookup(&id.string()).map_err(scope_error)?;
+            if let BindingKind::Scalar { ty, assignable, .. } = binding.kind {
+                if !assignable {
+                    return Err(expected!("an assignable variable", &assignment));
+                }
+                let rhs = assignment
+                    .rhs()
+                    .ok_or_else(|| expected!("scalar assignment value", &assignment))?;
+                let value = self.lower_scalar_expr(rhs, ty)?;
+                return Ok(self.ids.node(StatementKind::ScalarAssign {
+                    target: binding.id,
+                    value,
+                }));
+            }
+        }
         let targets = self.lower_assignment_targets(&assignment)?;
         let rhs = assignment
             .rhs()
@@ -1307,6 +1420,15 @@ impl Lowerer {
         let lhs = assignment
             .lhs()
             .ok_or_else(|| expected!("an assignment target", &assignment))?;
+        if let Expr::Identifier(id) = &lhs {
+            let binding = self.scopes.lookup(&id.string()).map_err(scope_error)?;
+            if let BindingKind::Scalar { ty, assignable, .. } = binding.kind {
+                if !assignable {
+                    return Err(expected!("an assignable variable", &assignment));
+                }
+                return self.lower_scalar_compound(assignment, binding.id, ty);
+            }
+        }
         if let Ok(targets) = self.lower_bit_operand(lhs.clone())
             && matches!(targets.ty(), BitType::Uint { .. })
         {
@@ -1529,14 +1651,9 @@ impl Lowerer {
         let mut saw_return = false;
         for (index, statement) in source_statements.iter().cloned().enumerate() {
             match statement {
-                Stmt::ClassicalDeclarationStatement(declaration)
-                    if declaration.const_token().is_some() =>
-                {
-                    self.lower_static_constant(declaration)?;
-                }
                 Stmt::ClassicalDeclarationStatement(declaration) => {
                     let (register, initializer) = self.lower_classical_declaration(declaration)?;
-                    lowered.classical_registers.push(register);
+                    lowered.classical_registers.extend(register);
                     if let Some(initializer) = initializer {
                         lowered.statements.push(initializer);
                     }
@@ -1678,10 +1795,29 @@ impl Lowerer {
         }))
     }
 
-    /// Lowers either legal form of an OpenQASM control-flow body.
-    ///
-    /// `if (c) x q;` is represented by the same one-statement Irene block as
-    /// `if (c) { x q; }`, so the internal IR does not need two branch types.
+    /// Preserves a runtime loop without unrolling or assuming termination.
+    fn lower_while(&mut self, statement: ast::WhileStmt) -> Result<Statement, FrontendError> {
+        if self.loop_depth >= 64 {
+            return Err(unsupported!("while nesting budget", &statement));
+        }
+        // Entry facts need not hold on a back edge. In particular, pow(bit)
+        // must not be specialized using a value known only before the loop.
+        if self.known_bits.is_some() {
+            self.known_bits = Some(Default::default());
+        }
+        let condition = self.lower_scalar_bit_expression(
+            statement
+                .condition()
+                .ok_or_else(|| expected!("a while condition", &statement))?,
+        )?;
+        self.loop_depth += 1;
+        let result = self.lower_branch(statement.block_or_stmt());
+        self.loop_depth -= 1;
+        let body = result?;
+        Ok(self.ids.node(StatementKind::While { condition, body }))
+    }
+
+    /// Lowers a braced or single-statement control-flow body to one block type.
     fn lower_branch(&mut self, branch: BlockOrStmt) -> Result<Block, FrontendError> {
         match branch {
             BlockOrStmt::BlockExpr(block) => self.lower_block(block),
@@ -1706,17 +1842,22 @@ impl Lowerer {
     /// Lowers declarations and statements after the caller has entered a scope.
     fn lower_block_contents(&mut self, block: ast::BlockExpr) -> Result<Block, FrontendError> {
         let mut lowered = self.ids.node(BlockData::default());
-        for statement in block.statements() {
+        for (annotations, statement) in self.annotated_statements(block.statements())? {
+            let Some(statement) = statement else {
+                lowered.statements.push(self.lower_assertion(annotations)?);
+                continue;
+            };
+            if !annotations.is_empty() {
+                lowered
+                    .statements
+                    .push(self.lower_annotated_statement(annotations, statement)?);
+                continue;
+            }
             match statement {
-                Stmt::ClassicalDeclarationStatement(declaration)
-                    if declaration.const_token().is_some() =>
-                {
-                    self.lower_static_constant(declaration)?;
-                }
                 // `bit local;` belongs to this block and is removed on scope exit.
                 Stmt::ClassicalDeclarationStatement(declaration) => {
                     let (register, initializer) = self.lower_classical_declaration(declaration)?;
-                    lowered.classical_registers.push(register);
+                    lowered.classical_registers.extend(register);
                     if let Some(initializer) = initializer {
                         lowered.statements.push(initializer);
                     }
@@ -1765,6 +1906,14 @@ impl Lowerer {
         &mut self,
         expression: Expr,
     ) -> Result<TypedClassicalExpr, FrontendError> {
+        if let Expr::BinExpr(binary) = &expression
+            && matches!(binary.op_kind(), Some(ast::BinaryOp::CmpOp(_)))
+            && self.has_scalar_comparison(&expression)?
+        {
+            return self
+                .lower_scalar_comparison(binary.clone())
+                .map(TypedClassicalExpr::Bool);
+        }
         if self.is_angle_expression(&expression)? {
             return self.lower_angle_expression(expression);
         }
@@ -1780,7 +1929,11 @@ impl Lowerer {
                 }
                 if matches!(
                     self.scopes.lookup(&name).map_err(scope_error)?.kind,
-                    BindingKind::StaticInteger { .. }
+                    BindingKind::Scalar {
+                        ty: ScalarType::Int { .. },
+                        value: Some(_),
+                        ..
+                    }
                 ) {
                     let value = self.static_integer(Expr::Identifier(identifier), false)?;
                     return Ok(TypedClassicalExpr::Integer {
@@ -1901,6 +2054,18 @@ impl Lowerer {
                 let right_source = binary
                     .rhs()
                     .ok_or_else(|| expected!("a right operand", &binary))?;
+                // Unsigned word wraparound must not hide a checked static
+                // overflow, e.g. const uint[3] n=7; uint[3] a=n+1.
+                if matches!(
+                    binary.op_kind(),
+                    Some(ast::BinaryOp::ArithOp(
+                        ast::ArithOp::Add | ast::ArithOp::Sub
+                    ))
+                ) && self.static_integer(left_source.clone(), false).is_ok()
+                    && self.static_integer(right_source.clone(), false).is_ok()
+                {
+                    self.static_integer(Expr::BinExpr(binary.clone()), false)?;
+                }
                 if let Some(ast::BinaryOp::ArithOp(op @ (ast::ArithOp::Shl | ast::ArithOp::Shr))) =
                     binary.op_kind()
                 {
@@ -1909,6 +2074,9 @@ impl Lowerer {
                 let left = self.lower_typed_classical_expr(left_source)?;
                 let right = self.lower_typed_classical_expr(right_source)?;
                 match binary.op_kind() {
+                    Some(ast::BinaryOp::ArithOp(op @ (ast::ArithOp::Add | ast::ArithOp::Sub))) => {
+                        self.uint_add(op, left, right, &binary)
+                    }
                     // Equality dispatches after both operand types are known.
                     Some(ast::BinaryOp::CmpOp(ast::CmpOp::Eq { negated })) => {
                         let equality = self.lower_classical_equality(left, right, &binary)?;
@@ -2454,6 +2622,29 @@ impl Lowerer {
         source: &ast::BinExpr,
         expected: &'static str,
     ) -> Result<(Vec<ClassicalExpr>, Vec<ClassicalExpr>), FrontendError> {
+        // Qiskit emits register-to-integer loop guards, e.g. bit[1] c; c == 1.
+        // Interpret the register little-endian at its full width, not c[0].
+        match (&left, &right) {
+            (TypedClassicalExpr::Register(bits), TypedClassicalExpr::IntegerLiteral(value)) => {
+                let literal = self.integer_literal_bits(
+                    value.clone(),
+                    bits.len(),
+                    Signedness::Unsigned,
+                    source,
+                )?;
+                return Ok((bits.clone(), literal));
+            }
+            (TypedClassicalExpr::IntegerLiteral(value), TypedClassicalExpr::Register(bits)) => {
+                let literal = self.integer_literal_bits(
+                    value.clone(),
+                    bits.len(),
+                    Signedness::Unsigned,
+                    source,
+                )?;
+                return Ok((literal, bits.clone()));
+            }
+            _ => {}
+        }
         let snippet = source.syntax().text().to_string();
         let left = self.coerce_bit_expr(left, snippet.clone())?;
         let right = self.coerce_bit_expr(right, snippet)?;
@@ -2758,6 +2949,13 @@ impl Lowerer {
     /// Copies a classical expression with fresh AST IDs for the copied tree.
     fn clone_classical_expr(&mut self, expression: &ClassicalExpr) -> ClassicalExpr {
         let kind = match &expression.kind {
+            ClassicalExprKind::ScalarCompare { op, left, right } => {
+                ClassicalExprKind::ScalarCompare {
+                    op: *op,
+                    left: Box::new(self.ids.clone_scalar_expr(left)),
+                    right: Box::new(self.ids.clone_scalar_expr(right)),
+                }
+            }
             ClassicalExprKind::Bool(value) => ClassicalExprKind::Bool(*value),
             ClassicalExprKind::Bit(bit) => ClassicalExprKind::Bit(bit.clone()),
             ClassicalExprKind::Not(inner) => {

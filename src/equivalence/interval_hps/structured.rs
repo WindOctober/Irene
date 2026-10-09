@@ -732,7 +732,7 @@ pub(super) fn identity_bound(program: &Program) -> Report {
     let mut paths = 0;
     let mut lower_bound = None;
     let answer = (|| -> Option<BigRational> {
-        unitary::validate(program).ok()?;
+        unitary_miter::validate(program).ok()?;
         crate::symbolic::numeric_domains(program).ok()?;
         if !program.numeric_inputs.is_empty() {
             return None;

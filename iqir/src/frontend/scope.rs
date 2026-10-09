@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{NumericConstant, NumericType, SymbolId};
+use crate::{NumericConstant, NumericType, ScalarType, ScalarValue, SymbolId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ScopeKind {
@@ -54,6 +54,15 @@ impl BitType {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum BindingKind {
+    Ghost(crate::annotation::SpecType),
+    Scalar {
+        ty: ScalarType,
+        explicit_width: bool,
+        is_const: bool,
+        // Specialized for-loop indices are known but not const or assignable.
+        assignable: bool,
+        value: Option<ScalarValue>,
+    },
     QuantumVariable(QuantumType),
     QuantumParameter(QuantumType),
     ClassicalBit(BitType),
@@ -63,22 +72,9 @@ pub(super) enum BindingKind {
         index: usize,
     },
     Constant(NumericConstant),
-    /// IEEE value retained as bits, not replaced by a symbolic multiple of pi.
-    StaticFloat {
-        bits: u64,
-        width: u32,
-    },
     StaticBits {
         value: u64,
         ty: BitType,
-    },
-    /// Exact, range-checked static integer; a specialized loop value is not const.
-    StaticInteger {
-        value: i128,
-        width: u32,
-        signed: bool,
-        explicit_width: bool,
-        is_const: bool,
     },
 }
 
@@ -89,6 +85,19 @@ impl BindingKind {
 
     pub(super) fn description(self) -> &'static str {
         match self {
+            Self::Ghost(_) => "ghost variable (specification-only)",
+            Self::Scalar {
+                ty: ScalarType::Int { signed: true, .. },
+                ..
+            } => "signed integer",
+            Self::Scalar {
+                ty: ScalarType::Int { signed: false, .. },
+                ..
+            } => "unsigned integer",
+            Self::Scalar {
+                ty: ScalarType::Float { .. },
+                ..
+            } => "floating-point value",
             Self::QuantumVariable(QuantumType::Scalar) => "qubit",
             Self::QuantumVariable(QuantumType::Register { .. }) => "quantum register",
             Self::QuantumParameter(_) => "quantum parameter",
@@ -101,8 +110,7 @@ impl BindingKind {
             Self::Gate => "gate",
             Self::Subroutine { .. } => "subroutine",
             Self::Constant(_) => "constant",
-            Self::StaticFloat { .. } | Self::StaticBits { .. } => "constant",
-            Self::StaticInteger { .. } => "static integer",
+            Self::StaticBits { .. } => "constant",
         }
     }
 }
@@ -128,6 +136,7 @@ pub(super) enum ScopeError {
 struct Scope {
     kind: ScopeKind,
     bindings: HashMap<String, Binding>,
+    global_before: Option<SymbolId>,
 }
 
 impl Scope {
@@ -135,6 +144,7 @@ impl Scope {
         Self {
             kind,
             bindings: HashMap::new(),
+            global_before: None,
         }
     }
 }
@@ -153,9 +163,7 @@ impl ScopeStack {
             .filter_map(|binding| {
                 matches!(
                     binding.kind,
-                    BindingKind::StaticInteger { .. }
-                        | BindingKind::StaticFloat { .. }
-                        | BindingKind::StaticBits { .. }
+                    BindingKind::Scalar { is_const: true, .. } | BindingKind::StaticBits { .. }
                 )
                 .then_some(binding.id)
             })
@@ -211,6 +219,14 @@ impl ScopeStack {
     pub(super) fn enter(&mut self, kind: ScopeKind) {
         assert_ne!(kind, ScopeKind::Global);
         self.scopes.push(Scope::new(kind));
+    }
+
+    /// Reuse the callable scope rules, but resolve globals at definition time.
+    /// Symbol IDs are monotonic, so the definition's ID excludes itself and
+    /// all later declarations without cloning a symbol table or lowering body.
+    pub(super) fn enter_definition(&mut self, definition: SymbolId) {
+        self.enter(ScopeKind::Subroutine);
+        self.scopes.last_mut().expect("entered scope").global_before = Some(definition);
     }
 
     pub(super) fn exit(&mut self) {
@@ -284,6 +300,20 @@ impl ScopeStack {
         Ok(binding)
     }
 
+    pub(super) fn set_scalar_value(&mut self, name: &str, value: ScalarValue) {
+        let binding = self
+            .scopes
+            .last_mut()
+            .expect("global scope exists")
+            .bindings
+            .get_mut(name)
+            .expect("declared in current scope");
+        let BindingKind::Scalar { value: known, .. } = &mut binding.kind else {
+            unreachable!("scalar declaration")
+        };
+        *known = Some(value);
+    }
+
     /// Resolves the nearest lexically visible binding.
     ///
     /// During call-site specialization, a callee may see its own parameters
@@ -306,6 +336,13 @@ impl ScopeStack {
             let Some(binding) = scope.bindings.get(name).copied() else {
                 continue;
             };
+            if scope.kind == ScopeKind::Global
+                && subroutine_scope
+                    .and_then(|boundary| self.scopes[boundary].global_before)
+                    .is_some_and(|limit| binding.id >= limit)
+            {
+                continue;
+            }
             if subroutine_scope.is_some()
                 && scope.kind == ScopeKind::Global
                 && !matches!(
@@ -313,8 +350,7 @@ impl ScopeStack {
                     BindingKind::Constant(_)
                         | BindingKind::Gate
                         | BindingKind::Subroutine { .. }
-                        | BindingKind::StaticInteger { is_const: true, .. }
-                        | BindingKind::StaticFloat { .. }
+                        | BindingKind::Scalar { is_const: true, .. }
                         | BindingKind::StaticBits { .. }
                 )
             {

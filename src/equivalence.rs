@@ -36,6 +36,7 @@ mod phase_compare;
 mod smt;
 mod solver_query;
 mod tuning;
+pub mod unitary_miter;
 mod unitary_rewrite;
 mod unitary_trace;
 

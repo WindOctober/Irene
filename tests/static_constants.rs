@@ -92,7 +92,7 @@ fn integer_division_is_folded_before_angle_promotion() {
 }
 
 #[test]
-fn unsigned_arithmetic_checks_range_and_result() {
+fn unsigned_arithmetic_wraps_and_rejects_zero_divisors() {
     for width in 1..=4 {
         let bound = 1_i128 << width;
         for a in 0..bound {
@@ -107,9 +107,8 @@ fn unsigned_arithmetic_checks_range_and_result() {
                     let body = format!(
                         "const uint[{width}] a={a}; const uint[{width}] b={b}; const uint[{width}] c=a{op}b;"
                     );
-                    let admitted = value.is_some_and(|v| 0 <= v && v < bound);
-                    if admitted {
-                        let v = value.unwrap();
+                    if let Some(value) = value {
+                        let v = value.rem_euclid(bound);
                         let p = parse(&format!("{body} qubit[c-{v}+1] q;"));
                         assert_eq!(p.quantum_registers[0].width, 1, "{body}");
                     } else {
@@ -119,7 +118,8 @@ fn unsigned_arithmetic_checks_range_and_result() {
             }
         }
     }
-    rejects("const uint[3] a=7; const uint[3] b=(a+1)-1;");
+    let p = parse("const uint[3] a=7; const uint[3] b=(a+1)-1; qubit[b] q;");
+    assert_eq!(p.quantum_registers[0].width, 7);
 }
 
 #[test]
@@ -229,8 +229,11 @@ fn gate_powers_use_the_same_checked_constant_evaluator() {
     let p = parse("const int[8] k=-3; qubit q; pow(k+1) @ t q;");
     assert_same(&p, &parse("qubit q; sdg q;"));
     assert_fresh_ids(&p);
+    assert_same(
+        &parse("const uint[2] k=3; qubit q; pow(k+1) @ x q;"),
+        &parse("qubit q;"),
+    );
     for body in [
-        "const uint[2] k=3; qubit q; pow(k+1) @ x q;",
         "qubit q; bit c=measure q; pow(c) @ x q;",
     ] {
         rejects(body);

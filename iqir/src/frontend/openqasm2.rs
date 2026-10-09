@@ -447,6 +447,8 @@ impl Lowerer {
         }
 
         let program = ProgramData {
+            annotations: Default::default(),
+            spec_functions: Vec::new(),
             version: OpenQasmVersion { major: 2, minor: 0 },
             numeric_inputs: Vec::new(),
             quantum_registers: self.quantum_registers,
