@@ -7,6 +7,8 @@ language features and invalid programs may produce errors.
 
 ## News
 
+- ⭐ **2026-10-07** · [Faster certified matrices](docs/architecture.md#numerical-hps-certificates): Arb complex-ball arithmetic and fused short dot products accelerate matrix contraction while retaining rigorous error bounds. **Solved: 1686/1982 · Average time: 3.824 s.**
+
 - ⭐⭐ **2026-10-07** · [Hidden affine recovery](docs/architecture.md#algebraic-reductions): complex Boolean representations can obscure valid path-elimination opportunities, so we reuse Davio decomposition to expose hidden constant and affine functions in guards and phase selectors, enabling existing elimination rules to apply. **Solved: 1665/1982 · Average time: 5.31 s.**
 
   For arbitrary Boolean expressions $A,B$, even over many path variables:
