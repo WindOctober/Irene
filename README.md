@@ -7,7 +7,7 @@ language features and invalid programs may produce errors.
 
 ## News
 
-- **2026-10-07** · [Solver refinements](docs/architecture.md#numerical-hps-certificates): certified counterexample search on three inputs, gate-block fusion, shared DAG nodes with fused elimination, incremental budget accounting, and early phase checks reduce repeated work. **Solved: 1691/1982 (+5) · Average time: 3.134 s.**
+- **2026-10-08** · [Solver refinements](docs/architecture.md#numerical-hps-certificates): certified counterexample search on three inputs, gate-block fusion, shared DAG nodes with fused elimination, incremental budget accounting, and early phase checks reduce repeated work. **Solved: 1691/1982 (+5) · Average time: 3.134 s.**
 
 - ⭐ **2026-10-07** · [Faster certified matrices](docs/architecture.md#numerical-hps-certificates): Arb complex-ball arithmetic and fused short dot products accelerate matrix contraction while retaining rigorous error bounds. **Solved: 1686/1982 · Average time: 3.824 s.**
 
