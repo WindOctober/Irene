@@ -419,6 +419,6 @@ free inputs remain free.
 
 - `tests/equivalence.rs`, `tests/unitary_miter.rs`: comparisons and inverse-circuit admission.
 - `src/symbolic/tests.rs`, `src/symbolic/optimize/tests.rs`: HPS execution and reductions.
-- `src/equivalence/aggregate/exact_smt/tests.rs`, `exact_smt/coefficient_dag/tests.rs`
+- `tests/unit/equivalence/aggregate/exact_smt/tests.rs`, `exact_smt/coefficient_dag/tests.rs`
   and `exact_smt/frontier/tests.rs`: encoding and contraction.
 - `tests/angles_constants.rs`, `tests/static_integers.rs` and frontend tests: source semantics.

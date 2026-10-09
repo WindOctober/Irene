@@ -185,4 +185,5 @@ impl WorkingTerm {
 }
 
 #[cfg(test)]
+#[path = "../../../tests/unit/equivalence/aggregate/constraints/tests.rs"]
 mod tests;

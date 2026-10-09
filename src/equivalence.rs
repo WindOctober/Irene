@@ -667,16 +667,21 @@ fn complete_snapshot(side: &PreparedSide) -> HybridPathSum {
 }
 
 #[cfg(test)]
+#[path = "../tests/unit/equivalence/snapshot_tests.rs"]
 mod snapshot_tests;
 
 #[cfg(test)]
+#[path = "../tests/unit/equivalence/stage1_tests.rs"]
 mod stage1_tests;
 
 #[cfg(test)]
+#[path = "../tests/unit/equivalence/stage2_tests.rs"]
 mod stage2_tests;
 
 #[cfg(test)]
+#[path = "../tests/unit/equivalence/support_tests.rs"]
 mod support_tests;
 
 #[cfg(test)]
+#[path = "../tests/unit/equivalence/kernel_adapter_tests.rs"]
 mod kernel_adapter_tests;

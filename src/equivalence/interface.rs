@@ -724,4 +724,5 @@ fn maximum_symbol(program: &Program) -> Option<usize> {
 }
 
 #[cfg(test)]
+#[path = "../../tests/unit/equivalence/interface/tests.rs"]
 mod tests;

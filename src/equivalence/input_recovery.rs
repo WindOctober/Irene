@@ -118,4 +118,5 @@ fn with_budget(
 }
 
 #[cfg(test)]
+#[path = "../../tests/unit/equivalence/input_recovery/tests.rs"]
 mod tests;

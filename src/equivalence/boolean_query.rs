@@ -98,4 +98,5 @@ fn smt_script(declarations: String, assertion: String, values: &[String]) -> Str
 }
 
 #[cfg(test)]
+#[path = "../../tests/unit/equivalence/boolean_query/tests.rs"]
 mod tests;

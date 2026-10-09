@@ -187,4 +187,5 @@ pub(super) fn apply(
 }
 
 #[cfg(test)]
+#[path = "../../../tests/unit/equivalence/aggregate/exact_guard_pivot/tests.rs"]
 mod tests;

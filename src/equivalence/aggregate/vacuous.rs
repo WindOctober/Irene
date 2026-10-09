@@ -142,4 +142,5 @@ fn weight(coefficient: KernelScalar, vacuous: usize) -> Option<KernelScalar> {
 }
 
 #[cfg(test)]
+#[path = "../../../tests/unit/equivalence/aggregate/vacuous/tests.rs"]
 mod tests;

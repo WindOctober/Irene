@@ -173,4 +173,5 @@ pub(super) fn restrict(
 }
 
 #[cfg(test)]
+#[path = "../../../tests/unit/equivalence/aggregate/product_cases/tests.rs"]
 mod tests;

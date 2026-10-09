@@ -38,6 +38,7 @@ mod factored;
 mod factorization;
 mod free_split;
 #[cfg(test)]
+#[path = "../../tests/unit/equivalence/aggregate/local_reducer_tests.rs"]
 mod local_reducer_tests;
 mod pair_period;
 mod path_sum;
@@ -1224,4 +1225,5 @@ fn ratio(numerator: i64, denominator: i64) -> BigRational {
 }
 
 #[cfg(test)]
+#[path = "../../tests/unit/equivalence/aggregate/tests.rs"]
 mod tests;

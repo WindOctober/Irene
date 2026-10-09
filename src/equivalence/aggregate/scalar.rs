@@ -342,4 +342,5 @@ pub(super) fn ratio(numerator: i64, denominator: i64) -> BigRational {
 }
 
 #[cfg(test)]
+#[path = "../../../tests/unit/equivalence/aggregate/scalar/tests.rs"]
 mod tests;

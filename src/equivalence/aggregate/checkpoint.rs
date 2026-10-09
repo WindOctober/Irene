@@ -54,4 +54,5 @@ pub(super) fn matches(
 }
 
 #[cfg(test)]
+#[path = "../../../tests/unit/equivalence/aggregate/checkpoint/tests.rs"]
 mod tests;

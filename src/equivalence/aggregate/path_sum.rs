@@ -154,4 +154,5 @@ fn ratio(n: i64, d: i64) -> BigRational {
 }
 
 #[cfg(test)]
+#[path = "../../../tests/unit/equivalence/aggregate/path_sum/tests.rs"]
 mod tests;

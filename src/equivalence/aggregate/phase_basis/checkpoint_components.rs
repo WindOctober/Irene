@@ -51,4 +51,5 @@ fn reduce_components(factors: Components, work: &mut usize) -> Option<Vec<Workin
 }
 
 #[cfg(test)]
+#[path = "../../../../tests/unit/equivalence/aggregate/phase_basis/checkpoint_components/tests.rs"]
 mod tests;

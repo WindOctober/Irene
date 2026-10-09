@@ -10,6 +10,7 @@ const MAX_CELL_STEPS: usize = 1_500_000_000;
 const MAX_SECONDS: u64 = 180;
 
 #[cfg(test)]
+#[path = "../../../tests/unit/equivalence/interval_hps/frontier/tests.rs"]
 mod tests;
 
 type Matrix = Vec<Vec<(usize, Complex)>>;

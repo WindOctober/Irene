@@ -595,4 +595,5 @@ fn factor_binomials(
 use super::factor_normalize::normalize as normalize_factor;
 
 #[cfg(test)]
+#[path = "../../../tests/unit/equivalence/aggregate/factored/tests.rs"]
 mod tests;

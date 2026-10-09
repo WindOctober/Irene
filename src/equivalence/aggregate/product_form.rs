@@ -159,4 +159,5 @@ pub(super) fn build(
 }
 
 #[cfg(test)]
+#[path = "../../../tests/unit/equivalence/aggregate/product_form/tests.rs"]
 mod tests;

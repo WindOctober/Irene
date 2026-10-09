@@ -152,4 +152,5 @@ pub(super) fn charge_phase(phase: &KernelPhasePolynomial, cells: &mut usize) -> 
 }
 
 #[cfg(test)]
+#[path = "../../../tests/unit/equivalence/aggregate/phase_unit/tests.rs"]
 mod tests;

@@ -352,4 +352,5 @@ pub(super) fn exact_match(left: &HybridPathSum, right: &HybridPathSum) -> ExactM
 }
 
 #[cfg(test)]
+#[path = "../../../tests/unit/equivalence/canonical/colored_graph/tests.rs"]
 mod tests;

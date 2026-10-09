@@ -9,4 +9,5 @@ pub(super) fn sum(source: &WorkingTerm, budget: &mut ReductionBudget) -> Option<
 }
 
 #[cfg(test)]
+#[path = "../../../../tests/unit/equivalence/aggregate/factored/small_sum/tests.rs"]
 mod tests;

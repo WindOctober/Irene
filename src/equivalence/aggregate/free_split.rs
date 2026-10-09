@@ -222,4 +222,5 @@ pub(super) fn restrict_aggregate(
 }
 
 #[cfg(test)]
+#[path = "../../../tests/unit/equivalence/aggregate/free_split/tests.rs"]
 mod tests;

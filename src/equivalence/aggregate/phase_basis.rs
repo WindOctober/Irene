@@ -2,9 +2,11 @@
 use super::*;
 
 #[cfg(test)]
+#[path = "../../../tests/unit/equivalence/aggregate/phase_basis/blocks.rs"]
 mod blocks;
 mod checkpoint_components;
 #[cfg(test)]
+#[path = "../../../tests/unit/equivalence/aggregate/phase_basis/pair_period.rs"]
 mod pair_period;
 const WORK_CELLS: usize = super::phase_schedule::WORK_CELLS;
 
@@ -118,4 +120,5 @@ fn matches_reduced_components(left: &Reduction, right: &Reduction, work: &mut us
 }
 
 #[cfg(test)]
+#[path = "../../../tests/unit/equivalence/aggregate/phase_basis/tests.rs"]
 mod tests;

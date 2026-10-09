@@ -355,4 +355,5 @@ fn component_cmp(left: &Component, right: &Component) -> Ordering {
 }
 
 #[cfg(test)]
+#[path = "../../tests/unit/equivalence/canonical/tests.rs"]
 mod tests;
