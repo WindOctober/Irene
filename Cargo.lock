@@ -397,6 +397,7 @@ dependencies = [
  "bitgauss",
  "clap",
  "flint-sys",
+ "hashbrown 0.15.5",
  "iqir",
  "libc",
  "num-bigint",
@@ -405,6 +406,7 @@ dependencies = [
  "portgraph",
  "portmatching",
  "rug",
+ "smallvec",
  "thiserror 2.0.20",
 ]
 

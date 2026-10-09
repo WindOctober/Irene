@@ -121,10 +121,28 @@ pub fn identity_bound(program: &Program) -> Report {
 /// checks include HPS construction and elimination, not only contraction.
 /// An expired probe gets a normal-budget HPS retry if the matrix cannot decide.
 pub fn identity_bound_with_tolerance(program: &Program, target: &BigRational) -> Report {
+    identity_bound_with_error(program, target, &BigRational::from_integer(0.into()))
+}
+
+/// The input-state early exit must survive the certified preprocessing error.
+/// Bounds in the report still describe `program`; callers correct them with
+/// that error when certifying the original program pair.
+pub fn identity_bound_with_error(
+    program: &Program,
+    target: &BigRational,
+    preprocessing_error: &BigRational,
+) -> Report {
+    assert!(preprocessing_error >= &BigRational::from_integer(0.into()));
     probe_then_frontier(
         structured::identity_bound_with_budget(program, Duration::from_secs(5)),
         target,
-        || frontier::identity_bound_with_tolerance(program, target),
+        || {
+            frontier::identity_bound_with_witness_target(
+                program,
+                target,
+                &(target + preprocessing_error),
+            )
+        },
         || structured::identity_bound(program),
     )
 }

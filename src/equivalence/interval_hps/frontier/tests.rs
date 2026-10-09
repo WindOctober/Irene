@@ -1,6 +1,155 @@
 use super::*;
 
 #[test]
+fn gathered_fusion_dots_preserve_uncertainty() {
+    for len in [3, 4, 8] {
+        let real = |lo: i32, hi: i32| {
+            Complex::real(Interval {
+                lo: Interval::n(lo).lo,
+                hi: Interval::n(hi).hi,
+            })
+        };
+        let mut inputs = Balls::new(len);
+        let mut coefficients = Balls::new(len);
+        for i in 0..len {
+            inputs.set_enclosure(i, &real(-1, 2), 64);
+            coefficients.set_enclosure(i, &real(-2, 3), 64);
+        }
+        let mut output = Balls::new(1);
+        output.sum_products(0, &inputs, &coefficients, (0..len).rev(), 64);
+        let value = output.enclosure(0).unwrap();
+        assert!(value.re.lo <= -4 * len as i32);
+        assert!(value.re.hi >= 6 * len as i32);
+        assert!(value.im.lo <= 0 && value.im.hi >= 0);
+    }
+}
+
+#[test]
+fn adjacent_fusion_preserves_noncommuting_gate_order() {
+    let p = parse(1, "h q[0]; z q[0]; h q[0];");
+    let blocks = crate::equivalence::operator::blocks(&p).unwrap();
+    assert_eq!(blocks.len(), 2);
+    let wires = super::super::super::qubits(&p);
+    let domain = super::super::super::numeric::Enclosure { precision: 128 };
+    let matrix = block_matrix(&p, &p.body.statements, &wires, &domain).unwrap();
+    // In gate order H Z H = X, independently: only off-diagonal entries 1.
+    // Reordering to H H Z would incorrectly give a diagonal Z.
+    for (row, entries) in matrix.iter().enumerate() {
+        let off = entries.iter().find(|(col, _)| *col == 1 - row).unwrap();
+        assert!(off.1.re.lo <= 1 && off.1.re.hi >= 1);
+        assert!(off.1.im.lo <= 0 && off.1.im.hi >= 0);
+        for (col, value) in entries {
+            if *col == row {
+                assert!(value.re.lo <= 0 && value.re.hi >= 0);
+            }
+        }
+    }
+}
+
+fn witness(p: &Program, precision: u32) -> Report {
+    let wires = super::super::super::qubits(p);
+    let blocks = crate::equivalence::operator::blocks(p).unwrap();
+    contract(
+        p,
+        &wires,
+        &blocks,
+        Instant::now(),
+        precision,
+        true,
+        &mut MAX_CELL_STEPS.clone(),
+    )
+    .unwrap()
+}
+
+#[test]
+fn witness_global_phase_and_agreement_never_prove_eq() {
+    for precision in [64, 128] {
+        for body in ["rx(2*pi) q[0];", "h q[0]; h q[0];"] {
+            let p = parse(2, body);
+            let r = witness(&p, precision);
+            assert_eq!(r.lower_bound.unwrap(), BigRational::from_integer(0.into()));
+            assert_eq!(r.bound.unwrap(), BigRational::from_integer(2.into()));
+            let fallback = identity_bound(&p).unwrap();
+            assert_eq!(fallback.method, "frontier");
+            assert!(
+                fallback.bound.unwrap() < BigRational::new(1.into(), 1_000_000_000_000i64.into())
+            );
+        }
+        assert!(
+            witness(&parse(2, "z q[1];"), precision)
+                .lower_bound
+                .unwrap()
+                > BigRational::from_integer(1.into())
+        );
+    }
+}
+
+#[test]
+fn witness_h_distance_is_independently_sqrt_two() {
+    let expected = Interval::n(2).sqrt().unwrap();
+    let slack = BigRational::new(1.into(), 1_000_000_000_000i64.into());
+    for precision in [64, 128] {
+        let lower = witness(&parse(2, "h q[0];"), precision)
+            .lower_bound
+            .unwrap();
+        // |<0|H|0>| = |<1|H|1>| = |<+|H|+>| = 1/sqrt(2).
+        assert!(lower <= float_rational(&expected.hi).unwrap());
+        assert!(lower + &slack >= float_rational(&expected.lo).unwrap());
+    }
+}
+
+#[test]
+fn witness_near_tolerance_and_preprocessing_fall_back() {
+    let tolerance = BigRational::new(1.into(), 1_000_000_000_000i64.into());
+    let tiny = parse(2, "rz(0.0000000000001) q[0];");
+    assert!(witness(&tiny, 128).lower_bound.unwrap() <= tolerance);
+    assert_eq!(
+        identity_bound_with_tolerance(&tiny, &tolerance)
+            .unwrap()
+            .method,
+        "frontier"
+    );
+    let h = parse(2, "h q[0];");
+    assert_eq!(
+        identity_bound_with_tolerance(&h, &tolerance)
+            .unwrap()
+            .method,
+        "state-witness"
+    );
+    // 1.5 preprocessing error exceeds the sqrt(2) state witness; never stop
+    // on that witness. The full trace certificate is still allowed to refine.
+    let corrected_threshold = &tolerance + BigRational::new(3.into(), 2.into());
+    let r = identity_bound_with_witness_target(&h, &tolerance, &corrected_threshold).unwrap();
+    assert_eq!(r.method, "frontier");
+    assert!(r.lower_bound.unwrap() > corrected_threshold);
+}
+
+#[test]
+fn refused_witness_and_shared_budget_are_conservative() {
+    let p = parse(2, "h q[0];");
+    let wires = super::super::super::qubits(&p);
+    let blocks = crate::equivalence::operator::blocks(&p).unwrap();
+    let mut too_small = 11;
+    assert!(
+        contract(
+            &p,
+            &wires,
+            &blocks,
+            Instant::now(),
+            64,
+            true,
+            &mut too_small
+        )
+        .is_none()
+    );
+    let mut enough = MAX_CELL_STEPS;
+    assert!(contract(&p, &wires, &blocks, Instant::now(), 64, false, &mut enough).is_some());
+    // Zero-wire witness refuses; the complete operator can still prove EQ.
+    let p = crate::frontend::openqasm3::parse_str("OPENQASM 3.0;", "empty").unwrap();
+    assert_eq!(identity_bound(&p).unwrap().method, "frontier");
+}
+
+#[test]
 fn ball_sum_products_encloses_exact_complex_sums_with_strided_inputs() {
     let input_values = [(2, 3), (-1, 4), (3, -2)];
     let coefficient_values = [(4, 5), (-2, 1), (1, -3)];
@@ -82,7 +231,20 @@ fn shared_gate_lowering_encloses_independent_trace_values() {
         ("h q[0]; h q[0];", 4),
     ] {
         let p = parse(2, body);
-        let report = identity_bound(&p).unwrap();
+        // Retain this independent full-operator trace test: do not replace
+        // its obligation with the potentially weaker state-input bound.
+        let wires = super::super::super::qubits(&p);
+        let blocks = crate::equivalence::operator::blocks(&p).unwrap();
+        let report = contract(
+            &p,
+            &wires,
+            &blocks,
+            Instant::now(),
+            64,
+            false,
+            &mut MAX_CELL_STEPS.clone(),
+        )
+        .unwrap();
         let exact_lower =
             super::super::exact_trace_distance_lower(&BigRational::new(r.into(), 4.into()))
                 .unwrap();
