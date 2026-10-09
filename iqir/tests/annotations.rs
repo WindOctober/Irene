@@ -179,9 +179,9 @@ fn fails_closed_on_dangling_unknown_misplaced_and_unbound_annotations() {
 }
 
 #[test]
-fn quantum_expression_structure_is_reserved_but_not_admitted_by_classical_checking() {
+fn general_matrix_functions_remain_reserved() {
     let expr = parse_expression(
-        "\\trace_distance(\\avg_density(q[0]), \\normalize(\\diag(\\cosh(1), \\cosh(0.5)))) <= 1e-6",
+        "\\trace_distance(\\avg_density(q[0]), \\normalize(\\cosh(1)*|0><0| + \\cosh(0.5)*|1><1|)) <= 1e-6",
     )
     .unwrap();
     let SpecExpr::Binary { left, .. } = expr else {
@@ -195,7 +195,7 @@ fn quantum_expression_structure_is_reserved_but_not_admitted_by_classical_checki
         }
     ));
     let error = frontend::parse_str("OPENQASM 3; qubit[2] q; bool stop = false;\n\
-        @saria.ensures \\trace_distance(\\avg_density(q[0]), \\normalize(\\diag(\\cosh(1), \\cosh(0.5)))) <= 1e-6\n\
+        @saria.ensures \\trace_distance(\\avg_density(q[0]), \\normalize(\\cosh(1)*|0><0| + \\cosh(0.5)*|1><1|)) <= 1e-6\n\
         while (!stop) { stop = true; }", "density.qasm").unwrap_err();
     assert!(error.to_string().contains("reserved"));
 }

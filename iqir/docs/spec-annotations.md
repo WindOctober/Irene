@@ -34,7 +34,8 @@ as established facts. [Quantum expressions](quantum-expressions.md) include type
 state literals, Pauli matrices, symbolic linear algebra, and comparisons between
 program quantum references and same-width kets, such as `q == |0>`.
 `\avg_density` and `\trace_distance` describe ensemble output comparisons.
-General matrix constructors `\diag`, `\trace`, and `\normalize` remain reserved.
+`\diagonal(q)` asserts diagonality of the reduced state in each classical path.
+General matrix functions `\trace` and `\normalize` remain reserved.
 
 ## Standalone assertions
 

@@ -536,12 +536,12 @@ fn builtin(name: &str) -> Option<(MathFunction, usize, usize)> {
         "trace" => Trace,
         "normalize" => Normalize,
         "avg_density" => AvgDensity,
+        "diagonal" => Diagonal,
         "probability" => Probability,
         "binom" => return Some((Binomial, 2, 2)),
         "trace_distance" => return Some((TraceDistance, 2, 2)),
         "min" => return Some((Min, 2, 256)),
         "max" => return Some((Max, 2, 256)),
-        "diag" => return Some((Diag, 1, 256)),
         _ => return None,
     };
     Some((f, 1, 1))
