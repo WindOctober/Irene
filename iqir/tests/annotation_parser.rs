@@ -355,7 +355,7 @@ fn builtin_functions_and_constants_require_backslashes() {
         ("adjoint", "|0>"),
         ("expectation", "1"),
         ("probability", "true"),
-        ("diag", "1,2"),
+        ("diagonal", "q"),
         ("trace", "1"),
         ("normalize", "1"),
         ("avg_density", "q"),

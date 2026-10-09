@@ -148,6 +148,12 @@ reachability is a domain obligation. `\trace_distance(A, B)` accepts two
 same-dimensional operators and denotes half the trace norm of their difference.
 These are typed claims, not frontend state extraction or probability evaluation.
 
-General matrix functions `\diag`, `\trace`, and `\normalize` remain reserved.
+`\diagonal(q)` accepts a program qubit or register and returns a Boolean. It
+requires the reduced density operator in each classical path to have zero
+off-diagonal entries in the computational basis. It does not specify the
+diagonal probabilities, require purity, or imply that a larger joint state is
+diagonal. All quantum contributions in a path are considered together.
+
+General matrix functions `\trace` and `\normalize` remain reserved.
 Equivalence checking continues to ignore all
 specification annotations; this frontend does not change circuit semantics.

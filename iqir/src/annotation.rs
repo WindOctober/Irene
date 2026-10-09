@@ -238,11 +238,12 @@ pub enum MathFunction {
     RealPart,
     ImagPart,
     Adjoint,
-    Diag,
     Trace,
     Normalize,
     /// Normalized ensemble reduced density operator at a reached boundary.
     AvgDensity,
+    /// Each classical path's reduced density operator is diagonal in the computational basis.
+    Diagonal,
     /// One half of the trace norm of the difference of density operators.
     TraceDistance,
     Probability,

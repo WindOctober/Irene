@@ -466,7 +466,7 @@ where
                 arguments,
             } => {
                 use MathFunction::*;
-                if matches!(function, Diag | Trace | Normalize) {
+                if matches!(function, Trace | Normalize) {
                     return Err(fail(
                         "program-state queries and general matrix specification functions are reserved",
                     ));
@@ -497,6 +497,12 @@ where
                         return Err(fail("factorial expects a nonnegative integer"));
                     }
                     return Ok(SpecType::Real);
+                }
+                if *function == Diagonal {
+                    return match types[0] {
+                        SpecType::Qubit | SpecType::QubitRegister(_) => Ok(SpecType::Bool),
+                        _ => Err(fail("diagonal expects a program quantum reference")),
+                    };
                 }
                 if *function == AvgDensity {
                     return match types[0] {
