@@ -20,6 +20,8 @@ use super::{BooleanPolynomial, PhaseCoefficient, PhasePolynomial, Scalar, Variab
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum SymbolicError {
+    #[error("optional symbolic attempt exceeded its time budget")]
+    TimeBudget,
     #[error("configured symbolic input is not declared by the program: {0:?}")]
     UnknownInput(Qubit),
     #[error("selected quantum output is not declared by the program: {0:?}")]
@@ -203,6 +205,9 @@ pub fn execute(
     config: &ExecutionConfig,
     output_selection: &OutputSelection,
 ) -> Result<HybridPathSum, SymbolicError> {
+    if super::deadline::expired() {
+        return Err(SymbolicError::TimeBudget);
+    }
     validate::numeric_domains(program)?;
     let plan = slice::build_slice_plan(program, output_selection)?;
     validate::definite_assignment(program, output_selection)?;
@@ -227,6 +232,9 @@ pub fn execute(
         collapse_local_history(component);
     }
     super::representation_stats::observe("hps_final", &hps.components, true);
+    if super::deadline::expired() {
+        return Err(SymbolicError::TimeBudget);
+    }
     Ok(hps)
 }
 
@@ -434,6 +442,9 @@ impl Executor {
     ) -> Result<Vec<Component>, SymbolicError> {
         let mut summarized_until = 0;
         for (index, statement) in statements.iter().enumerate() {
+            if super::deadline::expired() {
+                return Err(SymbolicError::TimeBudget);
+            }
             if index < summarized_until {
                 continue;
             }

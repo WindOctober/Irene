@@ -48,6 +48,10 @@ pub fn simplify(mut hps: HybridPathSum) -> HybridPathSum {
 /// more paths or phases.
 pub(crate) fn simplify_component(component: &mut Component) -> bool {
     loop {
+        // Stop only between complete, semantics-preserving rewrites.
+        if crate::symbolic::deadline::expired() {
+            return true;
+        }
         // Normalize graph cancellations in semantic fields. Keep original
         // guard rows for row-space inference; add reduced rows as consequences
         // only when useful, so factorization does not hide affine columns.

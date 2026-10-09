@@ -198,6 +198,9 @@ impl Default for Recovery {
 
 impl Recovery {
     fn affine(&mut self, p: &BooleanPolynomial) -> Option<BooleanPolynomial> {
+        if crate::symbolic::deadline::expired() {
+            return None;
+        }
         if let Some(result) = p.cached_affine_recovery() {
             return result.clone();
         }
@@ -277,6 +280,9 @@ impl Recovery {
         }
         let mut changed = false;
         for g in &mut c.guard {
+            if crate::symbolic::deadline::expired() {
+                return changed;
+            }
             if let Some(next) = self.affine(g) {
                 *g = next;
                 changed = true;
@@ -288,6 +294,9 @@ impl Recovery {
         }
         let mut replacements = Vec::new();
         for (p, coefficient) in c.phase.selectors() {
+            if crate::symbolic::deadline::expired() {
+                return false;
+            }
             let next = self.affine(&p);
             changed |= next.is_some();
             replacements.push((next.unwrap_or(p), coefficient.clone()));

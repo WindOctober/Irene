@@ -52,6 +52,10 @@ enum PathRule {
 /// `y0 * (x xor y1) / 2`. The Fourier rule replaces its sum by the guard
 /// `x xor y1 = 0`; ordinary guard simplification then substitutes `y1 = x`.
 pub(crate) fn reduce_path_sums(component: &mut Component, allow_history: bool) -> bool {
+    // A timeout is not a contradiction: retain the exact residual summand.
+    if crate::symbolic::deadline::expired() {
+        return true;
+    }
     if !simplify_component(component) {
         return false;
     }
@@ -64,6 +68,9 @@ pub(crate) fn reduce_path_sums(component: &mut Component, allow_history: bool) -
     let mut recovery = super::recovery::Recovery::default();
 
     loop {
+        if crate::symbolic::deadline::expired() {
+            return true;
+        }
         // Visit every current path once before starting another fixed-point
         // round.  A successful elimination can make a path visited earlier in
         // this round reducible, so another round is still required.  Continuing
@@ -91,6 +98,9 @@ pub(crate) fn reduce_path_sums(component: &mut Component, allow_history: bool) -
         let mut reduced = false;
         let mut analysis = Some(initial_analysis);
         for path in paths {
+            if crate::symbolic::deadline::expired() {
+                return true;
+            }
             let variable = Variable::Path(path);
             if blocked.contains(&variable) || !component.path_support.contains(&path) {
                 continue;
