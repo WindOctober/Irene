@@ -260,4 +260,5 @@ pub(super) fn multiply(
 }
 
 #[cfg(test)]
+#[path = "../../../tests/unit/equivalence/aggregate/factorization/tests.rs"]
 mod tests;

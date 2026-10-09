@@ -306,4 +306,5 @@ pub(super) fn refine<C>(
 }
 
 #[cfg(test)]
+#[path = "../../../tests/unit/equivalence/aggregate/factor_refine/tests.rs"]
 mod tests;

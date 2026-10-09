@@ -81,4 +81,5 @@ pub(super) fn normalize(
 }
 
 #[cfg(test)]
+#[path = "../../../tests/unit/equivalence/aggregate/factor_normalize/tests.rs"]
 mod tests;

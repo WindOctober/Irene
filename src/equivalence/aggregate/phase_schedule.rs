@@ -182,4 +182,5 @@ fn compact_block_factors(
 }
 
 #[cfg(test)]
+#[path = "../../../tests/unit/equivalence/aggregate/phase_schedule/tests.rs"]
 mod tests;

@@ -40,4 +40,5 @@ pub(super) fn visit_bound_cofactors(
 }
 
 #[cfg(test)]
+#[path = "../../../tests/unit/equivalence/aggregate/shannon/tests.rs"]
 mod tests;

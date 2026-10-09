@@ -205,4 +205,5 @@ pub(super) fn collect_unit(
 }
 
 #[cfg(test)]
+#[path = "../../../tests/unit/equivalence/aggregate/factor_match/tests.rs"]
 mod tests;

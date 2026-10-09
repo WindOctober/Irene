@@ -2,4 +2,5 @@
 use super::*;
 
 #[cfg(test)]
+#[path = "pair_period/tests.rs"]
 mod tests;

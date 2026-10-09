@@ -232,4 +232,5 @@ pub(super) fn transvection(
 }
 
 #[cfg(test)]
+#[path = "../../../tests/unit/equivalence/aggregate/xor_basis/tests.rs"]
 mod tests;

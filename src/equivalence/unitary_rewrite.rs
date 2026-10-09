@@ -433,4 +433,5 @@ pub(super) fn preprocess_with(source: &Program, strategy: Strategy) -> Option<Pr
 }
 
 #[cfg(test)]
+#[path = "../../tests/unit/equivalence/unitary_rewrite/tests.rs"]
 pub(super) mod tests;

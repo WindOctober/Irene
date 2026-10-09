@@ -295,4 +295,5 @@ pub(super) fn compact(factor: &mut WorkingTerm, work: &mut usize) -> Option<bool
 }
 
 #[cfg(test)]
+#[path = "../../../tests/unit/equivalence/aggregate/xor_blocks/tests.rs"]
 mod tests;

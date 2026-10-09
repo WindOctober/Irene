@@ -1446,10 +1446,13 @@ impl<'a> Renamer<'a> {
 }
 
 #[cfg(test)]
+#[path = "../../tests/unit/equivalence/kernel/tests.rs"]
 mod tests;
 
 #[cfg(test)]
+#[path = "../../tests/unit/equivalence/kernel/lowering_tests.rs"]
 mod lowering_tests;
 
 #[cfg(test)]
+#[path = "../../tests/unit/equivalence/kernel/closed_scalar_tests.rs"]
 mod closed_scalar_tests;

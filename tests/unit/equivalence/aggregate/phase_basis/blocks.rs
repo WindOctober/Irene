@@ -6,4 +6,5 @@ pub(super) fn compact(factor: &mut WorkingTerm, work: &mut usize) -> Option<bool
 }
 
 #[cfg(test)]
+#[path = "blocks/tests.rs"]
 mod tests;

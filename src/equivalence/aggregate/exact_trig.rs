@@ -64,4 +64,5 @@ pub(super) fn normalize(angle: &NumericExpr, sine: bool) -> Option<KernelScalar>
 }
 
 #[cfg(test)]
+#[path = "../../../tests/unit/equivalence/aggregate/exact_trig/tests.rs"]
 mod tests;

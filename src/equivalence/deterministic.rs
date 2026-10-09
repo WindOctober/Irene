@@ -258,4 +258,5 @@ fn variable_names(width: usize, namespace: &str) -> Vec<String> {
 }
 
 #[cfg(test)]
+#[path = "../../tests/unit/equivalence/deterministic/tests.rs"]
 mod tests;

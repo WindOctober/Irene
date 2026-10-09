@@ -74,4 +74,5 @@ pub(super) fn find(
 }
 
 #[cfg(test)]
+#[path = "../../../tests/unit/equivalence/aggregate/factor_pair/tests.rs"]
 mod tests;

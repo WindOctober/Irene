@@ -189,4 +189,5 @@ pub(super) fn factor(
 }
 
 #[cfg(test)]
+#[path = "../../../tests/unit/equivalence/aggregate/factor_rectangle/tests.rs"]
 mod tests;

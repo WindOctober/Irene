@@ -517,4 +517,5 @@ pub(super) fn apply(
 }
 
 #[cfg(test)]
+#[path = "../../../tests/unit/equivalence/aggregate/exact_affine_pivot/tests.rs"]
 mod tests;

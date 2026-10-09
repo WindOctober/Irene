@@ -297,4 +297,5 @@ pub(super) fn components(source: &WorkingTerm, work: &mut usize) -> Option<Compo
 }
 
 #[cfg(test)]
+#[path = "../../../tests/unit/equivalence/aggregate/checkpoint_factors/tests.rs"]
 mod tests;

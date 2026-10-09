@@ -141,4 +141,5 @@ pub fn proves_identity(c: &Candidate) -> bool {
 }
 
 #[cfg(test)]
+#[path = "../../tests/unit/equivalence/dependency_miter/tests.rs"]
 mod tests;

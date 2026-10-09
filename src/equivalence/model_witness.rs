@@ -74,4 +74,5 @@ pub(super) fn validated_phase_model(
 }
 
 #[cfg(test)]
+#[path = "../../tests/unit/equivalence/model_witness/tests.rs"]
 mod tests;

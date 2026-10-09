@@ -36,4 +36,5 @@ pub(super) fn reduce(
 }
 
 #[cfg(test)]
+#[path = "../../../tests/unit/equivalence/aggregate/constraint_rows/tests.rs"]
 mod tests;

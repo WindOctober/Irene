@@ -257,4 +257,5 @@ fn local_block(
 }
 
 #[cfg(test)]
+#[path = "../../../../tests/unit/equivalence/aggregate/exact_smt/frontier/tests.rs"]
 mod tests;

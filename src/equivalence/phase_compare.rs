@@ -155,4 +155,5 @@ fn smt_script(declarations: String, assertion: String, values: &[String]) -> Str
 }
 
 #[cfg(test)]
+#[path = "../../tests/unit/equivalence/phase_compare/tests.rs"]
 mod tests;
