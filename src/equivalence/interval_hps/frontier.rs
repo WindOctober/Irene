@@ -95,7 +95,7 @@ pub(super) fn identity_bound_with_witness_target(
     if cells.checked_mul(blocks.len())?.checked_mul(2)? > MAX_CELL_STEPS {
         return None;
     }
-    unitary::validate(program).ok()?;
+    unitary_miter::validate(program).ok()?;
     crate::symbolic::numeric_domains(program).ok()?;
     let start = Instant::now();
     let mut budget = MAX_CELL_STEPS;

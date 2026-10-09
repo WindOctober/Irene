@@ -1,0 +1,73 @@
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
+expression_file = { SOI ~ expression ~ EOI }
+annotation_file = { SOI ~ "@saria." ~ (ghost_declaration | ghost_assignment | exit_probability | annotation_kind ~ (termination | expression)) ~ EOI }
+exit_probability = { exit_probability_keyword ~ probability_relation ~ expression }
+exit_probability_keyword = @{ "exit_probability" ~ !ident_continue }
+probability_relation = { "==" | ">=" | "<=" }
+ghost_declaration = { ghost_keyword ~ identifier ~ ":" ~ scalar_type ~ ("=" ~ expression)? }
+ghost_assignment = { set_keyword ~ identifier ~ "=" ~ expression }
+ghost_keyword = @{ "ghost" ~ !ident_continue }
+set_keyword = @{ "set" ~ !ident_continue }
+annotation_kind = @{ ("assert" | "requires" | "ensures" | "invariant" | "terminates") ~ !ident_continue }
+termination = { "almost_sure" ~ !ident_continue }
+function_file = { SOI ~ "pragma" ~ "saria.def" ~ identifier ~ "(" ~ parameters? ~ ")" ~ "->" ~ scalar_type ~ "=" ~ expression ~ EOI }
+parameters = { parameter ~ ("," ~ parameter)* }
+parameter = { identifier ~ ":" ~ scalar_type }
+scalar_type = ${ ("bool" | "bit" | "uint" | "int" | "float" | "angle" | "real") ~ !ident_continue ~ (WHITESPACE* ~ "[" ~ WHITESPACE* ~ ASCII_DIGIT+ ~ WHITESPACE* ~ "]")? }
+identifier = @{ (XID_START | "_") ~ ident_continue* }
+ident_continue = _{ XID_CONTINUE }
+number = @{ ((ASCII_DIGIT+ ~ ("." ~ !"." ~ ASCII_DIGIT*)?) | ("." ~ ASCII_DIGIT+)) ~ (("e" | "E") ~ ("+" | "-")? ~ ASCII_DIGIT+)? }
+boolean = @{ ("true" | "false") ~ !ident_continue }
+infinity = @{ "\\inf" ~ !ident_continue }
+constant = @{ "\\" ~ ("pi" | "tau" | "euler") ~ !ident_continue }
+expression = { pratt ~ ("?" ~ expression ~ ":" ~ expression)? }
+pratt = { prefix* ~ primary ~ postfix* ~ (infix ~ prefix* ~ primary ~ postfix*)* }
+// Quantifiers consume a complete expression to their right, including nested
+// quantifiers and implication. Parentheses can explicitly end their scope.
+primary = _{ quantifier | binder | inner_product | outer_product | ket | bra | pauli | imaginary | builtin_call | constant | infinity | call | boolean | number | identifier | list | "(" ~ expression ~ ")" }
+// Complete Dirac products are primaries, before their ket/bra prefixes.
+// Other products still require explicit multiplication; this is not juxtaposition.
+inner_product = { ("<" | "⟨") ~ state_factors ~ "|" ~ state_factors ~ (">" | "⟩") }
+outer_product = { ket ~ bra }
+state_factors = { qubit_state+ }
+ket = { "|" ~ qubit_state+ ~ (">" | "⟩") }
+bra = { ("<" | "⟨") ~ qubit_state+ ~ "|" }
+qubit_state = @{ "+i" | "-i" | "−i" | "0" | "1" | "+" | "-" | "−" }
+pauli = @{ "\\" ~ ("I" | "X" | "Y" | "Z") ~ !ident_continue }
+imaginary = @{ "\\i" ~ !ident_continue }
+call = { identifier ~ "(" ~ arguments? ~ ")" }
+builtin_call = { builtin_name ~ "(" ~ arguments? ~ ")" }
+builtin_name = @{ "\\" ~ identifier }
+arguments = { expression ~ ("," ~ expression)* }
+list = { "[" ~ arguments? ~ "]" }
+quantifier = { quantifier_kind ~ binding ~ ";" ~ expression }
+binder = { binder_kind ~ "(" ~ binding ~ "," ~ expression ~ ")" }
+binding = _{ identifier ~ (":" ~ scalar_type)? ~ in_keyword ~ expression ~ range_op ~ expression }
+in_keyword = @{ "in" ~ !ident_continue }
+quantifier_kind = @{ "\\" ~ ("forall" | "exists") ~ !ident_continue }
+binder_kind = @{ "\\" ~ ("sum" | "product" | "sup" | "infimum") ~ !ident_continue }
+range_op = { "..=" | ".." }
+prefix = _{ neg | pos | not }
+neg = { "-" }
+pos = { "+" }
+not = { "!" }
+postfix = _{ factorial | index }
+factorial = @{ "!" ~ !"=" }
+index = { "[" ~ expression ~ "]" }
+infix = _{ implies | or | and | eq | ne | le | ge | lt | gt | add | sub | pow | tensor | mul | div | modulo }
+tensor = @{ ("\\otimes" ~ !ident_continue) | "⊗" }
+implies = { "=>" }
+or = { "||" }
+and = { "&&" }
+eq = { "==" }
+ne = { "!=" }
+le = { "<=" }
+ge = { ">=" }
+lt = { "<" }
+gt = { ">" }
+add = { "+" }
+sub = { "-" }
+pow = { "**" | "^" }
+mul = { "*" }
+div = { "/" }
+modulo = { "%" }

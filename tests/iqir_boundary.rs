@@ -30,6 +30,8 @@ fn program(gates: &[Gate]) -> Program {
         statements,
     });
     ids.node(ProgramData {
+        annotations: Default::default(),
+        spec_functions: Vec::new(),
         version: OpenQasmVersion { major: 3, minor: 0 },
         numeric_inputs: vec![],
         quantum_registers: vec![register],

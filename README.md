@@ -7,6 +7,8 @@ language features and invalid programs may produce errors.
 
 ## News
 
+- ⭐⭐⭐ **2026-10-09** · [IQIR annotations](iqir/docs/spec-annotations.md): typed specification annotations lay the groundwork for future Hoare-logic reasoning about complex quantum programs in Saria, with SMT and Rocq proof backends.
+
 - **2026-10-08** · [Solver refinements](docs/architecture.md#numerical-hps-certificates): certified counterexample search on three inputs, gate-block fusion, shared DAG nodes with fused elimination, incremental budget accounting, and early phase checks reduce repeated work. **Solved: 1691/1982 (+5) · Average time: 3.134 s (−18.0%).**
 
 - ⭐ **2026-10-07** · [Faster certified matrices](docs/architecture.md#numerical-hps-certificates): Arb complex-ball arithmetic and fused short dot products accelerate matrix contraction while retaining rigorous error bounds. **Solved: 1686/1982 (+22) · Average time: 3.824 s (−7.1%).**
@@ -27,8 +29,8 @@ language features and invalid programs may produce errors.
 
 Average time is the arithmetic mean of final-attempt wall time for solved pairs
 only, including certified approximate verdicts and excluding interrupted retries.
-Each entry reports its historical full-suite run. Parentheses show changes from
-the preceding update (the next entry below), not controlled speedups on a fixed
+Benchmark entries report their historical full-suite runs. Parentheses show changes from
+the preceding benchmark entry (the next one below), not controlled speedups on a fixed
 solved subset; the paper version is the baseline.
 
 ## Workspace

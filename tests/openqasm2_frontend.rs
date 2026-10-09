@@ -42,6 +42,11 @@ fn bit(program: &Program, register_name: &str, index: usize) -> ClassicalBit {
 fn collect_applies<'a>(block: &'a Block, applies: &mut Vec<(Gate, &'a [NumericExpr])>) {
     for statement in &block.statements {
         match &statement.kind {
+            StatementKind::While { .. }
+            | StatementKind::ScalarDeclare { .. }
+            | StatementKind::ScalarAssign { .. }
+            | StatementKind::GlobalPhase(_)
+            | StatementKind::Unitary { .. } => panic!("unexpected OpenQASM 3 statement"),
             StatementKind::Apply {
                 gate, parameters, ..
             } => applies.push((*gate, parameters)),

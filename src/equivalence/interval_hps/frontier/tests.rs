@@ -268,7 +268,7 @@ fn inverse_random_mixed_circuits_and_relative_phase() {
             seed + 1
         );
         let p = parse(3, &body);
-        let (miter, _) = unitary::miter(&p, &p).unwrap();
+        let (miter, _) = unitary_miter::miter(&p, &p).unwrap();
         let report = identity_bound(&miter).unwrap();
         assert!(report.bound.unwrap() < BigRational::new(1.into(), 1_000_000_000_000i64.into()));
         assert_eq!(
@@ -320,7 +320,7 @@ fn rejects_invalid_domains_and_nonunitary_operations() {
 fn low_precision_norm_error_survives_deep_mixing() {
     let body = "h q[0]; ry(0.173) q[1]; cx q[1],q[2]; rz(0.291) q[0]; ".repeat(120);
     let p = parse(3, &body);
-    let (miter, _) = unitary::miter(&p, &p).unwrap();
+    let (miter, _) = unitary_miter::miter(&p, &p).unwrap();
     let report = identity_bound(&miter).unwrap();
     assert_eq!(report.precision, 64);
     assert!(report.bound.unwrap() < BigRational::new(1.into(), 1_000_000_000_000i64.into()));
@@ -364,7 +364,7 @@ fn adaptive_precision_respects_tiny_real_mismatches() {
 #[test]
 fn tighter_target_retries_without_claiming_float_equality() {
     let p = parse(2, "h q[0]; ry(0.173) q[1]; cx q[1],q[0];");
-    let (miter, _) = unitary::miter(&p, &p).unwrap();
+    let (miter, _) = unitary_miter::miter(&p, &p).unwrap();
     let target = BigRational::new(1.into(), BigInt::from(10).pow(24));
     let report = identity_bound_with_tolerance(&miter, &target).unwrap();
     assert_eq!(report.precision, 128);

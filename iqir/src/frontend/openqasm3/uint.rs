@@ -4,16 +4,8 @@ use super::*;
 
 impl Lowerer {
     pub(super) fn uint_storage_type(&self, ty: &ast::ScalarType) -> Result<BitType, FrontendError> {
-        // Irene's target default is 32 bits, not an OpenQASM-wide default.
-        let width = match ty.designator() {
-            Some(d) => {
-                self.static_index(d.expr().ok_or_else(|| expected!("a uint width", ty))?, true)?
-            }
-            None => static_integer::DEFAULT_INTEGER_WIDTH as usize,
-        };
-        if !(1..=64).contains(&width) {
-            return Err(unsupported!("uint storage width outside 1..64", ty));
-        }
+        // Storage remains Boolean words; type validation is shared with const uint.
+        let width = self.scalar_type(ty)?.width() as usize;
         Ok(BitType::Uint {
             width,
             explicit_width: ty.designator().is_some(),
@@ -74,6 +66,10 @@ impl Lowerer {
             let left = self.bit_operand_expr(targets.clone());
             let right = self.lower_typed_classical_expr(rhs)?;
             self.lower_bitwise_expr(op, left, right, &assignment)?
+        } else if matches!(op, ast::ArithOp::Add | ast::ArithOp::Sub) {
+            let left = self.bit_operand_expr(targets.clone());
+            let right = self.lower_typed_classical_expr(rhs)?;
+            self.uint_add(op, left, right, &assignment)?
         } else {
             return Err(unsupported!("uint arithmetic assignment", &assignment));
         };
@@ -81,6 +77,64 @@ impl Lowerer {
             unreachable!()
         };
         Ok(self.assign_cells(targets.into_cells(), bits))
+    }
+
+    pub(super) fn uint_add<T: AstNode>(
+        &mut self,
+        op: ast::ArithOp,
+        left: TypedClassicalExpr,
+        right: TypedClassicalExpr,
+        source: &T,
+    ) -> Result<TypedClassicalExpr, FrontendError> {
+        let (left, right, explicit_width) = match (left, right) {
+            (
+                TypedClassicalExpr::Integer {
+                    bits: left,
+                    signedness: Signedness::Unsigned,
+                    explicit_width,
+                },
+                TypedClassicalExpr::Integer {
+                    bits: right,
+                    signedness: Signedness::Unsigned,
+                    ..
+                },
+            ) if left.len() == right.len() => (left, right, explicit_width),
+            (
+                TypedClassicalExpr::Integer {
+                    bits,
+                    signedness: Signedness::Unsigned,
+                    explicit_width,
+                },
+                TypedClassicalExpr::IntegerLiteral(value),
+            ) => {
+                let literal =
+                    self.integer_literal_bits(value, bits.len(), Signedness::Unsigned, source)?;
+                (bits, literal, explicit_width)
+            }
+            (
+                TypedClassicalExpr::IntegerLiteral(value),
+                TypedClassicalExpr::Integer {
+                    bits,
+                    signedness: Signedness::Unsigned,
+                    explicit_width,
+                },
+            ) => {
+                let literal =
+                    self.integer_literal_bits(value, bits.len(), Signedness::Unsigned, source)?;
+                (literal, bits, explicit_width)
+            }
+            _ => {
+                return Err(expected!(
+                    "equal-width unsigned operands or a representable integer literal",
+                    source
+                ));
+            }
+        };
+        Ok(TypedClassicalExpr::Integer {
+            bits: self.add_word(left, right, op == ast::ArithOp::Sub),
+            signedness: Signedness::Unsigned,
+            explicit_width,
+        })
     }
 
     pub(super) fn uint_shift<T: AstNode>(

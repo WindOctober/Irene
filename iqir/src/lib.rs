@@ -1,11 +1,12 @@
 //! Irene Quantum IR (IQIR).
 //!
-//! This crate owns the gate-level IR, OpenQASM import support, and pure unitary
-//! transformations. It does not depend on IreneQ or an SMT solver.
+//! This crate owns the gate-level IR and OpenQASM import support.
+//! Verification-specific transformations live in IreneQ, not in this crate.
+//! It does not depend on IreneQ or an SMT solver.
 //! Construct nodes with [AstIdGenerator]; identities are not semantic content.
 //!
-//! The extracted representation retains its existing OpenQASM metadata and
-//! supported operations. Extraction does not broaden its semantic domain.
+//! Structured control flow and typed scalars preserve source semantics;
+//! consumers explicitly validate the subset they can execute or verify.
 
 use std::cmp::Ordering;
 use std::fmt;
@@ -14,8 +15,10 @@ use std::ops::{Deref, DerefMut};
 
 use num_rational::BigRational;
 
+pub mod annotation;
 pub mod frontend;
-pub mod unitary;
+pub mod scalar;
+pub use scalar::*;
 
 /// Program-local identity shared by every owned IR node.
 ///
@@ -254,6 +257,17 @@ pub enum Gate {
     Ccz,
 }
 
+/// Returns the required (qubit count, parameter count) for an IR gate.
+pub fn gate_shape(gate: Gate) -> (usize, usize) {
+    match gate {
+        Gate::H | Gate::X | Gate::Y | Gate::Z | Gate::S | Gate::Sdg | Gate::T | Gate::Tdg => (1, 0),
+        Gate::Cx | Gate::Cy | Gate::Cz | Gate::Swap => (2, 0),
+        Gate::Ccx | Gate::Ccz => (3, 0),
+        Gate::P | Gate::Rx | Gate::Ry | Gate::Rz => (1, 1),
+        Gate::Cp | Gate::Crx | Gate::Cry | Gate::Crz => (2, 1),
+    }
+}
+
 /// A scalar Boolean expression used by assignments and classical control.
 ///
 /// OpenQASM `bool`, scalar `bit`, and each cell of `bit[n]` lower to this
@@ -262,6 +276,11 @@ pub enum Gate {
 /// and `Xor` as Boolean operations, and `Eq(a, b)` as `!(a ^ b)`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClassicalExprKind {
+    ScalarCompare {
+        op: ScalarComparison,
+        left: Box<ScalarExpr>,
+        right: Box<ScalarExpr>,
+    },
     Bool(bool),
     Bit(ClassicalBit),
     Not(Box<ClassicalExpr>),
@@ -283,6 +302,35 @@ pub type Block = AstNode<BlockData>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StatementKind {
+    /// Re-evaluate condition before every iteration; no unrolling bound.
+    While {
+        condition: ClassicalExpr,
+        body: Block,
+    },
+    /// Allocate fresh storage on each lexical block entry. No initializer
+    /// means uninitialized, not zero. The symbol is local to the owning block.
+    ScalarDeclare {
+        id: SymbolId,
+        name: String,
+        ty: ScalarType,
+        /// Source spelling, independent of type compatibility.
+        explicit_width: bool,
+        initializer: Option<ScalarExpr>,
+    },
+    ScalarAssign {
+        target: SymbolId,
+        value: ScalarExpr,
+    },
+    /// Exact exp(i * phase), including inside controlled custom gates.
+    GlobalPhase(NumericExpr),
+    /// Apply the entire unitary body to the given integer power, conditioned
+    /// on all controls being one. A negative power includes sequence reversal.
+    /// This is NOT a gate-wise power of a composite body.
+    Unitary {
+        controls: Vec<Qubit>,
+        power: i128,
+        body: Block,
+    },
     Reset(Qubit),
     Apply {
         gate: Gate,
@@ -318,6 +366,12 @@ pub struct ProgramData {
     pub quantum_registers: Vec<Register>,
     pub classical_registers: Vec<Register>,
     pub body: Block,
+    /// Specifications attached to whole lowered source statements. Specification-
+    /// preserving rewrites must remap these IDs. Executable-only transformations
+    /// may omit this metadata explicitly; equivalence checking must not assume it.
+    pub annotations: std::collections::BTreeMap<AstId, Vec<annotation::Annotation>>,
+    /// Pure classical specification helpers, indexed by FunctionId.
+    pub spec_functions: Vec<annotation::SpecFunction>,
 }
 
 pub type Program = AstNode<ProgramData>;
@@ -347,6 +401,10 @@ impl AstNode<ProgramData> {
         fn classical(expression: &ClassicalExpr, visit: &mut impl FnMut(AstId)) {
             visit(expression.ast_id);
             match &expression.kind {
+                ClassicalExprKind::ScalarCompare { left, right, .. } => {
+                    left.visit_ids(visit);
+                    right.visit_ids(visit);
+                }
                 ClassicalExprKind::Not(inner) => classical(inner, visit),
                 ClassicalExprKind::Eq(left, right)
                 | ClassicalExprKind::And(left, right)
@@ -367,6 +425,18 @@ impl AstNode<ProgramData> {
             for statement in &block.statements {
                 visit(statement.ast_id);
                 match &statement.kind {
+                    StatementKind::While { condition, body } => {
+                        classical(condition, visit);
+                        visit_block(body, visit);
+                    }
+                    StatementKind::ScalarDeclare { initializer, .. } => {
+                        if let Some(value) = initializer {
+                            value.visit_ids(visit);
+                        }
+                    }
+                    StatementKind::ScalarAssign { value, .. } => value.visit_ids(visit),
+                    StatementKind::GlobalPhase(value) => numeric(value, visit),
+                    StatementKind::Unitary { body, .. } => visit_block(body, visit),
                     StatementKind::Apply { parameters, .. } => {
                         for parameter in parameters {
                             numeric(parameter, visit);
@@ -433,3 +503,115 @@ impl AstNode<ProgramData> {
 
 #[cfg(test)]
 mod tests;
+
+/// Expansion uses temporary parameter trees. Compact only after import, before
+/// AST identities are exposed. Annotation keys are remapped; symbols never change.
+pub(crate) fn compact_program_ids(mut program: crate::Program) -> crate::Program {
+    use crate::{
+        Block, ClassicalExpr, ClassicalExprKind as C, NumericExpr, NumericExprKind as N,
+        StatementKind as S,
+    };
+    fn id<T>(node: &mut AstNode<T>, next: &mut usize) {
+        node.ast_id = AstId(*next);
+        *next += 1;
+    }
+    fn numeric(e: &mut NumericExpr, next: &mut usize) {
+        id(e, next);
+        match &mut e.kind {
+            N::Neg(a) => numeric(a, next),
+            N::Add(a, b) | N::Sub(a, b) | N::Mul(a, b) | N::Div(a, b) => {
+                numeric(a, next);
+                numeric(b, next);
+            }
+            _ => {}
+        }
+    }
+    fn scalar(e: &mut ScalarExpr, next: &mut usize) {
+        id(e, next);
+        match &mut e.kind.kind {
+            ScalarExprKind::Neg(a) | ScalarExprKind::FloatCast(a) => scalar(a, next),
+            ScalarExprKind::Binary { left, right, .. } => {
+                scalar(left, next);
+                scalar(right, next);
+            }
+            _ => {}
+        }
+    }
+    fn classical(e: &mut ClassicalExpr, next: &mut usize) {
+        id(e, next);
+        match &mut e.kind {
+            C::Not(a) => classical(a, next),
+            C::Eq(a, b) | C::And(a, b) | C::Or(a, b) | C::Xor(a, b) => {
+                classical(a, next);
+                classical(b, next);
+            }
+            C::ScalarCompare { left, right, .. } => {
+                scalar(left, next);
+                scalar(right, next);
+            }
+            _ => {}
+        }
+    }
+    fn block(b: &mut Block, next: &mut usize) {
+        id(b, next);
+        for r in &mut b.classical_registers {
+            id(r, next);
+        }
+        for s in &mut b.statements {
+            id(s, next);
+            match &mut s.kind {
+                S::Apply { parameters, .. } => {
+                    for p in parameters {
+                        numeric(p, next);
+                    }
+                }
+                S::Assign { value, .. } => classical(value, next),
+                S::If {
+                    condition,
+                    then_branch,
+                    else_branch,
+                } => {
+                    classical(condition, next);
+                    block(then_branch, next);
+                    block(else_branch, next);
+                }
+                S::While { condition, body } => {
+                    classical(condition, next);
+                    block(body, next);
+                }
+                S::Scope(b) | S::Unitary { body: b, .. } => block(b, next),
+                S::ScalarDeclare { initializer, .. } => {
+                    if let Some(e) = initializer {
+                        scalar(e, next);
+                    }
+                }
+                S::ScalarAssign { value, .. } => scalar(value, next),
+                S::GlobalPhase(e) => numeric(e, next),
+                S::Reset(_) | S::Measure { .. } => {}
+            }
+        }
+    }
+    if !program.annotations.is_empty() {
+        let mut remap = std::collections::BTreeMap::new();
+        program.visit_ast_ids(|old| {
+            remap.insert(old, AstId(remap.len()));
+        });
+        program.annotations = std::mem::take(&mut program.annotations)
+            .into_iter()
+            .map(|(id, annotations)| (remap[&id], annotations))
+            .collect();
+    }
+    let mut next = 0;
+    id(&mut program, &mut next);
+    for input in &mut program.numeric_inputs {
+        id(input, &mut next);
+    }
+    for r in &mut program.quantum_registers {
+        id(r, &mut next);
+    }
+    for r in &mut program.classical_registers {
+        id(r, &mut next);
+    }
+    block(&mut program.body, &mut next);
+    program
+}

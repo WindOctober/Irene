@@ -58,6 +58,7 @@ fn fixed_width_storage_and_constant_initializers() {
         ("uint a=4294967295;", u64::from(u32::MAX)),
         ("uint[64] a=18446744073709551615; a>>=63;", 1),
         ("const uint[8] v=3; uint[4] a=v+1;", 4),
+        ("const uint[3] n=7; uint[3] a=n+1;", 0),
         ("uint[4] a=3; a[3]=true;", 11),
         ("uint[4] a=3; if(true) { uint[4] a=8; a=1; }", 3),
         (
@@ -221,8 +222,9 @@ fn rejects_dynamic_widths_lossy_assignments_and_unsupported_operations() {
         "uint[4] a=1; uint[3] b=a;",
         "uint[4] a=1; a<<=-1;",
         "uint[4] a=1; uint[4] s=1; a<<=s;",
-        "uint[4] a=1; a+=1;",
+        "uint[4] a=1; a+=16;",
         "uint[4] a=1; a=a*2;",
+        "uint[4] a=1; uint[3] b=1; a+=b;",
         "uint[4] a=1; bit[4] b=a;",
         "uint[4] a=1; a[4]=true;",
         "uint a=1; a<<=1;",
@@ -230,7 +232,6 @@ fn rejects_dynamic_widths_lossy_assignments_and_unsupported_operations() {
         "uint a=1; a[0]=true;",
         "uint[4] a=1; uint[3] b=1; a^=b;",
         "uint[4] a=1; uint[4] b=int[4](a);",
-        "const uint[3] n=7; uint[3] a=n+1;",
     ] {
         assert!(
             openqasm3::parse_str(
@@ -241,4 +242,44 @@ fn rejects_dynamic_widths_lossy_assignments_and_unsupported_operations() {
             "{source}"
         );
     }
+}
+
+#[test]
+fn add_subtract_wrap_and_use_the_complete_old_word() {
+    for width in 1..=4 {
+        let modulus = 1u64 << width;
+        for a in 0..modulus {
+            for b in 0..modulus {
+                for (op, expected) in [("+", (a + b) % modulus), ("-", (a + modulus - b) % modulus)]
+                {
+                    for update in [
+                        format!("a {op}= b;"),
+                        format!("a=a {op} b;"),
+                        format!("a=a {op} {b};"),
+                    ] {
+                        assert_eq!(
+                            word(
+                                &format!("uint[{width}] a={a}; uint[{width}] b={b}; {update}"),
+                                "a"
+                            ),
+                            expected
+                        );
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(word("uint[8] a=255; a+=1; a-=1;", "a"), 255);
+    assert_eq!(word("uint[8] a=3; a=a+(a+1);", "a"), 7);
+    assert_eq!(word("uint[8] a=3; a=1-a;", "a"), 254);
+    assert_eq!(word("uint a=4294967295; a+=1;", "a"), 0);
+}
+
+#[test]
+fn addition_does_not_hide_reads_of_uninitialized_storage() {
+    let p = parse("uint[4] a; a+=1;");
+    assert!(matches!(
+        execute(&p, &ExecutionConfig::zero(), &OutputSelection::new([], [])),
+        Err(SymbolicError::UninitializedClassical(_))
+    ));
 }
