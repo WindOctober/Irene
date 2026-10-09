@@ -116,13 +116,41 @@ pub fn identity_bound(program: &Program) -> Report {
 }
 
 /// The target guides refinement only; every returned bound remains certified.
-/// Try structural HPS contraction with its normal resource limits first, then
-/// refine an inconclusive enclosure with the complete physical-wire matrix.
-/// No additional short-probe budget or repeated HPS attempt is introduced.
+/// Give the entire initial HPS attempt five seconds, then refine an
+/// inconclusive enclosure with the complete physical-wire matrix. Cooperative
+/// checks include HPS construction and elimination, not only contraction.
+/// An expired probe gets a normal-budget HPS retry if the matrix cannot decide.
 pub fn identity_bound_with_tolerance(program: &Program, target: &BigRational) -> Report {
-    refine_with_frontier(structured::identity_bound(program), target, || {
-        frontier::identity_bound_with_tolerance(program, target)
-    })
+    probe_then_frontier(
+        structured::identity_bound_with_budget(program, Duration::from_secs(5)),
+        target,
+        || frontier::identity_bound_with_tolerance(program, target),
+        || structured::identity_bound(program),
+    )
+}
+
+fn decisive(report: &Report, target: &BigRational) -> bool {
+    report.bound.as_ref().is_some_and(|u| u <= target)
+        || report.lower_bound.as_ref().is_some_and(|l| l > target)
+}
+
+fn probe_then_frontier(
+    probe: Report,
+    target: &BigRational,
+    frontier: impl FnOnce() -> Option<Report>,
+    full_hps: impl FnOnce() -> Report,
+) -> Report {
+    let interrupted = probe.reason == structured::TIME_BUDGET_REASON;
+    let report = refine_with_frontier(probe, target, frontier);
+    if interrupted && !decisive(&report, target) {
+        // The scoped probe deadline has ended. Start a complete HPS attempt
+        // with the ordinary resource limits, retaining any matrix enclosure.
+        // A completed (rather than timed-out) probe already had these same
+        // work limits and need not be repeated with an identical input.
+        refine_with_frontier(full_hps(), target, || Some(report))
+    } else {
+        report
+    }
 }
 
 fn refine_with_frontier(
@@ -130,18 +158,16 @@ fn refine_with_frontier(
     target: &BigRational,
     frontier: impl FnOnce() -> Option<Report>,
 ) -> Report {
-    let decisive = |report: &Report| {
-        report.bound.as_ref().is_some_and(|u| u <= target)
-            || report.lower_bound.as_ref().is_some_and(|l| l > target)
-    };
-    if decisive(&first) {
+    if decisive(&first, target) {
         return first;
     }
     if let Some(mut report) = frontier() {
-        if decisive(&report) {
+        if decisive(&report, target) {
             return report;
         }
-        report.method = "structured+frontier";
+        if report.method != first.method {
+            report.method = "structured+frontier";
+        }
         report.precision = report.precision.max(first.precision);
         report.bound = match (first.bound, report.bound) {
             (Some(a), Some(b)) => Some(a.min(b)),
@@ -178,6 +204,111 @@ mod tests {
             max_width: 0,
             nodes: 0,
         }
+    }
+
+    #[test]
+    fn expired_hps_attempt_is_inconclusive_and_matrix_has_no_inherited_deadline() {
+        let p = openqasm3::parse_str(
+            "OPENQASM 3.0; include \"stdgates.inc\"; qubit q; h q; h q;",
+            "deadline.qasm",
+        )
+        .unwrap();
+        let first = structured::identity_bound_with_budget(&p, Duration::ZERO);
+        assert_eq!(first.reason, "HPS time budget");
+        assert!(first.bound.is_none() && first.lower_bound.is_none());
+        let report = refine_with_frontier(first, &tolerance(), || {
+            assert!(!crate::symbolic::deadline::expired());
+            frontier::identity_bound_with_tolerance(&p, &tolerance())
+        });
+        assert_eq!(report.method, "frontier");
+        assert!(report.bound.unwrap() <= tolerance());
+        let later = structured::identity_bound_with_budget(&p, Duration::from_secs(5));
+        assert!(later.bound.unwrap() <= tolerance());
+    }
+
+    #[test]
+    fn expired_probe_gets_full_hps_after_matrix_refusal_or_inconclusive_bounds() {
+        for matrix in [None, Some(enclosure("frontier", Some(2), Some(0)))] {
+            let mut probe = enclosure("structured", None, None);
+            probe.reason = structured::TIME_BUDGET_REASON;
+            let order = std::cell::Cell::new(0);
+            let report = probe_then_frontier(
+                probe,
+                &tolerance(),
+                || {
+                    assert_eq!(order.replace(1), 0);
+                    matrix
+                },
+                || {
+                    assert_eq!(order.replace(2), 1);
+                    assert!(!crate::symbolic::deadline::expired());
+                    enclosure("structured", Some(0), Some(0))
+                },
+            );
+            assert_eq!(order.get(), 2);
+            assert_eq!(report.bound, Some(BigRational::from_integer(0.into())));
+        }
+    }
+
+    #[test]
+    fn settled_matrix_or_completed_probe_does_not_repeat_hps() {
+        let mut probe = enclosure("structured", None, None);
+        probe.reason = structured::TIME_BUDGET_REASON;
+        let report = probe_then_frontier(
+            probe,
+            &tolerance(),
+            || Some(enclosure("frontier", Some(0), Some(0))),
+            || panic!("matrix settled the query"),
+        );
+        assert_eq!(report.method, "frontier");
+        probe_then_frontier(
+            enclosure("structured", Some(2), Some(0)),
+            &tolerance(),
+            || None,
+            || panic!("completed probe needs no identical retry"),
+        );
+        probe_then_frontier(
+            enclosure("structured", Some(0), Some(0)),
+            &tolerance(),
+            || panic!("probe settled the query"),
+            || panic!("probe settled the query"),
+        );
+    }
+
+    #[test]
+    fn expired_probe_recovers_on_wide_program_and_keeps_unresolved_bounds() {
+        let p = openqasm3::parse_str(
+            "OPENQASM 3.0; include \"stdgates.inc\"; qubit[11] q; h q[0]; h q[0];",
+            "wide-deadline.qasm",
+        )
+        .unwrap();
+        let first = structured::identity_bound_with_budget(&p, Duration::ZERO);
+        let report = probe_then_frontier(
+            first,
+            &tolerance(),
+            || {
+                let matrix = frontier::identity_bound_with_tolerance(&p, &tolerance());
+                assert!(matrix.is_none());
+                matrix
+            },
+            || structured::identity_bound(&p),
+        );
+        assert_eq!(report.method, "structured");
+        assert!(report.bound.unwrap() <= tolerance());
+
+        let mut probe = enclosure("structured", None, None);
+        probe.reason = structured::TIME_BUDGET_REASON;
+        let report = probe_then_frontier(
+            probe,
+            &BigRational::from_integer(1.into()),
+            || Some(enclosure("frontier", Some(3), Some(1))),
+            || enclosure("structured", Some(2), Some(0)),
+        );
+        assert_eq!(report.bound, Some(BigRational::from_integer(2.into())));
+        assert_eq!(
+            report.lower_bound,
+            Some(BigRational::from_integer(1.into()))
+        );
     }
 
     #[test]

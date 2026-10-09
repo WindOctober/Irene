@@ -48,6 +48,9 @@ impl Dag {
         }
     }
     fn tick(&mut self) -> Option<()> {
+        if crate::symbolic::deadline::expired() {
+            return None;
+        }
         self.work = self.work.checked_sub(1)?;
         // Work and wall time bound growth; a separate allocated-node cap
         // rejected useful contractions independently of their live structure.
@@ -498,8 +501,9 @@ pub(super) fn identity_bound(program: &Program) -> Report {
         }
         reason = "trace construction";
         let c = normalized_trace_component(hps.components.pop()?, &hps.input)?;
-        // Charge contraction time here, not while building the input HPS.
-        // The experiment/process deadline still includes the whole analysis.
+        // The ordinary contraction allowance starts here. The enclosing
+        // short-probe deadline still covers execution and trace construction
+        // and is never reset by this local timer.
         dag.start = Instant::now();
         paths = c.path_support.len();
         let pending: BTreeSet<_> = c.path_support.iter().copied().map(Variable::Path).collect();
@@ -559,6 +563,32 @@ pub(super) fn identity_bound(program: &Program) -> Report {
         max_width: dag.width,
         nodes: dag.nodes.len(),
     }
+}
+
+pub(super) const TIME_BUDGET_REASON: &str = "HPS time budget";
+
+/// Includes execution, trace simplification and contraction in one deadline.
+pub(super) fn identity_bound_with_budget(program: &Program, budget: Duration) -> Report {
+    let mut report = Report {
+        method: "structured",
+        precision: PREC,
+        bound: None,
+        lower_bound: None,
+        reason: TIME_BUDGET_REASON,
+        paths: 0,
+        work: 0,
+        max_width: 0,
+        nodes: 0,
+    };
+    let completed = crate::symbolic::deadline::within(budget, || {
+        report = identity_bound(program);
+    });
+    if completed.is_none() {
+        report.bound = None;
+        report.lower_bound = None;
+        report.reason = TIME_BUDGET_REASON;
+    }
+    report
 }
 
 #[cfg(test)]

@@ -27,6 +27,9 @@ fn analyze_query(query: &mut analysis::Query<'_>) -> Option<PhaseProfile> {
     let mut difference = PhasePolynomial::zero();
     let mut work = MAX_SELECTOR_WORK;
     for i in 0..query.len() {
+        if crate::symbolic::deadline::expired() {
+            return None;
+        }
         let coefficient = query.coefficient(i).clone();
         // Reject unsupported numeric atoms, never drop their contribution.
         coefficient.as_rational()?;
@@ -77,6 +80,9 @@ fn analyze_query(query: &mut analysis::Query<'_>) -> Option<PhaseProfile> {
     let modulus = 1u64 << width;
     let mut bits = vec![BooleanPolynomial::zero(); width as usize];
     for (selector, numerator, denominator) in summands {
+        if crate::symbolic::deadline::expired() {
+            return None;
+        }
         // Coefficients are normalized into [0,1), so this product < modulus.
         let value = numerator.checked_mul(modulus / denominator)?;
         let mut carry = BooleanPolynomial::zero();

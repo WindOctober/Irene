@@ -5,6 +5,7 @@
 //! sum introduced by classical control flow.
 
 mod boolean;
+pub(crate) mod deadline;
 mod executor;
 mod optimize;
 pub(crate) mod path_rules;

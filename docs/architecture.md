@@ -259,12 +259,14 @@ Symbolic identity, contraction strategy, and numerical evaluation are separate:
 Full-unitary candidates of at most ten qubits can also contract their complete
 operator on the physical wires. All input columns survive; this is not basis-state
 sampling. The interval route first attempts
-structured HPS trace contraction with its existing resource limits, without an
-extra short-probe deadline. If its enclosure does not settle the target, it tries
-the complete matrix frontier. A refused matrix attempt preserves the HPS result;
-two inconclusive enclosures retain the tighter upper and lower bounds. Remaining
-queries continue through the existing exact verification flow, including kernel
-reasoning when needed; HPS contraction is not repeated after the matrix attempt.
+structured HPS trace contraction with a five-second cooperative deadline covering
+execution, trace simplification and contraction. Expiry discards unfinished bounds
+and restores the deadline scope before trying the complete matrix frontier.
+If the probe expired and the matrix refuses or remains inconclusive, HPS is
+reconstructed with its normal resource limits, without the five-second deadline.
+A completed probe is not repeated. Independently certified inconclusive bounds
+retain the tighter upper and lower bounds. Remaining queries continue through
+the existing exact verification flow, including kernel reasoning when needed.
 The interval frontier admits at most 1.5 billion projected cell/block steps and
 uses a 180 s cooperative time budget.
 Contiguous blocks contain at most 64 gates and one mixing gate; their sparse transitions come from
