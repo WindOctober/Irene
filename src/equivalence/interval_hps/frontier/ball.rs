@@ -211,6 +211,35 @@ impl Balls {
         indices: impl Iterator<Item = usize>,
         precision: u32,
     ) {
+        if coefficients.len > 2 && coefficients.len <= 8 {
+            // Gather short sparse rows without copying their numeric payloads.
+            // These are borrowed read-only C views, never owning/cleared copies.
+            let mut views: [acb_struct; 8] = std::array::from_fn(|_| acb_struct::default());
+            let mut count = 0;
+            for i in indices {
+                assert!(count < coefficients.len);
+                // SAFETY: checked initialized input remains alive throughout
+                // acb_dot; the shallow view has no Drop and is never mutated.
+                views[count] = unsafe { std::ptr::read(inputs.at(i)) };
+                count += 1;
+            }
+            assert_eq!(count, coefficients.len);
+            // SAFETY: initialized prefix, live owners and disjoint output.
+            unsafe {
+                acb_dot(
+                    self.at_mut(output),
+                    std::ptr::null(),
+                    0,
+                    views.as_ptr(),
+                    1,
+                    coefficients.at(0),
+                    1,
+                    count as _,
+                    precision.into(),
+                );
+            }
+            return;
+        }
         if coefficients.len == 2 {
             let mut indices = indices;
             let a = indices.next().expect("two dot-product inputs");
@@ -253,6 +282,56 @@ impl Balls {
                 )
             };
         }
+    }
+
+    /// Three fixed normalized inputs: |0>, |1>, and uniform plus. The
+    /// rectangular operator-error bound covers every column, including the
+    /// initial plus normalization. Pure-state distance is phase invariant.
+    pub fn witness_lower(
+        &self,
+        dimension: usize,
+        error: &Magnitude,
+        precision: u32,
+    ) -> Option<BigRational> {
+        assert!(dimension >= 2);
+        assert_eq!(self.len, dimension * 3);
+        let mut overlaps = Self::new(3);
+        let mut uniform = Self::new(1);
+        uniform.set_enclosure(
+            0,
+            &Complex::real(Interval::n(1).div(&Interval::n(dimension as i32).sqrt()?)?),
+            precision,
+        );
+        // SAFETY: checked initialized entries, disjoint destinations; each
+        // operation encloses the overlap with the exact normalized input.
+        unsafe {
+            acb_set(overlaps.at_mut(0), self.at(0));
+            acb_set(overlaps.at_mut(1), self.at(4));
+            for row in 0..dimension {
+                acb_add(
+                    overlaps.at_mut(2),
+                    overlaps.at(2),
+                    self.at(row * 3 + 2),
+                    precision.into(),
+                );
+            }
+            acb_mul(
+                overlaps.at_mut(2),
+                overlaps.at(2),
+                uniform.at(0),
+                precision.into(),
+            );
+        }
+        let mut lower = BigRational::from_integer(0.into());
+        for i in 0..3 {
+            // Normalized input gives overlap error <= column error <= E.
+            // SAFETY: initialized overlap/magnitude; rectangle contains disk.
+            unsafe {
+                acb_add_error_mag(overlaps.at_mut(i), &error.0);
+            }
+            lower = lower.max(trace_distance_lower(&overlaps.enclosure(i)?)?);
+        }
+        Some(lower)
     }
 
     pub fn certificates(

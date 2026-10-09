@@ -16,6 +16,7 @@ mod validate;
 pub(crate) use boolean::Expression as BooleanExpression;
 pub use boolean::statistics as representation_stats;
 pub use boolean::{BooleanPolynomial, Monomial, Variable};
+pub(crate) use boolean::{RootStorage, StorageCounter};
 pub use executor::{
     Component, ExecutionConfig, HistoryEntry, HybridMemory, HybridPathSum, InitialState,
     SymbolicError, execute,

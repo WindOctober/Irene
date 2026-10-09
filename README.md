@@ -7,6 +7,8 @@ language features and invalid programs may produce errors.
 
 ## News
 
+- **2026-10-07** · [Solver refinements](docs/architecture.md#numerical-hps-certificates): certified counterexample search on three inputs, gate-block fusion, shared DAG nodes with fused elimination, incremental budget accounting, and early phase checks reduce repeated work. **Solved: 1691/1982 (+5) · Average time: 3.134 s.**
+
 - ⭐ **2026-10-07** · [Faster certified matrices](docs/architecture.md#numerical-hps-certificates): Arb complex-ball arithmetic and fused short dot products accelerate matrix contraction while retaining rigorous error bounds. **Solved: 1686/1982 · Average time: 3.824 s.**
 
 - ⭐⭐ **2026-10-07** · [Hidden affine recovery](docs/architecture.md#algebraic-reductions): complex Boolean representations can obscure valid path-elimination opportunities, so we reuse Davio decomposition to expose hidden constant and affine functions in guards and phase selectors, enabling existing elimination rules to apply. **Solved: 1665/1982 · Average time: 5.31 s.**
@@ -23,9 +25,9 @@ language features and invalid programs may produce errors.
 - **2026-10-05** · [Local gate rewriting](docs/architecture.md#verification-flow): shared exact identities, including native Hadamard and local SWAP reductions, applicable to supported fragments within mixed-angle circuits. **Solved: 1590/1982 · Average time: 3.67 s.**
 - ⭐⭐⭐ **2026-09-28** · [Paper version](https://arxiv.org/abs/2609.36065v1): the implementation accompanying the paper is maintained on the [FSE-Ver](https://github.com/WindOctober/Irene/tree/FSE-Ver) branch. **Solved: 1584/1982 · Average time: 3.93 s.**
 
-Average time is the arithmetic mean of per-case wall time for solved pairs only,
-including certified approximate verdicts. Each entry reports its historical
-full-suite run.
+Average time is the arithmetic mean of final-attempt wall time for solved pairs
+only, including certified approximate verdicts and excluding interrupted retries.
+Each entry reports its historical full-suite run; +5 is relative to the matrix update.
 
 ## Workspace
 

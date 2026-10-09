@@ -4,6 +4,55 @@ use crate::symbolic::HybridMemory;
 use std::convert::Infallible;
 
 #[test]
+fn low_bit_counterexamples_check_the_complete_sum_and_include_carries() {
+    let p = x(0).xor(&x(1));
+    assert!(low_bit_witness(&[(p.clone(), 1)], 3));
+    // Modulo eight, 1+7 vanishes even though each summand alone fails.
+    assert!(!low_bit_witness(&[(p.clone(), 1), (p.clone(), 7)], 3));
+    // The lowest bit vanishes, but a carry into the next low bit still fails.
+    assert!(low_bit_witness(&[(p.clone(), 1), (p.clone(), 1)], 4));
+    assert!(!low_bit_witness(&[(p.clone(), 2)], 3));
+    assert!(!low_bit_witness(&[(p, 1)], 2));
+    // All selected assignments miss this nonzero function. Lack of a witness
+    // must not turn into a proof that a local rule is applicable.
+    let missed = x(0)
+        .and(&x(1))
+        .and(&x(2).complement())
+        .and(&x(3).complement());
+    assert!(!low_bit_witness(&[(missed.clone(), 1)], 3));
+    let mut c = fixture();
+    add(&mut c, y().and(&missed), 1, 8);
+    assert!(analyze(&c, &Variable::Path(0)).is_none());
+}
+
+#[test]
+fn low_bit_witness_never_rejects_a_quarter_integral_function() {
+    for seed in 0..64usize {
+        let terms: Vec<_> = (0..6)
+            .map(|i| {
+                let a = x((seed + i) % 4);
+                let b = x((seed / 4 + i + 1) % 4);
+                let p = if i % 2 == 0 { a.xor(&b) } else { a.and(&b) };
+                (p, ((seed * 7 + i * 3) % 16) as u64)
+            })
+            .collect();
+        let actually_nonzero = (0..16).any(|input| {
+            terms
+                .iter()
+                .filter(|(p, _)| boolean(p, input, false))
+                .map(|(_, value)| *value)
+                .sum::<u64>()
+                % 4
+                != 0
+        });
+        assert!(!low_bit_witness(&terms, 4) || actually_nonzero);
+        let mut cancelling = terms.clone();
+        cancelling.extend(terms.into_iter().map(|(p, v)| (p, (16 - v) % 16)));
+        assert!(!low_bit_witness(&cancelling, 4));
+    }
+}
+
+#[test]
 fn modular_carry_analysis_recognizes_exact_quarter_turns_up_to_width_limit() {
     for denominator in [4, 8, 16, 256, 4096] {
         let mut c = fixture();

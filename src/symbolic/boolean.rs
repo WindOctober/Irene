@@ -4,6 +4,8 @@ use std::fmt;
 use std::sync::{Arc, OnceLock};
 
 mod graph;
+mod storage;
+pub(crate) use storage::{RootStorage, StorageCounter};
 pub mod statistics;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

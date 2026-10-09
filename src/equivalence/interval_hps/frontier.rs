@@ -59,9 +59,15 @@ fn identity_bound(program: &Program) -> Option<Report> {
     )
 }
 
-pub(super) fn identity_bound_with_tolerance(
+#[cfg(test)]
+pub(super) fn identity_bound_with_tolerance(program: &Program, target: &BigRational) -> Option<Report> {
+    identity_bound_with_witness_target(program, target, target)
+}
+
+pub(super) fn identity_bound_with_witness_target(
     program: &Program,
     target: &BigRational,
+    witness_target: &BigRational,
 ) -> Option<Report> {
     let wires = super::super::qubits(program);
     let n = wires.len();
@@ -70,23 +76,61 @@ pub(super) fn identity_bound_with_tolerance(
     }
     let dimension = 1usize << n;
     let cells = dimension * dimension;
-    let blocks = crate::equivalence::operator::blocks(program)?;
-    if cells.checked_mul(blocks.len())? > MAX_CELL_STEPS {
+    let original = crate::equivalence::operator::blocks(program)?;
+    // Concatenate only adjacent slices in their existing order. No gate
+    // commutation, butterfly, tiling, point coefficients, or third block.
+    let mut at = 0;
+    let blocks: Vec<_> = original
+        .chunks(2)
+        .map(|chunk| {
+            let len = chunk.iter().map(|b| b.len()).sum::<usize>();
+            let block = &program.body.statements[at..at + len];
+            at += len;
+            block
+        })
+        .collect();
+    // Charge TWO original block units even for an odd last singleton. This
+    // preserves a conservative cell-step budget instead of doubling resources
+    // merely because the fused block list has half as many entries.
+    if cells.checked_mul(blocks.len())?.checked_mul(2)? > MAX_CELL_STEPS {
         return None;
     }
     unitary::validate(program).ok()?;
     crate::symbolic::numeric_domains(program).ok()?;
     let start = Instant::now();
-    let first = contract(program, &wires, &blocks, start, 64)?;
+    let mut budget = MAX_CELL_STEPS;
+    if n > 0 {
+        for precision in [64, 128] {
+            if let Some(mut witness) = contract(
+                program,
+                &wires,
+                &blocks,
+                start,
+                precision,
+                true,
+                &mut budget,
+            ) && witness
+                .lower_bound
+                .as_ref()
+                .is_some_and(|l| l > witness_target)
+            {
+                witness.work = MAX_CELL_STEPS - budget;
+                return Some(witness);
+            }
+        }
+    }
+    let mut first = contract(program, &wires, &blocks, start, 64, false, &mut budget)?;
+    first.work = MAX_CELL_STEPS - budget;
     if first.bound.as_ref().is_some_and(|u| u <= target)
         || first.lower_bound.as_ref().is_some_and(|l| l > target)
-        || first.work.saturating_mul(2) > MAX_CELL_STEPS
+        || cells.checked_mul(blocks.len())?.checked_mul(2)? > budget
     {
         return Some(first);
     }
     // Precision is selected by certificate success, never by gate count. Both
     // attempts share the deadline; a refused retry preserves the first bounds.
-    let Some(mut second) = contract(program, &wires, &blocks, start, 128) else {
+    let Some(mut second) = contract(program, &wires, &blocks, start, 128, false, &mut budget)
+    else {
         return Some(first);
     };
     second.bound = first.bound.into_iter().chain(second.bound).min();
@@ -95,7 +139,7 @@ pub(super) fn identity_bound_with_tolerance(
         .into_iter()
         .chain(second.lower_bound)
         .max();
-    second.work += first.work;
+    second.work = MAX_CELL_STEPS - budget;
     Some(second)
 }
 
@@ -105,26 +149,50 @@ fn contract(
     blocks: &[&[crate::ir::Statement]],
     start: Instant,
     precision: u32,
+    witness: bool,
+    budget: &mut usize,
 ) -> Option<Report> {
     let n = wires.len();
     let dimension = 1usize << n;
-    let cells = dimension * dimension;
+    let columns = if witness { 3 } else { dimension };
+    let cells = dimension * columns;
     let domain = super::super::numeric::Enclosure { precision };
     let mut values = Balls::new(cells);
-    for i in 0..dimension {
-        values.one(i * dimension + i);
+    let mut error = Magnitude::zero();
+    if witness {
+        if dimension < 2 {
+            return None;
+        }
+        values.one(0);
+        values.one(columns + 1);
+        let amplitude = Complex::real(Interval::n(1).div(&Interval::n(dimension as i32).sqrt()?)?);
+        let mut initial = Norm::new(dimension.max(columns));
+        for row in 0..dimension {
+            let at = row * columns + 2;
+            values.set_enclosure(at, &amplitude, precision);
+            initial.add_radius(row, 2, &values, at);
+            values.midpoint(at);
+        }
+        error.add_assign(&initial.bound());
+    } else {
+        for i in 0..dimension {
+            values.one(i * columns + i);
+        }
     }
-    // M is always a point matrix, with ||U-M||_2 <= error. For the next true
-    // unitary block G, ||GU-GM||_2 = ||U-M||_2. Arb encloses GM; we collect
+    // M is a point matrix approximating either U or the three columns U S.
+    // For the exact current matrix T and next unitary block G,
+    // ||GT-GM||_2 = ||T-M||_2 <= error. Arb encloses GM; we collect
     // the newly introduced entry radii as an operator-norm bound before
     // retaining the midpoint. Thus uncertainty adds, rather than wrapping
     // exponentially through successive entrywise interval products.
-    let mut error = Magnitude::zero();
     let mut work = 0usize;
     for block in blocks {
         if start.elapsed() >= Duration::from_secs(MAX_SECONDS) {
             return None;
         }
+        // Charge every attempted block, including refused attempts, across
+        // both precision levels and full fallback. No free witness budget.
+        *budget = budget.checked_sub(cells.checked_mul(2)?)?;
         let qubits: BTreeSet<_> = block
             .iter()
             .flat_map(|s| match &s.kind {
@@ -161,7 +229,7 @@ fn contract(
         let permutation = sparse.iter().all(|r| r.len() == 1)
             && sparse.iter().map(|r| r[0].0).collect::<BTreeSet<_>>().len() == size;
         let mut scratch = Balls::new(size);
-        let mut roundoff = Norm::new(dimension);
+        let mut roundoff = Norm::new(dimension.max(columns));
         for base in (0..dimension).filter(|r| r & mask == 0) {
             if start.elapsed() >= Duration::from_secs(MAX_SECONDS) {
                 return None;
@@ -172,10 +240,10 @@ fn contract(
                     let input = sparse[output][0].0;
                     let at = current.iter().position(|i| *i == input)?;
                     if at != output {
-                        for col in 0..dimension {
+                        for col in 0..columns {
                             values.swap(
-                                (base | offsets[at]) * dimension + col,
-                                (base | offsets[output]) * dimension + col,
+                                (base | offsets[at]) * columns + col,
+                                (base | offsets[output]) * columns + col,
                             );
                         }
                         current.swap(at, output);
@@ -186,16 +254,16 @@ fn contract(
                     if coefficient.is_one(0) {
                         continue;
                     }
-                    for col in 0..dimension {
+                    for col in 0..columns {
                         let row = base | offsets[output];
-                        let at = row * dimension + col;
+                        let at = row * columns + col;
                         values.multiply(at, coefficient, 0, precision);
                         roundoff.add_radius(row, col, &values, at);
                         values.midpoint(at);
                     }
                 }
             } else {
-                for col in 0..dimension {
+                for col in 0..columns {
                     if col % 16 == 0 && start.elapsed() >= Duration::from_secs(MAX_SECONDS) {
                         return None;
                     }
@@ -206,7 +274,7 @@ fn contract(
                             &coefficients[output],
                             sparse[output]
                                 .iter()
-                                .map(|(input, _)| (base | offsets[*input]) * dimension + col),
+                                .map(|(input, _)| (base | offsets[*input]) * columns + col),
                             precision,
                         );
                     }
@@ -214,21 +282,33 @@ fn contract(
                         let row = base | offset;
                         roundoff.add_radius(row, col, &scratch, output);
                         scratch.midpoint(output);
-                        values.swap_from(row * dimension + col, &mut scratch, output);
+                        values.swap_from(row * columns + col, &mut scratch, output);
                     }
                 }
             }
         }
         error.add_assign(&roundoff.bound());
-        work += cells;
+        work += cells * 2;
     }
-    let (upper, lower) = values.certificates(dimension, &error, precision)?;
+    let (upper, lower) = if witness {
+        // 2 is the universal channel bound, never inferred from probe agreement.
+        (
+            BigRational::from_integer(2.into()),
+            values.witness_lower(dimension, &error, precision)?,
+        )
+    } else {
+        values.certificates(dimension, &error, precision)?
+    };
     Some(Report {
-        method: "frontier",
+        method: if witness { "state-witness" } else { "frontier" },
         precision,
         bound: Some(upper),
         lower_bound: Some(lower),
-        reason: "bounded",
+        reason: if witness {
+            "certified-input-state"
+        } else {
+            "bounded"
+        },
         paths: 0,
         work,
         max_width: n,

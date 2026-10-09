@@ -256,22 +256,76 @@ Symbolic identity, contraction strategy, and numerical evaluation are separate:
   retains its predicate DAG; the interval frontier uses dense complex enclosures.
   These internal data structures are deliberately not forced into one type.
 
+Joint phase analysis maintains incremental node/edge budget counters for its
+phase selectors and modular bit expressions. Replacing a root adds its new
+reachable graph before removing the old one, so unchanged live subgraphs are
+not traversed again. Counters retain their roots while using node identities;
+removed nodes and retired roots are released. The original per-root accounting
+(including repeated roots and sharing within each root), thresholds, and budget
+check boundaries are unchanged. Budget refusal remains an inconclusive local
+rule attempt, never an equivalence verdict.
+
+Before constructing modular phase-addition expressions, joint analysis checks
+sub-quarter bits on 64 exact Boolean assignments evaluated in parallel on the
+existing XAG. A nonzero complete low-bit residue is a counterexample to the
+unconditional Fourier/Omega precondition, not a program verdict. All-zero
+probe results establish nothing: full symbolic analysis remains the fallback.
+The symbolic adder never constructs carry out of its highest retained bit,
+since arithmetic is modulo the phase denominator. Neither change approximates
+phase coefficients or removes a contributing summand.
+
+The structured interval backend interns arithmetic nodes in a `hashbrown`
+unique table containing arena IDs; canonical node keys are stored only in the
+arena. A separate computed table caches normalization results. Boolean predicates
+have local IDs, cached supports and complement orientations, so arithmetic
+constructors do not recursively compare predicates. Constants remain separate
+owned enclosures: equal interval endpoints do not establish source equality.
+Supports use sorted small vectors of local variable IDs, with the original
+variable order retained for elimination tie breaking.
+
+Contraction restricts operands before constructing their product and combines
+the two eliminated branches immediately. Paired restriction shares the DAG
+walk and skips unreachable selector branches; its node-indexed cache is tagged
+by variable and stores only completed pairs. Sums and negation admit recursive
+sum-out, while products stay factored and inverse/square-root operations are
+restricted before evaluation, not commuted with summation. Variables absent
+from the residual expression still contribute their factor of two. This is a
+lightweight sum-product adaptation of the recursive fusion used by
+[CUDD's matrix multiplication](https://github.com/ivmai/cudd/blob/master/cudd/cuddMatMult.c),
+not a conversion to an ordered ADD or a new numerical backend. Resource refusal
+does not cache an incomplete contraction or certify a verdict.
+
 Full-unitary candidates of at most ten qubits can also contract their complete
 operator on the physical wires. All input columns survive; this is not basis-state
 sampling. The interval route first attempts
 structured HPS trace contraction with a five-second cooperative deadline covering
-execution, trace simplification and contraction. Expiry discards unfinished bounds
-and restores the deadline scope before trying the complete matrix frontier.
-If the probe expired and the matrix refuses or remains inconclusive, HPS is
-reconstructed with its normal resource limits, without the five-second deadline.
-A completed probe is not repeated. Independently certified inconclusive bounds
-retain the tighter upper and lower bounds. Remaining queries continue through
-the existing exact verification flow, including kernel reasoning when needed.
+execution, trace simplification and contraction, in addition to existing work
+limits. Checks occur between complete rewrites and operations; a single operation
+or cleanup may overrun the deadline. Expiry is inconclusive, never a contradiction,
+and the scoped deadline is removed before any fallback. If the attempt expires
+or its enclosure does not settle the target, it tries
+the complete matrix frontier. If the short HPS probe expired and the matrix
+refuses or remains inconclusive, a fresh HPS attempt runs with its ordinary
+resource limits and without the five-second deadline. This reconstructs the HPS
+rather than resuming an interrupted stack. A probe that completed within five
+seconds is not repeated: its ordinary work limits have not changed. Certified
+enclosures retain the tighter upper and lower bounds. Remaining queries continue
+through the existing exact verification flow, including kernel reasoning when needed.
 The interval frontier admits at most 1.5 billion projected cell/block steps and
-uses a 180 s cooperative time budget.
-Contiguous blocks contain at most 64 gates and one mixing gate; their sparse transitions come from
-the shared HPS lowering, so monomial runs update the operator once per block,
-without gate reordering or a second gate-matrix semantics. Matrix arithmetic uses
+uses a 180 s cooperative time budget. It first propagates three fixed normalized
+inputs (basis states 0 and 1, and uniform plus). A phase-invariant pure-state
+distance lower bound exceeding the target plus preprocessing error certifies
+NEQ; agreement never certifies EQ. Otherwise it falls back to the complete
+operator. Witness attempts, full contraction and precision retries share the
+same work/time budget. Initialization and propagation errors bound the full
+rectangular state matrix, without assuming its three columns are orthogonal.
+
+Base contiguous blocks contain at most 64 gates and one mixing gate. The interval
+frontier fuses adjacent pairs without changing gate order, using the shared HPS
+lowering for their sparse transitions. Each fused block charges two original
+block units, conservatively including an odd last singleton. Sparse rows use
+rigorous short dot products, including gathered rows of three through eight terms.
+Matrix arithmetic uses
 FLINT/Arb complex balls, initially at 64-bit precision, with a 128-bit retry only
 when the certificate is inconclusive and the shared time/work budget permits.
 Gate coefficients still come from the shared certified numerical interpretation.
@@ -287,15 +341,18 @@ the accumulated error before deriving its certified lower bound. Exceeding a
 budget or failing to enclose a useful result
 does not certify a verdict. Independently certified bounds may be intersected.
 `identity_bound_with_tolerance` exposes this refinement target; the compatibility
-entry point uses 1e-12. Reports identify method and precision.
+entry point uses 1e-12. `identity_bound_with_error` also accepts the preprocessing
+error for witness stopping; returned bounds still describe the supplied circuit
+and must be corrected by the caller. Reports identify method and precision.
 
 The exact frontier also admits ten qubits and up to 64 million projected table
 steps (previously six qubits/one million steps); its separate coefficient-work
 budget remains in force. Admitted exact frontiers are attempted before whole-HPS
 construction and are not repeated after a budget refusal.
 
-Both interval contractions feed the same complete-trace distance certificate
-code. Exact `analyze` still accepts only exact evidence; interval certificates
+The complete interval contractions share trace-distance certificate code; the
+three-input search instead certifies a particular input's output distance.
+Exact `analyze` still accepts only exact evidence; interval certificates
 are consumed by callers that explicitly request distance/tolerance reasoning.
 
 The arithmetic DAG retains XAG predicates rather than truth tables. It traverses
