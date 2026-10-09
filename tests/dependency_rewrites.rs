@@ -202,6 +202,17 @@ fn candidates_refuse_partial_interfaces_nonunitaries_and_invalid_options() {
     let mut partial = config.clone();
     partial.output_pairs.pop();
     assert!(candidate(&p, &p, &partial, &options(Mode::Dag, false)).is_none());
+    let mut initialized = config.clone();
+    initialized.input_pairs.pop();
+    let mut reordered = config.clone();
+    reordered.input_pairs.swap(0, 1);
+    let mut permuted = config.clone();
+    let first = permuted.output_pairs[0].right.clone();
+    permuted.output_pairs[0].right = permuted.output_pairs[1].right.clone();
+    permuted.output_pairs[1].right = first;
+    for interface in [initialized, reordered, permuted] {
+        assert!(candidate(&p, &p, &interface, &options(Mode::Dag, false)).is_none());
+    }
     for body in ["reset q[0];", "bit c; c=measure q[0];"] {
         let p = parse(body);
         let config = EquivalenceConfig::positional(&p, &p).unwrap();

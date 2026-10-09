@@ -43,7 +43,7 @@ Proof routes stop on sufficient evidence; a failed EQ shortcut does not establis
 Parsing and interface errors are reported separately from Unknown.
 
 Before HPS execution, validated unitary programs use a shared
-[exact rule set](../src/equivalence/unitary_rewrite/rules.rs): pair fusion and
+[exact rule set](../src/equivalence/unitary/rewrite/rules.rs): pair fusion and
 cancellation, H conjugations, `S; Rx(pi/2); S -> H` (also its adjoint),
 and `CX(a,b); CX(b,a); CX(a,b) -> SWAP(a,b)`.
 The default `adjacent` strategy checks only neighboring live gates. `scan`,
@@ -81,6 +81,58 @@ rotation, leaving unsupported angles unchanged. Backend admission is checked
 after local processing; a remaining unsupported gate can still make trace
 decline, but does not disable the shared local reductions. Diagonal rotations
 are not rewritten back into mixing rotations, avoiding a lowering/rewrite cycle.
+
+## Code layout and ownership
+
+The entry in [equivalence.rs](../src/equivalence.rs) keeps only the orchestration.
+Proof attempts have the same order as before this organization change:
+
+| Stage / responsibility | Implementation |
+| --- | --- |
+| Interface preparation and validation | [interface.rs](../src/equivalence/interface.rs) |
+| 1. Exact unitary rewriting and trace | [unitary/](../src/equivalence/unitary/mod.rs) |
+| 2. HPS isomorphism, affine support, deterministic and pathwise proofs | [hps/](../src/equivalence/hps/mod.rs) |
+| 3. Density construction and complete aggregation | [density/](../src/equivalence/density/mod.rs) |
+| Shared SMT process/portfolio policy | [solver/](../src/equivalence/solver/mod.rs) |
+| Public verdicts/evidence and resource settings | [result.rs](../src/equivalence/result.rs), [tuning.rs](../src/equivalence/tuning.rs) |
+
+The public paths `equivalence::{unitary_miter, dependency_miter, interval_hps}`
+are re-exports, so consumers need not follow internal module moves. The optional
+interval route lives under `unitary/`: its initial HPS probe is numerical
+trace contraction, not the two-program exact HPS comparison in stage 2.
+It retains its probe/matrix/retry policy; `analyze` still returns exact verdicts.
+
+These are proof-entry boundaries, not disjoint algebra libraries. Unitary trace
+reuses the closed-scalar and exact-frontier operations in `density::aggregate`;
+exact and interval frontiers share `unitary::operator` gate semantics. This
+reuse does not run the general two-channel density comparison prematurely.
+
+Within `density/aggregate/`, the reducer entry owns dispatch and budgets:
+
+- `reduce/`: guard substitution, exact pivots, local path rules and graph admission.
+- `factors/`: independent products, normalization, factor matching and EQ certificates.
+- `phase/`: alternate phase bases and checkpoint recovery.
+- `sums/`: complete bound-path sums and proofs by free-coordinate cases.
+- `exact_smt/`: complete coefficient encodings, DAG contraction and SMT obligations.
+- `collection.rs`, `scalar.rs`, `witness.rs`: shared exact algebra.
+
+Similar-looking operations are not necessarily duplicates. Bound-path Shannon
+branches are **added coherently**; free-coordinate proof cases must **all hold**.
+HPS and density reduction already share `symbolic::path_rules`, but density
+reduction also tracks ket/bra and history constraints. Structural isomorphism
+compares syntax under a path bijection; pathwise SMT checks additional semantic
+obligations for a candidate bijection.
+
+The affine fallback substitutes a two-literal definition through phase and
+scalar expressions. The guard fallback accepts a general Boolean definition,
+but only when the pivot is absent from phase and every scalar branch. These
+admission conditions are complementary, so both remain. Constant normalization
+replay is also retained: it is a proof check, not a redundant equality search.
+
+Identical infrastructure is shared: full-unitary interface admission and miter
+orientation, bounded rational square roots, rational constructors and
+non-clearing budget subtraction. Budget functions that clear the counter on
+refusal keep their separate policy.
 
 ## Frontend and interface
 
@@ -147,7 +199,7 @@ functional equality or path-sum elimination.
 ## Algebraic reductions
 
 [HPS optimization](../src/symbolic/optimize/mod.rs) and
-[term aggregation](../src/equivalence/aggregate.rs) apply rules at their respective
+[term aggregation](../src/equivalence/density/aggregate.rs) apply rules at their respective
 semantic boundaries:
 
 | Rule | Preconditions and effect |
@@ -196,7 +248,7 @@ not an extra path sum.
 
 ## Density kernel and WorkingTerm
 
-[kernel.rs](../src/equivalence/kernel.rs) introduces input/output variables and
+[kernel.rs](../src/equivalence/density/kernel.rs) introduces input/output variables and
 ket/bra paths, with history compatibility, discarded-wire pairings and observable
 output constraints. `WorkingTerm` organizes each term as:
 
@@ -208,19 +260,19 @@ Guards may overlap. Contributions with the same guard are summed before comparis
 Equal sums under corresponding guards prove equality even when groups overlap;
 a failed group comparison cannot prove global NEQ because groups may cancel.
 
-Implementations: [guard grouping](../src/equivalence/aggregate/exact_smt/guard_groups.rs),
-[factor proofs](../src/equivalence/aggregate/factored.rs),
-[graph reduction](../src/equivalence/aggregate/graph.rs).
+Implementations: [guard grouping](../src/equivalence/density/aggregate/exact_smt/guard_groups.rs),
+[factor proofs](../src/equivalence/density/aggregate/factors/factored.rs),
+[graph reduction](../src/equivalence/density/aggregate/reduce/graph.rs).
 
 ## Exact coefficients and SMT
 
-[exact_smt.rs](../src/equivalence/aggregate/exact_smt.rs) aggregates complete path
+[exact_smt.rs](../src/equivalence/density/aggregate/exact_smt.rs) aggregates complete path
 contributions into cyclotomic exponents and coefficients. Its supported fragment
 is narrower than the general expression representation.
 
 - General sparse exact encoding and closed cyclotomic arithmetic serve trace,
   local contraction and density comparisons.
-- [coefficient_dag.rs](../src/equivalence/aggregate/exact_smt/coefficient_dag.rs)
+- [coefficient_dag.rs](../src/equivalence/density/aggregate/exact_smt/coefficient_dag.rs)
   provides an optional Q(ζ8) route. Its four rational-valued basis coefficients
   use `Constant / Select / Add / Multiply / Scale` nodes, with XAG Select conditions.
 
@@ -233,7 +285,7 @@ arithmetic needs enough width to prevent overflow. SAT proves NEQ only for a
 complete exact difference query, not an EQ-only sufficient test or an unsupported
 expression represented by an arbitrary UF model.
 
-Exact density/graph queries use Bitwuzla through [smt.rs](../src/equivalence/smt.rs).
+Exact density/graph queries use Bitwuzla through [smt.rs](../src/equivalence/solver/smt.rs).
 Other routes may use a solver portfolio: one SAT/UNSAT answer suffices, non-answers
 do not veto it, and conflicting answers produce an error. Solvers are resolved
 as `bitwuzla`, `z3` and `cvc5` on `PATH`. The default per-solver limit is 30 seconds,
@@ -241,7 +293,7 @@ configurable through `IRENE_TUNE_SOLVER_SECONDS` and independent of any outer ti
 
 ### Numerical HPS certificates
 
-[interval_hps.rs](../src/equivalence/interval_hps.rs) checks full-unitary identity
+[interval_hps.rs](../src/equivalence/unitary/interval.rs) checks full-unitary identity
 using directed MPFR intervals. Boolean guards remain exact; all bound paths
 and symbolic inputs contribute to the normalized operator trace. Supported constant
 sin/cos coefficients and linear pi/radian phases need not be cyclotomic.
@@ -250,10 +302,10 @@ Symbolic identity, contraction strategy, and numerical evaluation are separate:
 
 - IQIR numeric expressions and HPS scalar/phase expressions retain their exact
   semantics. Interval endpoints never replace source expressions or identify them.
-- [operator.rs](../src/equivalence/operator.rs) lowers local blocks with the ordinary
+- [operator.rs](../src/equivalence/unitary/operator.rs) lowers local blocks with the ordinary
   HPS executor and visits every coherent input/path contribution. Both the exact
   and interval physical-wire backends consume this same semantics.
-- [numeric.rs](../src/equivalence/numeric.rs) owns directed real/complex arithmetic,
+- [numeric.rs](../src/equivalence/unitary/numeric.rs) owns directed real/complex arithmetic,
   shared by approximate gate cancellation, structural HPS evaluation and the
   physical-wire frontier. An enclosure context chooses precision, not meaning.
 - The exact backend retains coefficient polynomials; the structured backend
