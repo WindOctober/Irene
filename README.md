@@ -11,6 +11,8 @@ language features and invalid programs may produce errors.
 
 - ⭐ **2026-10-07** · [Faster certified matrices](docs/architecture.md#numerical-hps-certificates): Arb complex-ball arithmetic and fused short dot products accelerate matrix contraction while retaining rigorous error bounds. **Solved: 1686/1982 · Average time: 3.824 s.**
 
+- **2026-10-07** · [HPS-first scheduling](docs/architecture.md#numerical-hps-certificates): try HPS for five seconds before matrix contraction; if the probe times out and the matrix cannot decide, retry HPS with its normal resource budget. **Solved: 1664/1982 · Average time: 4.116 s.**
+
 - ⭐⭐ **2026-10-07** · [Hidden affine recovery](docs/architecture.md#algebraic-reductions): complex Boolean representations can obscure valid path-elimination opportunities, so we reuse Davio decomposition to expose hidden constant and affine functions in guards and phase selectors, enabling existing elimination rules to apply. **Solved: 1665/1982 · Average time: 5.31 s.**
 
   For arbitrary Boolean expressions $A,B$, even over many path variables:
@@ -18,8 +20,6 @@ language features and invalid programs may produce errors.
   $$G=(\neg A\land\neg B)\oplus(A\land B)\oplus A\oplus B\oplus1=0.$$
 
   Recovering this identity removes the redundant guard $G=0$ and simplifies a phase selector $G\oplus y$ to $y$, revealing elimination opportunities hidden by apparent dependencies on $A$ and $B$.
-
-  Scheduling: try HPS for five seconds before matrix contraction; if the HPS probe times out and the matrix cannot decide, retry HPS with its normal resource budget.
 
 - ⭐ **2026-10-06** · [Certified unitary contraction](docs/architecture.md#numerical-hps-certificates): shared HPS semantics for exact and interval backends, with full-operator contraction up to 10 qubits under resource budgets. **Solved: 1635/1982 · Average time: 5.09 s.**
 - **2026-10-05** · [Local gate rewriting](docs/architecture.md#verification-flow): shared exact identities, including native Hadamard and local SWAP reductions, applicable to supported fragments within mixed-angle circuits. **Solved: 1590/1982 · Average time: 3.67 s.**
