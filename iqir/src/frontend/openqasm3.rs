@@ -2948,37 +2948,7 @@ impl Lowerer {
     }
     /// Copies a classical expression with fresh AST IDs for the copied tree.
     fn clone_classical_expr(&mut self, expression: &ClassicalExpr) -> ClassicalExpr {
-        let kind = match &expression.kind {
-            ClassicalExprKind::ScalarCompare { op, left, right } => {
-                ClassicalExprKind::ScalarCompare {
-                    op: *op,
-                    left: Box::new(self.ids.clone_scalar_expr(left)),
-                    right: Box::new(self.ids.clone_scalar_expr(right)),
-                }
-            }
-            ClassicalExprKind::Bool(value) => ClassicalExprKind::Bool(*value),
-            ClassicalExprKind::Bit(bit) => ClassicalExprKind::Bit(bit.clone()),
-            ClassicalExprKind::Not(inner) => {
-                ClassicalExprKind::Not(Box::new(self.clone_classical_expr(inner)))
-            }
-            ClassicalExprKind::Eq(left, right) => ClassicalExprKind::Eq(
-                Box::new(self.clone_classical_expr(left)),
-                Box::new(self.clone_classical_expr(right)),
-            ),
-            ClassicalExprKind::And(left, right) => ClassicalExprKind::And(
-                Box::new(self.clone_classical_expr(left)),
-                Box::new(self.clone_classical_expr(right)),
-            ),
-            ClassicalExprKind::Or(left, right) => ClassicalExprKind::Or(
-                Box::new(self.clone_classical_expr(left)),
-                Box::new(self.clone_classical_expr(right)),
-            ),
-            ClassicalExprKind::Xor(left, right) => ClassicalExprKind::Xor(
-                Box::new(self.clone_classical_expr(left)),
-                Box::new(self.clone_classical_expr(right)),
-            ),
-        };
-        self.ids.node(kind)
+        self.ids.clone_classical_expr(expression)
     }
 }
 

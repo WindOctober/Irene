@@ -125,12 +125,21 @@ impl Lowerer {
             Expr::Identifier(id) => Ok(
                 match self.scopes.lookup(&id.string()).map_err(scope_error)?.kind {
                     BindingKind::Scalar { ty, .. } => Some(ty),
+                    BindingKind::ClassicalBit(BitType::Uint { width, .. }) => {
+                        Some(ScalarType::Int {
+                            width: width as u32,
+                            signed: false,
+                        })
+                    }
                     _ => None,
                 },
             ),
             Expr::CastExpression(c) => {
                 let ty = c.scalar_type().ok_or_else(|| expected!("cast type", c))?;
-                if ty.float_token().is_some() {
+                if ty.float_token().is_some()
+                    || ty.int_token().is_some()
+                    || ty.uint_token().is_some()
+                {
                     Ok(Some(self.scalar_type(&ty)?))
                 } else {
                     Ok(None)
@@ -342,6 +351,24 @@ impl Lowerer {
             Expr::Identifier(id) => {
                 let binding = self.scopes.lookup(&id.string()).map_err(scope_error)?;
                 match binding.kind {
+                    BindingKind::ClassicalBit(BitType::Uint { width, .. }) => {
+                        let source_ty = ScalarType::Int {
+                            width: width as u32,
+                            signed: false,
+                        };
+                        let TypedClassicalExpr::Integer { bits, .. } =
+                            self.lower_typed_classical_expr(source.clone())?
+                        else {
+                            return Err(expected!("an unsigned integer", &source));
+                        };
+                        if !(1..=64).contains(&width) || source_ty != ty {
+                            return Err(expected!("a scalar of matching type and width", &source));
+                        }
+                        return Ok(self.ids.node(ScalarExprData {
+                            ty: source_ty,
+                            kind: E::FromBits(bits),
+                        }));
+                    }
                     BindingKind::Scalar {
                         ty: found, value, ..
                     } => {
@@ -379,13 +406,70 @@ impl Lowerer {
                 let target = c
                     .scalar_type()
                     .ok_or_else(|| expected!("a scalar cast type", &c))?;
-                if target.float_token().is_none() || !requested.is_float() {
-                    return Err(unsupported!("scalar cast", &c));
-                }
                 let target = self.scalar_type(&target)?;
                 let operand = c
                     .expr()
                     .ok_or_else(|| expected!("a scalar cast operand", &c))?;
+                if !target.is_float() {
+                    if requested != target {
+                        return Err(unsupported!(
+                            "implicit conversion of an integer cast result",
+                            &c
+                        ));
+                    }
+                    let operand_hint = self.scalar_hint_depth(&operand, depth + 1)?;
+                    let kind = if let Some(source_ty) = operand_hint {
+                        if !target.losslessly_contains(source_ty) {
+                            return Err(unsupported!("non-value-preserving integer cast", &c));
+                        }
+                        E::IntWiden(Box::new(self.scalar_expr_depth(
+                            operand,
+                            source_ty,
+                            depth + 1,
+                        )?))
+                    } else if self.is_integer_expression(&operand)? {
+                        let value = self.static_integer(operand, false)?;
+                        self.scalar_integer(value.value, target, &source)?
+                    } else {
+                        match self.lower_typed_classical_expr(operand)? {
+                            TypedClassicalExpr::Register(bits) => {
+                                if !c.scalar_type().is_some_and(|t| t.designator().is_some())
+                                    || bits.len() != target.width() as usize
+                                {
+                                    return Err(expected!(
+                                        "an explicitly sized integer cast matching its bit width",
+                                        &c
+                                    ));
+                                }
+                                E::FromBits(bits)
+                            }
+                            TypedClassicalExpr::Integer {
+                                bits, signedness, ..
+                            } => {
+                                let source_ty = ScalarType::Int {
+                                    width: bits.len() as u32,
+                                    signed: signedness == Signedness::Signed,
+                                };
+                                if !target.losslessly_contains(source_ty) {
+                                    return Err(unsupported!(
+                                        "non-value-preserving integer cast",
+                                        &c
+                                    ));
+                                }
+                                let value = self.ids.node(ScalarExprData {
+                                    ty: source_ty,
+                                    kind: E::FromBits(bits),
+                                });
+                                E::IntWiden(Box::new(value))
+                            }
+                            _ => return Err(unsupported!("bit string to integer cast", &c)),
+                        }
+                    };
+                    return Ok(self.ids.node(ScalarExprData { ty: target, kind }));
+                }
+                if !requested.is_float() {
+                    return Err(unsupported!("scalar cast", &c));
+                }
                 let value = self.scalar_expr_depth(operand, target, depth + 1)?;
                 return Ok(self.float_convert(value, requested));
             }

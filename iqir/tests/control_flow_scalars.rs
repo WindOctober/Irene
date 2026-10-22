@@ -141,7 +141,8 @@ fn value(e: &ScalarExpr, store: &BTreeMap<SymbolId, Value>) -> Value {
         E::Float32(n) => Value::Float(f32::from_bits(*n) as f64),
         E::Float64(n) => Value::Float(f64::from_bits(*n)),
         E::Read(id) => store[id],
-        E::FloatCast(a) => value(a, store),
+        E::FloatCast(a) | E::IntWiden(a) => value(a, store),
+        E::FromBits(_) => panic!("bit stores are outside this scalar-only test interpreter"),
         E::Neg(a) => match value(a, store) {
             Value::Integer(n) => Value::Integer(-n),
             Value::Float(n) => Value::Float(-n),

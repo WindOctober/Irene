@@ -81,10 +81,23 @@ prove definite initialization or execute runtime arithmetic. Backends must
 check reads, overflow, zero division, and allocation lifetimes; they must not
 invent zeros or reuse a previous iteration's local value.
 
+Runtime bit-string casts to `int[n]` / `uint[n]` retain the original Boolean
+reads. When entering scalar IR, `ScalarExprKind::FromBits` represents these
+reads: bit zero is least significant and signed results use two's complement.
+OpenQASM requires matching source/destination widths for this cast. For a
+nonnegative four-bit measurement result use `int[32](uint[4](bits))`, not
+`int[32](bits)` or `int[32](int[4](bits))`.
+`IntWiden` supports value-preserving integer conversions: same signedness to
+an equal/wider width, or unsigned to a strictly wider signed integer. It does
+not silently truncate or reinterpret out-of-range values. These nodes preserve
+the original bit dependencies; consumers must retain uninitialized-read errors
+and classical/quantum correlations rather than create fresh unconstrained
+integers. Closed bit values can fold; runtime values remain symbolic.
+
 This remains a supported subset, not a full OpenQASM implementation: `break`,
 `continue`, runtime array indexing, variable numeric gate parameters, numeric
 subroutine parameters/returns, mixed signed/unsigned arithmetic, int/float
-variable conversions, non-floating scalar casts, integer bitwise/shift operations
+variable conversions, narrowing/reinterpreting scalar integer casts, integer bitwise/shift operations
 in the new scalar representation, non-integer gate powers, `negctrl`, and
 non-gate bodies inside gate definitions remain explicitly unsupported.
 Unsigned `uint[n]` keeps the existing word/bit lowering, including indexed reads,

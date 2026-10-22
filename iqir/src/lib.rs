@@ -399,22 +399,7 @@ impl AstNode<ProgramData> {
         }
 
         fn classical(expression: &ClassicalExpr, visit: &mut impl FnMut(AstId)) {
-            visit(expression.ast_id);
-            match &expression.kind {
-                ClassicalExprKind::ScalarCompare { left, right, .. } => {
-                    left.visit_ids(visit);
-                    right.visit_ids(visit);
-                }
-                ClassicalExprKind::Not(inner) => classical(inner, visit),
-                ClassicalExprKind::Eq(left, right)
-                | ClassicalExprKind::And(left, right)
-                | ClassicalExprKind::Or(left, right)
-                | ClassicalExprKind::Xor(left, right) => {
-                    classical(left, visit);
-                    classical(right, visit);
-                }
-                ClassicalExprKind::Bool(_) | ClassicalExprKind::Bit(_) => {}
-            }
+            expression.visit_ids(visit);
         }
 
         fn visit_block(block: &Block, visit: &mut impl FnMut(AstId)) {
@@ -529,7 +514,14 @@ pub(crate) fn compact_program_ids(mut program: crate::Program) -> crate::Program
     fn scalar(e: &mut ScalarExpr, next: &mut usize) {
         id(e, next);
         match &mut e.kind.kind {
-            ScalarExprKind::Neg(a) | ScalarExprKind::FloatCast(a) => scalar(a, next),
+            ScalarExprKind::Neg(a)
+            | ScalarExprKind::FloatCast(a)
+            | ScalarExprKind::IntWiden(a) => scalar(a, next),
+            ScalarExprKind::FromBits(bits) => {
+                for bit in bits {
+                    classical(bit, next);
+                }
+            }
             ScalarExprKind::Binary { left, right, .. } => {
                 scalar(left, next);
                 scalar(right, next);

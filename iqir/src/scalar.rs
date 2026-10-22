@@ -158,6 +158,11 @@ pub enum ScalarExprKind {
     Float32(u32),
     Float64(u64),
     Read(SymbolId),
+    /// Little-endian bit string interpreted at exactly the destination width.
+    /// Signed destinations use two's complement, not unsigned zero extension.
+    FromBits(Vec<crate::ClassicalExpr>),
+    /// Value-preserving integer conversion; narrowing/reinterpretation is not supported.
+    IntWiden(Box<ScalarExpr>),
     /// IEEE conversion between binary32/binary64. The destination is `ty`.
     FloatCast(Box<ScalarExpr>),
     Neg(Box<ScalarExpr>),
@@ -188,6 +193,40 @@ impl ScalarExpr {
             E::Float32(v) => V::Float32(*v),
             E::Float64(v) => V::Float64(*v),
             E::Read(_) => return Ok(None),
+            E::FromBits(bits) => {
+                let ScalarType::Int { width, signed } = self.ty else {
+                    return Err("bit conversion requires integer type");
+                };
+                if !(1..=64).contains(&width) || bits.len() != width as usize {
+                    return Err("bit conversion width mismatch");
+                }
+                let mut value = 0i128;
+                for (i, bit) in bits.iter().enumerate() {
+                    // More complex Boolean expressions remain executable IR;
+                    // never replace an unknown measurement/read with zero.
+                    let crate::ClassicalExprKind::Bool(bit) = bit.kind else {
+                        return Ok(None);
+                    };
+                    if bit {
+                        let weight = 1i128 << i;
+                        value += if signed && i + 1 == bits.len() {
+                            -weight
+                        } else {
+                            weight
+                        };
+                    }
+                }
+                V::Integer(value)
+            }
+            E::IntWiden(a) => {
+                if !self.ty.losslessly_contains(a.ty) {
+                    return Err("unsupported integer conversion");
+                }
+                let Some(value) = a.constant_value()? else {
+                    return Ok(None);
+                };
+                value
+            }
             E::FloatCast(a) => {
                 let Some(v) = a.constant_value()? else {
                     return Ok(None);
@@ -263,7 +302,14 @@ impl ScalarExpr {
     pub fn visit_ids(&self, visit: &mut impl FnMut(AstId)) {
         visit(self.ast_id());
         match &self.kind.kind {
-            ScalarExprKind::Neg(a) | ScalarExprKind::FloatCast(a) => a.visit_ids(visit),
+            ScalarExprKind::Neg(a) | ScalarExprKind::FloatCast(a) | ScalarExprKind::IntWiden(a) => {
+                a.visit_ids(visit)
+            }
+            ScalarExprKind::FromBits(bits) => {
+                for bit in bits {
+                    bit.visit_ids(visit);
+                }
+            }
             ScalarExprKind::Binary { left, right, .. } => {
                 left.visit_ids(visit);
                 right.visit_ids(visit);
@@ -280,6 +326,12 @@ impl AstIdGenerator {
             ScalarExprKind::FloatCast(a) => {
                 ScalarExprKind::FloatCast(Box::new(self.clone_scalar_expr(a)))
             }
+            ScalarExprKind::IntWiden(a) => {
+                ScalarExprKind::IntWiden(Box::new(self.clone_scalar_expr(a)))
+            }
+            ScalarExprKind::FromBits(bits) => ScalarExprKind::FromBits(
+                bits.iter().map(|b| self.clone_classical_expr(b)).collect(),
+            ),
             ScalarExprKind::Binary { op, left, right } => ScalarExprKind::Binary {
                 op: *op,
                 left: Box::new(self.clone_scalar_expr(left)),
@@ -288,5 +340,77 @@ impl AstIdGenerator {
             other => other.clone(),
         };
         self.node(ScalarExprData { ty: value.ty, kind })
+    }
+}
+
+impl ScalarType {
+    /// All source values fit, without a range precondition or truncation.
+    pub fn losslessly_contains(self, source: Self) -> bool {
+        match (self, source) {
+            (
+                Self::Int {
+                    width: dst,
+                    signed: ds,
+                },
+                Self::Int {
+                    width: src,
+                    signed: ss,
+                },
+            ) if (1..=64).contains(&dst) && (1..=64).contains(&src) => {
+                (ds == ss && dst >= src) || (ds && !ss && dst > src)
+            }
+            _ => false,
+        }
+    }
+}
+
+impl crate::ClassicalExpr {
+    pub fn visit_ids(&self, visit: &mut impl FnMut(AstId)) {
+        use crate::ClassicalExprKind as C;
+        visit(self.ast_id());
+        match &self.kind {
+            C::Not(a) => a.visit_ids(visit),
+            C::Eq(a, b) | C::And(a, b) | C::Or(a, b) | C::Xor(a, b) => {
+                a.visit_ids(visit);
+                b.visit_ids(visit);
+            }
+            C::ScalarCompare { left, right, .. } => {
+                left.visit_ids(visit);
+                right.visit_ids(visit);
+            }
+            C::Bool(_) | C::Bit(_) => {}
+        }
+    }
+}
+
+impl AstIdGenerator {
+    pub fn clone_classical_expr(&mut self, e: &crate::ClassicalExpr) -> crate::ClassicalExpr {
+        use crate::ClassicalExprKind as C;
+        let kind = match &e.kind {
+            C::Not(a) => C::Not(Box::new(self.clone_classical_expr(a))),
+            C::Eq(a, b) => C::Eq(
+                Box::new(self.clone_classical_expr(a)),
+                Box::new(self.clone_classical_expr(b)),
+            ),
+            C::And(a, b) => C::And(
+                Box::new(self.clone_classical_expr(a)),
+                Box::new(self.clone_classical_expr(b)),
+            ),
+            C::Or(a, b) => C::Or(
+                Box::new(self.clone_classical_expr(a)),
+                Box::new(self.clone_classical_expr(b)),
+            ),
+            C::Xor(a, b) => C::Xor(
+                Box::new(self.clone_classical_expr(a)),
+                Box::new(self.clone_classical_expr(b)),
+            ),
+            C::ScalarCompare { op, left, right } => C::ScalarCompare {
+                op: *op,
+                left: Box::new(self.clone_scalar_expr(left)),
+                right: Box::new(self.clone_scalar_expr(right)),
+            },
+            other => other.clone(),
+        };
+        self.node(kind)
     }
 }
