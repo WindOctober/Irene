@@ -305,6 +305,7 @@ impl Lowerer {
                 let ty = crate::ScalarType::Int { width, signed };
                 let op = match binary.op_kind() {
                     Some(ast::BinaryOp::ArithOp(op)) => scalar::arithmetic(op, ty, &binary)?,
+                    Some(ast::BinaryOp::PowerOp) => crate::ScalarArithmetic::Pow,
                     _ => return Err(unsupported!("static integer operator", &binary)),
                 };
                 let value = ty

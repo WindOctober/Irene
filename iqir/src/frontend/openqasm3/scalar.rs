@@ -777,10 +777,11 @@ impl Lowerer {
                         &b,
                     );
                 }
-                let Some(ast::BinaryOp::ArithOp(op)) = b.op_kind() else {
-                    return Err(unsupported!("scalar numeric operator", &b));
+                let op = match b.op_kind() {
+                    Some(ast::BinaryOp::PowerOp) => A::Pow,
+                    Some(ast::BinaryOp::ArithOp(op)) => arithmetic(op, ty, &b)?,
+                    _ => return Err(unsupported!("scalar numeric operator", &b)),
                 };
-                let op = arithmetic(op, ty, &b)?;
                 let left = self.scalar_expr_depth(
                     b.lhs().ok_or_else(|| expected!("left operand", &b))?,
                     ty,

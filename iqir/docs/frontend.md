@@ -243,6 +243,26 @@ are retained. Arithmetic/conversion can produce infinities or NaNs; comparisons
 must follow IEEE behavior (`NaN != value`, other comparisons false).
 Nonfinite source literals are rejected.
 
+Classical scalar `base ** exponent` is a typed `ScalarArithmetic::Pow` node
+(not the quantum `pow(...) @` modifier). Integer exponents must be nonnegative;
+evaluation uses logarithmic repeated squaring, with unsigned wraparound and
+checked signed overflow. Float powers, including fractional and negative
+exponents, use directed MPFR bounds to certify one nearest/ties-to-even result
+at the operation's precision, not a chain of rounded multiplications. Nonfinite
+IEEE results are retained in variable expressions; const declarations and gate
+parameters retain their finite-value requirements. Unsupported rounding cases
+fail explicitly. Closed integer powers also work in static bounds and indices.
+Repeated squaring is used only when operand values are known. Unknown operands
+remain a typed Pow node; this does not implement symbolic repeated squaring or
+claim backend verification support for runtime powers.
+
+The parser follows OpenQASM power precedence: `a ** b ** c`
+means `a ** (b ** c)`, and `a ** 2 + b` means `(a ** 2) + b`.
+Power binds above unary negation: `-a ** 2` means `-(a ** 2)`,
+distinct from `(-a) ** 2`. The parser fork's `dev` branch is pinned by
+Cargo.lock (no local parser patch).
+Power compound assignment `**=` is not supported by that parser.
+
 Closed calls to `sin`, `cos`, `tan`, `arcsin`, `arccos`, `arctan`, `sqrt`,
 `exp`, `log`, `floor`, and `ceiling` are evaluated at import. Calls may nest;
 each result is rounded to its argument's binary32/binary64 precision (integer

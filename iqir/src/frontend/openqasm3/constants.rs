@@ -15,6 +15,13 @@ impl Lowerer {
         {
             return Ok(ty.is_float());
         }
+        // Powers are typed scalar computations even in gate parameters; do
+        // not reinterpret float exponentiation as exact-real multiplication.
+        if matches!(expr, Expr::BinExpr(b) if matches!(b.op_kind(), Some(ast::BinaryOp::PowerOp)))
+            && !self.is_closed_integer_expression(expr)?
+        {
+            return Ok(true);
+        }
         if let Expr::CallExpr(call) = expr {
             self.builtin_math_call(call)?;
             return Ok(true);
@@ -110,7 +117,7 @@ impl Lowerer {
             Expr::BinExpr(b)
                 if matches!(
                     b.op_kind(),
-                    Some(ast::BinaryOp::ArithOp(_))
+                    Some(ast::BinaryOp::ArithOp(_) | ast::BinaryOp::PowerOp)
                 ) =>
             {
                 for child in expr.syntax().children().filter_map(Expr::cast) {

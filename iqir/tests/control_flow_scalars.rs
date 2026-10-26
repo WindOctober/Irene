@@ -170,6 +170,7 @@ fn value(e: &ScalarExpr, store: &BTreeMap<SymbolId, Value>) -> Value {
                 A::Mul => a * b,
                 A::Div => a / b,
                 A::Rem => a % b,
+                A::Pow => e.ty.checked_integer_arithmetic(A::Pow, a, b).unwrap(),
                 A::BitAnd => a & b,
                 A::BitOr => a | b,
                 A::BitXor => a ^ b,

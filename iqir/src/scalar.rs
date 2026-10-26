@@ -90,6 +90,28 @@ impl ScalarType {
         if !self.contains_integer(a) || !self.contains_integer(b) {
             return Err("integer operand outside its type");
         }
+        if op == A::Pow {
+            let mut exponent = u128::try_from(b).map_err(|_| "negative integer exponent")?;
+            let mut base = a;
+            let mut result = None;
+            while exponent != 0 {
+                if exponent & 1 != 0 {
+                    result = Some(match result {
+                        Some(value) => self.checked_integer_arithmetic(A::Mul, value, base)?,
+                        None => base,
+                    });
+                }
+                exponent >>= 1;
+                if exponent != 0 {
+                    base = self.checked_integer_arithmetic(A::Mul, base, base)?;
+                }
+            }
+            let result = result.unwrap_or(1);
+            return self
+                .contains_integer(result)
+                .then_some(result)
+                .ok_or("integer power identity overflow");
+        }
         if let Self::Int {
             width,
             signed: false,
@@ -105,6 +127,7 @@ impl ScalarType {
                 A::BitAnd => a & b,
                 A::BitOr => a | b,
                 A::BitXor => a ^ b,
+                A::Pow => unreachable!(),
             };
             return Ok((value & ((1u128 << width) - 1)) as i128);
         }
@@ -124,6 +147,7 @@ impl ScalarType {
             A::BitAnd => Some(a & b),
             A::BitOr => Some(a | b),
             A::BitXor => Some(a ^ b),
+            A::Pow => unreachable!(),
         }
         .filter(|v| self.contains_integer(*v));
         result.ok_or("integer overflow or zero divisor")
@@ -199,6 +223,8 @@ pub enum ScalarArithmetic {
     Mul,
     Div,
     Rem,
+    /// Typed exponentiation, not repeated rounded float multiplication.
+    Pow,
     /// Fixed-width bit-pattern operations; never Boolean short-circuiting.
     BitAnd,
     BitOr,
@@ -544,6 +570,9 @@ impl ScalarExpr {
                     if matches!(op, A::Div | A::Rem) && right == Some(V::Integer(0)) {
                         return Err("zero divisor");
                     }
+                    if *op == A::Pow && matches!(right, Some(V::Integer(b)) if b < 0) {
+                        return Err("negative integer exponent");
+                    }
                 }
                 let (Some(left), Some(right)) = (left, right) else {
                     return Ok(None);
@@ -553,6 +582,14 @@ impl ScalarExpr {
                         V::Integer(self.ty.checked_integer_arithmetic(*op, a, b)?)
                     }
                     (V::Float32(a), V::Float32(b)) => {
+                        if *op == A::Pow {
+                            return float_power(
+                                f32::from_bits(a) as f64,
+                                f32::from_bits(b) as f64,
+                                self.ty,
+                            )
+                            .map(Some);
+                        }
                         let (a, b) = (f32::from_bits(a), f32::from_bits(b));
                         V::Float32(
                             match op {
@@ -564,11 +601,16 @@ impl ScalarExpr {
                                 A::BitAnd | A::BitOr | A::BitXor => {
                                     return Err("bitwise operands must be integers");
                                 }
+                                A::Pow => unreachable!(),
                             }
                             .to_bits(),
                         )
                     }
                     (V::Float64(a), V::Float64(b)) => {
+                        if *op == A::Pow {
+                            return float_power(f64::from_bits(a), f64::from_bits(b), self.ty)
+                                .map(Some);
+                        }
                         let (a, b) = (f64::from_bits(a), f64::from_bits(b));
                         V::Float64(
                             match op {
@@ -580,6 +622,7 @@ impl ScalarExpr {
                                 A::BitAnd | A::BitOr | A::BitXor => {
                                     return Err("bitwise operands must be integers");
                                 }
+                                A::Pow => unreachable!(),
                             }
                             .to_bits(),
                         )
@@ -617,6 +660,34 @@ impl ScalarExpr {
             _ => {}
         }
     }
+}
+
+/// Correctly rounded principal real power for the scalar IEEE profile.
+/// Directed MPFR endpoints must agree after rounding to the destination format.
+/// Includes IEEE nonfinite values; the frontend separately restricts constants.
+fn float_power(a: f64, b: f64, ty: ScalarType) -> Result<ScalarValue, &'static str> {
+    use rug::{Float, float::Round, ops::PowAssignRound};
+    for precision in [128, 256, 512, 1024, 2048, 4096] {
+        let mut lo = Float::with_val(precision, a);
+        let mut hi = lo.clone();
+        let exponent = Float::with_val(precision, b);
+        lo.pow_assign_round(&exponent, Round::Down);
+        hi.pow_assign_round(&exponent, Round::Up);
+        let round = |v: &Float| match ty {
+            ScalarType::Float { width: 32 } => {
+                ScalarValue::Float32(v.to_f32_round(Round::Nearest).to_bits())
+            }
+            ScalarType::Float { width: 64 } => {
+                ScalarValue::Float64(v.to_f64_round(Round::Nearest).to_bits())
+            }
+            _ => unreachable!("float power type"),
+        };
+        let lower = round(&lo);
+        if lower == round(&hi) {
+            return Ok(lower);
+        }
+    }
+    Err("floating power rounding precision budget")
 }
 
 impl AstIdGenerator {
