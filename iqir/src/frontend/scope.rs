@@ -221,6 +221,20 @@ impl ScopeStack {
         self.scopes.push(Scope::new(kind));
     }
 
+    /// Enter a lowering scope with an existing binding as a local name.
+    ///
+    /// A lowered for-loop keeps iterator storage outside its per-iteration
+    /// body, but the source iterator belongs to that body's scope. Reusing its
+    /// binding rejects same-body redeclarations without allocating new storage.
+    /// Popping this scope still hides body locals from loop annotations.
+    pub(super) fn enter_block_with_binding(&mut self, name: &str) -> Result<(), ScopeError> {
+        let binding = self.lookup(name)?;
+        let mut scope = Scope::new(ScopeKind::Block);
+        scope.bindings.insert(name.to_owned(), binding);
+        self.scopes.push(scope);
+        Ok(())
+    }
+
     /// Reuse the callable scope rules, but resolve globals at definition time.
     /// Symbol IDs are monotonic, so the definition's ID excludes itself and
     /// all later declarations without cloning a symbol table or lowering body.

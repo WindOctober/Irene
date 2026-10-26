@@ -75,6 +75,12 @@ integer range `[start:stop]` or `[start:1:stop]` instead lowers to a scoped
 declaring the source iterator. A hidden `limit` retains the original endpoint
 even if the body changes the variable used to compute it.
 
+The iterator belongs to the source body's scope: a direct redeclaration is an
+error, while a nested block may shadow it. Lowering reuses the same iterator
+symbol in that body scope without adding another storage declaration. Body
+locals leave scope before loop annotations are resolved; the iterator remains
+visible to the annotations, but body-local names do not.
+
 The generated loop uses a private cursor and an active flag. Initially it is
 active exactly when `start <= limit`. After the body, it stops if the cursor
 equals the inclusive limit; otherwise it increments the cursor and restores

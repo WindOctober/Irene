@@ -116,7 +116,7 @@ impl Lowerer {
         let (cursor, cursor_decl) = self.for_storage("@for.cursor".into(), ty, start, false)?;
         let (limit, limit_decl) = self.for_storage("@for.limit".into(), ty, stop, false)?;
         let initial_index = self.for_read(cursor, ty);
-        let (index, index_decl) = self.for_storage(name, ty, initial_index, true)?;
+        let (index, index_decl) = self.for_storage(name.clone(), ty, initial_index, true)?;
         let zero = self.for_literal(0, flag_ty);
         let (active, active_decl) = self.for_storage("@for.active".into(), flag_ty, zero, false)?;
         let condition = self.for_compare(C::Le, cursor, limit, ty);
@@ -138,8 +138,10 @@ impl Lowerer {
         if self.known_bits.is_some() {
             self.known_bits = Some(Default::default());
         }
+        // Source iterator and body declarations share a scope, even though
+        // the iterator's IR storage lives in the enclosing loop setup.
+        self.scopes.enter_block_with_binding(&name).map_err(scope_error)?;
         self.loop_depth += 1;
-        self.scopes.enter(ScopeKind::Block);
         let has_control = loop_control::has_control(&statement.block_or_stmt());
         self.loop_controls.push(());
         let body_result = match statement.block_or_stmt() {
