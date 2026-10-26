@@ -92,6 +92,7 @@ macro_rules! expected {
 
 mod angle;
 mod annotations;
+mod arrays;
 mod constants;
 mod constant_math;
 mod controlled_u;
@@ -150,6 +151,7 @@ pub fn parse_str_with_options(
 /// all emitted nodes. Subroutine definitions remain as syntax until a call is
 /// specialized to concrete caller-owned qubits.
 struct Lowerer {
+    scalar_arrays: Vec<arrays::ScalarArray>,
     preserve_uint: bool,
     source_name: String,
     annotations: std::collections::BTreeMap<crate::AstId, Vec<crate::annotation::Annotation>>,
@@ -366,6 +368,7 @@ impl TypedClassicalExpr {
 impl Default for Lowerer {
     fn default() -> Self {
         Self {
+            scalar_arrays: Vec::new(),
             preserve_uint: false,
             source_name: String::new(),
             annotations: Default::default(),
@@ -666,6 +669,9 @@ impl Lowerer {
         &mut self,
         declaration: ast::ClassicalDeclarationStatement,
     ) -> Result<(Option<Register>, Vec<Statement>), FrontendError> {
+        if declaration.array_type().is_some() {
+            return Ok((None, self.lower_array_declaration(declaration)?));
+        }
         if self.is_scalar_declaration(&declaration) {
             return Ok((None, self.lower_scalar_declaration(declaration)?));
         }
@@ -1384,6 +1390,20 @@ impl Lowerer {
         &mut self,
         assignment: ast::AssignmentStmt,
     ) -> Result<Statement, FrontendError> {
+        if let Some(indexed) = assignment.indexed_identifier() {
+            if let Some(binding) = self.array_cell(&Expr::IndexedIdentifier(indexed), false)? {
+                let BindingKind::Scalar { ty, assignable, .. } = binding.kind else {
+                    unreachable!()
+                };
+                if !assignable {
+                    return Err(expected!("an assignable array element", &assignment));
+                }
+                let rhs = assignment
+                    .rhs()
+                    .ok_or_else(|| expected!("array assignment value", &assignment))?;
+                return self.lower_scalar_value_assignment(binding.id, ty, rhs);
+            }
+        }
         if let Some(id) = assignment.identifier() {
             let binding = self.scopes.lookup(&id.string()).map_err(scope_error)?;
             if let BindingKind::Scalar { ty, assignable, .. } = binding.kind {
@@ -1516,6 +1536,15 @@ impl Lowerer {
         let lhs = assignment
             .lhs()
             .ok_or_else(|| expected!("an assignment target", &assignment))?;
+        if let Some(binding) = self.array_cell(&lhs, false)? {
+            let BindingKind::Scalar { ty, assignable, .. } = binding.kind else {
+                unreachable!()
+            };
+            if !assignable {
+                return Err(expected!("an assignable array element", &assignment));
+            }
+            return self.lower_scalar_compound(assignment, binding.id, ty);
+        }
         if let Expr::Identifier(id) = &lhs {
             let binding = self.scopes.lookup(&id.string()).map_err(scope_error)?;
             if let BindingKind::Scalar { ty, assignable, .. } = binding.kind {

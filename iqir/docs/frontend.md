@@ -134,6 +134,33 @@ is implemented, programs containing transfers use conservative unsliced
 execution and project outputs only at program exit. Existing restrictions on
 runtime loops and scalar storage in Irene's equivalence backend remain.
 
+## Fixed-size classical numeric arrays
+
+`array[int[n], ...]`, `array[uint[n], ...]`, and `array[float[32/64], ...]`
+support global declarations, shape-matching nested literal initialization, `const`
+arrays, and full element reads/writes (including numeric compound assignment).
+Shapes are positive compile-time integer dimensions: at most seven dimensions
+and 4096 cells per declaration, also subject to the static-loop expansion budget.
+Comma indexing (`a[i,j]`) and chained indexing (`a[i][j]`) select the same cell.
+Indices must be statically resolvable, such as constants or specialized `for`
+indices; bounds and dimension count are checked before lowering.
+
+Each cell lowers to existing typed `ScalarDeclare`/`ScalarAssign`/`Read` nodes,
+with a unique symbol in global scope. This is finite scalar storage,
+not an SMT array encoding. Cells retain scalar integer/IEEE arithmetic and
+per-cell uninitialized-read checks; missing initializers do **not** mean zero.
+Known element values participate in existing constant math and gate-angle
+evaluation, including nested `arccos`/`sqrt` calls. Branches merge facts and
+loops invalidate possibly written array facts; no stale pre-loop value is used.
+
+Runtime indexing, slicing, whole-array copying/arithmetic, array parameters,
+self-referencing initializers and nonnumeric array element types are explicitly
+unsupported. Array-valued specifications, quantified array invariants, and a
+Rocq array theory are outside this subset. Read a statically selected element
+into a scalar if a scalar assertion is needed; do not drop or weaken an existing
+array assertion to work around this boundary. A successful import alone does
+not establish the program's verification goals.
+
 ## Scalar types, declarations and constant evaluation
 
 `ScalarType` describes integer signedness/width or floating precision, not

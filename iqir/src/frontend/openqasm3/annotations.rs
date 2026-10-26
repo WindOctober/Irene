@@ -314,6 +314,11 @@ impl Lowerer {
             .lookup(name)
             .map_err(|_| format!("unknown specification identifier `{name}`"))?;
         let ty = match binding.kind {
+            BindingKind::ScalarArray { .. } => {
+                return Err(format!(
+                    "array-valued specifications/invariants are not supported (`{name}`); static program reads and writes are supported"
+                ));
+            }
             BindingKind::Ghost(ty) => ty,
             BindingKind::QuantumVariable(QuantumType::Scalar) => SpecType::Qubit,
             BindingKind::QuantumVariable(QuantumType::Register { width }) => {

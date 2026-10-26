@@ -54,6 +54,10 @@ impl BitType {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum BindingKind {
+    ScalarArray {
+        index: usize,
+        is_const: bool,
+    },
     Ghost(crate::annotation::SpecType),
     Scalar {
         ty: ScalarType,
@@ -85,6 +89,7 @@ impl BindingKind {
 
     pub(super) fn description(self) -> &'static str {
         match self {
+            Self::ScalarArray { .. } => "fixed-size numeric array",
             Self::Ghost(_) => "ghost variable (specification-only)",
             Self::Scalar {
                 ty: ScalarType::Int { signed: true, .. },
@@ -274,8 +279,10 @@ impl ScopeStack {
                 scope: current_kind,
             });
         }
-        if matches!(kind, BindingKind::Gate | BindingKind::Subroutine { .. })
-            && current_kind != ScopeKind::Global
+        if matches!(
+            kind,
+            BindingKind::Gate | BindingKind::Subroutine { .. } | BindingKind::ScalarArray { .. }
+        ) && current_kind != ScopeKind::Global
         {
             return Err(ScopeError::IllegalDeclaration {
                 declaration: kind.description(),
@@ -382,6 +389,7 @@ impl ScopeStack {
                         | BindingKind::Gate
                         | BindingKind::Subroutine { .. }
                         | BindingKind::Scalar { is_const: true, .. }
+                        | BindingKind::ScalarArray { is_const: true, .. }
                         | BindingKind::StaticBits { .. }
                 )
             {

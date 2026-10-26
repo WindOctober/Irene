@@ -147,6 +147,13 @@ impl Lowerer {
         expression: &Expr,
         depth: usize,
     ) -> Result<Option<ScalarType>, FrontendError> {
+        if let Some(Binding {
+            kind: BindingKind::Scalar { ty, .. },
+            ..
+        }) = self.array_cell(expression, false)?
+        {
+            return Ok(Some(ty));
+        }
         if depth >= 128 {
             return Err(unsupported!("scalar expression depth", expression));
         }
@@ -218,6 +225,9 @@ impl Lowerer {
         expression: &Expr,
         depth: usize,
     ) -> Result<bool, FrontendError> {
+        if self.array_cell(expression, false)?.is_some() {
+            return Ok(true);
+        }
         if depth >= 128 {
             return Err(unsupported!("scalar expression depth", expression));
         }
@@ -284,6 +294,13 @@ impl Lowerer {
         fallback: ScalarType,
         depth: usize,
     ) -> Result<ScalarType, FrontendError> {
+        if let Some(Binding {
+            kind: BindingKind::Scalar { ty, .. },
+            ..
+        }) = self.array_cell(source, false)?
+        {
+            return Ok(if ty.is_float() { ty } else { fallback });
+        }
         if depth >= 128 {
             return Err(unsupported!("scalar expression depth", source));
         }
@@ -406,6 +423,30 @@ impl Lowerer {
             ty
         };
         let kind = match source.clone() {
+            Expr::IndexedIdentifier(_) if self.array_cell(&source, false)?.is_some() => {
+                let binding = self.array_cell(&source, false)?.unwrap();
+                let BindingKind::Scalar {
+                    ty: found, value, ..
+                } = binding.kind
+                else {
+                    unreachable!()
+                };
+                let kind = value
+                    .map(crate::ScalarValue::expression)
+                    .unwrap_or(E::Read(binding.id));
+                let read = self.ids.node(ScalarExprData { ty: found, kind });
+                if found == ty || (found.is_float() && ty.is_float()) {
+                    return Ok(if found.is_float() {
+                        self.float_convert(read, requested)
+                    } else {
+                        read
+                    });
+                }
+                return Err(expected!(
+                    "an array element of matching scalar type and width",
+                    &source
+                ));
+            }
             Expr::CallExpr(call) => {
                 if !ty.is_float() {
                     return Err(expected!("an explicit float-to-integer cast", &call));

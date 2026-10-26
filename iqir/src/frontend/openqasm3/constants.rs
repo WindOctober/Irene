@@ -8,6 +8,13 @@ impl Lowerer {
         if matches!(expr, Expr::Literal(l) if matches!(l.kind(), ast::LiteralKind::FloatNumber(_))) {
             return Ok(true);
         }
+        if let Some(Binding {
+            kind: BindingKind::Scalar { ty, .. },
+            ..
+        }) = self.array_cell(expr, false)?
+        {
+            return Ok(ty.is_float());
+        }
         if let Expr::CallExpr(call) = expr {
             self.builtin_math_call(call)?;
             return Ok(true);
@@ -64,6 +71,16 @@ impl Lowerer {
             return Err(unsupported!("static integer expression budget", expr));
         }
         *work -= 1;
+        if let Some(binding) = self.array_cell(expr, false)? {
+            return Ok(matches!(
+                binding.kind,
+                BindingKind::Scalar {
+                    ty: ScalarType::Int { .. },
+                    value: Some(_),
+                    ..
+                }
+            ));
+        }
         match expr {
             Expr::Literal(l) => Ok(matches!(l.kind(), ast::LiteralKind::IntNumber(_))),
             Expr::Identifier(id) => Ok(matches!(
@@ -134,6 +151,9 @@ impl Lowerer {
         expr: &Expr,
         depth: usize,
     ) -> Result<(), FrontendError> {
+        if self.array_cell(expr, true)?.is_some() {
+            return Ok(());
+        }
         if depth >= 64 || expr.syntax().text().len() > 65536.into() {
             return Err(unsupported!("constant expression budget", expr));
         }

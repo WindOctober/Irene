@@ -152,6 +152,15 @@ impl Lowerer {
                 {
                     if let Ok(binding) = self.scopes.lookup(&id.string()) {
                         self.known_scalars.0.remove(&binding.id);
+                        // Conservatively invalidate every cell of a written
+                        // array, not just the pre-loop selected element.
+                        if let BindingKind::ScalarArray { index, .. } = binding.kind {
+                            for cell in &self.scalar_arrays[index].cells {
+                                if let Ok(cell) = self.scopes.lookup(cell) {
+                                    self.known_scalars.0.remove(&cell.id);
+                                }
+                            }
+                        }
                     }
                 }
             }

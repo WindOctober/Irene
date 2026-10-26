@@ -105,6 +105,26 @@ impl Lowerer {
             ));
         }
         *work -= 1;
+        if let Some(binding) = self.array_cell(&expression, require_const)? {
+            let BindingKind::Scalar {
+                value: Some(crate::ScalarValue::Integer(value)),
+                ty: crate::ScalarType::Int { width, signed },
+                explicit_width,
+                ..
+            } = binding.kind
+            else {
+                return Err(expected!(
+                    "a statically known integer array element",
+                    &expression
+                ));
+            };
+            return Ok(StaticInteger {
+                value,
+                width: Some(width),
+                signed,
+                explicit_width,
+            });
+        }
         match expression {
             Expr::Literal(literal) => {
                 let ast::LiteralKind::IntNumber(number) = literal.kind() else {
