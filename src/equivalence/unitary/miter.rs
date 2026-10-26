@@ -56,7 +56,8 @@ pub fn validate(source: &Program) -> Result<(), UnitaryMiterError> {
                 | StatementKind::ScalarDeclare { .. }
                 | StatementKind::ScalarAssign { .. }
                 | StatementKind::GlobalPhase(_)
-                | StatementKind::Unitary { .. } => {
+                | StatementKind::Unitary { .. }
+                | StatementKind::GateCall { .. } => {
                     return Err(UnitaryMiterError::UnsupportedStatement);
                 }
                 StatementKind::Scope(b) => blocks.push(b),
@@ -280,7 +281,8 @@ fn append_block(
             | StatementKind::ScalarDeclare { .. }
             | StatementKind::ScalarAssign { .. }
             | StatementKind::GlobalPhase(_)
-            | StatementKind::Unitary { .. } => {
+            | StatementKind::Unitary { .. }
+            | StatementKind::GateCall { .. } => {
                 return Err(UnitaryMiterError::UnsupportedStatement);
             }
             StatementKind::Reset(_)

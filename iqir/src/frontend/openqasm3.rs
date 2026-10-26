@@ -123,6 +123,20 @@ pub fn parse_str_with_options(
     source_name: &str,
     preserve_uint: bool,
 ) -> Result<Program, FrontendError> {
+    parse_configured(source, source_name, preserve_uint, false)
+}
+
+/// Verification-oriented IR: retain shared custom gate definitions.
+pub fn parse_structured(source: &str, source_name: &str) -> Result<Program, FrontendError> {
+    parse_configured(source, source_name, true, true)
+}
+
+fn parse_configured(
+    source: &str,
+    source_name: &str,
+    preserve_uint: bool,
+    structured: bool,
+) -> Result<Program, FrontendError> {
     let parsed = parse_source_string(source, Some(source_name), None::<&[PathBuf]>);
     let syntax = parsed
         .syntax_ast()
@@ -140,6 +154,7 @@ pub fn parse_str_with_options(
     Lowerer {
         source_name: source_name.to_owned(),
         preserve_uint,
+        structured,
         ..Lowerer::default()
     }
     .lower(syntax.tree())
@@ -151,6 +166,8 @@ pub fn parse_str_with_options(
 /// all emitted nodes. Subroutine definitions remain as syntax until a call is
 /// specialized to concrete caller-owned qubits.
 struct Lowerer {
+    structured: bool,
+    gate_definitions: HashMap<SymbolId, std::sync::Arc<crate::GateDefinition>>,
     scalar_arrays: Vec<arrays::ScalarArray>,
     preserve_uint: bool,
     source_name: String,
@@ -368,6 +385,8 @@ impl TypedClassicalExpr {
 impl Default for Lowerer {
     fn default() -> Self {
         Self {
+            structured: false,
+            gate_definitions: HashMap::new(),
             scalar_arrays: Vec::new(),
             preserve_uint: false,
             source_name: String::new(),

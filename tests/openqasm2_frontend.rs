@@ -50,7 +50,8 @@ fn collect_applies<'a>(block: &'a Block, applies: &mut Vec<(Gate, &'a [NumericEx
             | StatementKind::ScalarDeclare { .. }
             | StatementKind::ScalarAssign { .. }
             | StatementKind::GlobalPhase(_)
-            | StatementKind::Unitary { .. } => panic!("unexpected OpenQASM 3 statement"),
+            | StatementKind::Unitary { .. }
+            | StatementKind::GateCall { .. } => panic!("unexpected OpenQASM 3 statement"),
             StatementKind::Apply {
                 gate, parameters, ..
             } => applies.push((*gate, parameters)),

@@ -90,7 +90,7 @@ impl KnownScalars {
             | StatementKind::Apply { .. }
             | StatementKind::Reset(_)
             | StatementKind::GlobalPhase(_)
-            | StatementKind::Unitary { .. } => {}
+            | StatementKind::Unitary { .. } | StatementKind::GateCall { .. } => {}
         }
         Ok(())
     }

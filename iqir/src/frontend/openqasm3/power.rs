@@ -62,7 +62,7 @@ impl KnownBits {
                     self.0.retain(|bit, value| other.0.get(bit) == Some(value));
                 }
             },
-            StatementKind::Reset(_) | StatementKind::Apply { .. } => {}
+            StatementKind::Reset(_) | StatementKind::Apply { .. } | StatementKind::GateCall { .. } => {}
         }
     }
 }

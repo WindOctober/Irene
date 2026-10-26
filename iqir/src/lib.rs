@@ -17,7 +17,9 @@ use num_rational::BigRational;
 
 pub mod annotation;
 pub mod frontend;
+mod gate_call;
 pub mod scalar;
+pub use gate_call::GateDefinition;
 pub use scalar::*;
 
 /// Program-local identity shared by every owned IR node.
@@ -319,6 +321,13 @@ pub enum StatementKind {
     UnrolledLoop { iterations: Vec<Block> },
     /// A for iteration: continue in body enters step, break bypasses step.
     LoopBody { body: Block, step: Block },
+    /// Shared, closed unitary definition. Template IDs are private; consumers
+    /// instantiate one call with fresh IDs before traversing its body.
+    GateCall {
+        definition: std::sync::Arc<GateDefinition>,
+        parameters: Vec<NumericExpr>,
+        qubits: Vec<Qubit>,
+    },
     /// Re-evaluate condition before every iteration; no unrolling bound.
     While {
         condition: ClassicalExpr,
@@ -490,7 +499,8 @@ impl AstNode<ProgramData> {
                     StatementKind::ScalarAssign { value, .. } => value.visit_ids(visit),
                     StatementKind::GlobalPhase(value) => numeric(value, visit),
                     StatementKind::Unitary { body, .. } => visit_block(body, visit),
-                    StatementKind::Apply { parameters, .. } => {
+                    StatementKind::Apply { parameters, .. }
+                    | StatementKind::GateCall { parameters, .. } => {
                         for parameter in parameters {
                             numeric(parameter, visit);
                         }
@@ -630,7 +640,7 @@ pub(crate) fn compact_program_ids(mut program: crate::Program) -> crate::Program
                     for b in iterations { block(b, next); }
                 }
                 S::LoopBody { body, step } => { block(body, next); block(step, next); }
-                S::Apply { parameters, .. } => {
+                S::Apply { parameters, .. } | S::GateCall { parameters, .. } => {
                     for p in parameters {
                         numeric(p, next);
                     }

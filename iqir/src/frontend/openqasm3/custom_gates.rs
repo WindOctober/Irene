@@ -1,5 +1,5 @@
-//! Lexical gate macros expanded into phase-exact IQIR. Composite modifiers
-//! remain structured, so control and inverse never discard global phase.
+//! Lexical gates lowered into phase-exact IQIR. Structured import shares gate
+//! templates; legacy import expands them. Modifiers retain the full body.
 use super::*;
 
 #[derive(Clone)]
@@ -31,6 +31,13 @@ pub(super) fn charge_copy(work: &mut usize, expr: &NumericExpr) -> Result<(), Fr
     while let Some(e) = pending.pop() {
         charge_work(work)?;
         match &e.kind {
+            NumericExprKind::Scalar(value) => {
+                let mut count = 0;
+                value.visit_ids(&mut |_| count += 1);
+                for _ in 0..count {
+                    charge_work(work)?;
+                }
+            }
             NumericExprKind::Neg(a) => pending.push(a),
             NumericExprKind::Add(a, b)
             | NumericExprKind::Sub(a, b)
@@ -46,6 +53,48 @@ pub(super) fn charge_copy(work: &mut usize, expr: &NumericExpr) -> Result<(), Fr
 }
 
 impl Lowerer {
+    fn shared_gate(
+        &mut self,
+        name: &str,
+        gate: &CustomGate,
+    ) -> Result<std::sync::Arc<crate::GateDefinition>, FrontendError> {
+        if let Some(definition) = self.gate_definitions.get(&gate.definition) {
+            return Ok(definition.clone());
+        }
+        // Formal storage is private to the template, never a program input.
+        self.scopes.enter_definition(gate.definition);
+        let result = (|| {
+            let mut parameter_ids = Vec::new();
+            let mut arguments = Vec::new();
+            for i in 0..gate.parameters.len() {
+                let binding = self.scopes.declare(
+                    format!("@gate.parameter.{i}"),
+                    BindingKind::NumericInput(NumericType::Angle(None)),
+                ).map_err(scope_error)?;
+                parameter_ids.push(binding.id);
+                arguments.push(self.ids.node(NumericExprKind::Input(binding.id)));
+            }
+            let mut qubits = Vec::new();
+            for i in 0..gate.qubits.len() {
+                let binding = self.scopes.declare(
+                    format!("@gate.wire.{i}"),
+                    BindingKind::QuantumParameter(QuantumType::Scalar),
+                ).map_err(scope_error)?;
+                qubits.push(Qubit { register: binding.id, index: 0 });
+            }
+            let body = self.expand_custom_gate(gate, arguments, qubits.clone())?;
+            Ok(std::sync::Arc::new(crate::GateDefinition {
+                name: name.into(),
+                parameters: parameter_ids,
+                qubits,
+                body,
+            }))
+        })();
+        self.scopes.exit();
+        let definition = result?;
+        self.gate_definitions.insert(gate.definition, definition.clone());
+        Ok(definition)
+    }
     pub(super) fn is_composite_gate(&self, call: &ast::GateCallExpr) -> bool {
         call.identifier()
             .is_some_and(|id| id.string() == "U" || self.gates.contains_key(&id.string()))
@@ -340,7 +389,20 @@ impl Lowerer {
                 .map(|p| self.ids.clone_numeric_expr(p))
                 .collect();
             let body = if let Some(template) = &template {
-                self.expand_custom_gate(template, args, wires[controls..].to_vec())?
+                if self.structured {
+                    let definition = self.shared_gate(&name, template)?;
+                    let call = self.ids.node(StatementKind::GateCall {
+                        definition,
+                        parameters: args,
+                        qubits: wires[controls..].to_vec(),
+                    });
+                    self.ids.node(BlockData {
+                        statements: vec![call],
+                        ..BlockData::default()
+                    })
+                } else {
+                    self.expand_custom_gate(template, args, wires[controls..].to_vec())?
+                }
             } else {
                 self.lower_u_body(args, wires[controls].clone())
             };

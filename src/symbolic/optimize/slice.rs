@@ -198,7 +198,8 @@ fn analyze_block(block: &Block, mut live: LiveSet, plan: &mut SlicePlan) -> Bloc
             | StatementKind::ScalarDeclare { .. }
             | StatementKind::ScalarAssign { .. }
             | StatementKind::GlobalPhase(_)
-            | StatementKind::Unitary { .. } => {
+            | StatementKind::Unitary { .. }
+            | StatementKind::GateCall { .. } => {
                 unreachable!("unsupported statements must be rejected before slicing")
             }
             StatementKind::Apply { qubits, .. } => {

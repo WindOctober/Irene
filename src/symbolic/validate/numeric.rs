@@ -166,7 +166,7 @@ fn block(source: &Block, work: &mut usize, depth: usize) -> Result<(), SymbolicE
             StatementKind::GlobalPhase(_) => {
                 return Err(SymbolicError::UnsupportedConstruct("explicit global phase"));
             }
-            StatementKind::Unitary { .. } => {
+            StatementKind::Unitary { .. } | StatementKind::GateCall { .. } => {
                 return Err(SymbolicError::UnsupportedConstruct(
                     "composite unitary modifiers",
                 ));

@@ -18,6 +18,12 @@ is documented separately in [Specification annotations](spec-annotations.md).
   visibility; unused bodies are not expanded. Invalid captures, arity, qubit aliasing,
   recursion, forward calls, non-unitary bodies and incompatible broadcasts
   fail with diagnostics. Expansion has statement/depth budgets.
+  `openqasm3::parse_structured` instead shares compiled `GateDefinition`
+  templates in `GateCall` nodes. Instantiation substitutes parameters/wires
+  in the immediate body with fresh AST IDs; nested calls continue sharing
+  their definitions. Template IDs are private, excluded from program AST
+  indexing. Existing import APIs retain their expansion behavior; Irene
+  consumers reject shared calls if handed structured IR directly.
 - Positive and negative controls, including mixed control lists and register
   broadcasts. Modifier control counts are bounded to 64. Primitive gates without
   a dedicated controlled IR form use the same structured unitary as custom gates.

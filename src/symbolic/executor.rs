@@ -692,7 +692,8 @@ impl Executor {
             | StatementKind::ScalarDeclare { .. }
             | StatementKind::ScalarAssign { .. }
             | StatementKind::GlobalPhase(_)
-            | StatementKind::Unitary { .. } => {
+            | StatementKind::Unitary { .. }
+            | StatementKind::GateCall { .. } => {
                 Err(SymbolicError::UnsupportedConstruct("this statement kind"))
             }
             StatementKind::Reset(qubit) => {
@@ -1147,6 +1148,7 @@ fn is_predicable_block(block: &Block, plan: &SlicePlan) -> bool {
                 | StatementKind::ScalarAssign { .. }
                 | StatementKind::GlobalPhase(_)
                 | StatementKind::Unitary { .. }
+                | StatementKind::GateCall { .. }
                 | StatementKind::If { .. } => false,
             }
         })

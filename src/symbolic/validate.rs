@@ -60,7 +60,8 @@ fn validate_block(
             | StatementKind::ScalarDeclare { .. }
             | StatementKind::ScalarAssign { .. }
             | StatementKind::GlobalPhase(_)
-            | StatementKind::Unitary { .. } => {
+            | StatementKind::Unitary { .. }
+            | StatementKind::GateCall { .. } => {
                 return Err(SymbolicError::UnsupportedConstruct("this statement kind"));
             }
             StatementKind::Measure { target, .. } => {
