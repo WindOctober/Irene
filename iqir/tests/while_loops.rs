@@ -145,12 +145,12 @@ fn register_comparisons_use_all_bits_in_both_operand_orders() {
 }
 
 #[test]
-fn invalid_literals_and_unsupported_loop_control_are_rejected() {
+fn invalid_literals_and_out_of_loop_control_are_rejected() {
     for body in [
         "bit[3] c; while(c==8) {}",
         "bit[3] c; while(c == -1) {}",
-        "while(true) {break;}",
-        "while(true) {continue;}",
+        "break;",
+        "continue;",
     ] {
         assert!(
             frontend::parse_str(&format!("OPENQASM 3; {body}"), "invalid.qasm").is_err(),

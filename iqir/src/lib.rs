@@ -311,6 +311,14 @@ pub type Block = AstNode<BlockData>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StatementKind {
+    /// Transfer control to the exit of the innermost enclosing loop.
+    Break,
+    /// Transfer control to the update/next iteration of the innermost loop.
+    Continue,
+    /// A finite specialized loop; its boundary still catches loop transfers.
+    UnrolledLoop { iterations: Vec<Block> },
+    /// A for iteration: continue in body enters step, break bypasses step.
+    LoopBody { body: Block, step: Block },
     /// Re-evaluate condition before every iteration; no unrolling bound.
     While {
         condition: ClassicalExpr,
@@ -368,6 +376,49 @@ pub enum StatementKind {
 
 pub type Statement = AstNode<StatementKind>;
 
+/// Path-local control outcomes, separate from program memory and amplitudes.
+/// Only `normal` executes a sequence's suffix; a loop consumes its own exits.
+#[derive(Debug, Clone)]
+pub struct ExecutionFlow<T> {
+    pub normal: Vec<T>,
+    pub breaks: Vec<T>,
+    pub continues: Vec<T>,
+}
+impl<T> ExecutionFlow<T> {
+    pub fn normal(normal: Vec<T>) -> Self {
+        Self { normal, breaks: Vec::new(), continues: Vec::new() }
+    }
+    pub fn append(&mut self, other: Self) {
+        self.normal.extend(other.normal);
+        self.breaks.extend(other.breaks);
+        self.continues.extend(other.continues);
+    }
+    pub fn states_mut(&mut self) -> impl Iterator<Item = &mut T> {
+        self.normal.iter_mut().chain(&mut self.breaks).chain(&mut self.continues)
+    }
+    pub fn resume_continue(&mut self) { self.normal.append(&mut self.continues); }
+    pub fn finish(self) -> Result<Vec<T>, &'static str> {
+        if self.breaks.is_empty() && self.continues.is_empty() { Ok(self.normal) }
+        else { Err("loop transfer escaped its enclosing loop") }
+    }
+}
+
+impl StatementKind {
+    /// Whether this statement can transfer out of the surrounding sequence.
+    /// Nested loops catch their own transfers.
+    pub fn transfers_control(&self) -> bool {
+        match self {
+            Self::Break | Self::Continue => true,
+            Self::Scope(b) => b.statements.iter().any(|s| s.kind.transfers_control()),
+            Self::If { then_branch, else_branch, .. } => then_branch.statements.iter()
+                .chain(&else_branch.statements).any(|s| s.kind.transfers_control()),
+            Self::LoopBody { body, step } => body.statements.iter().chain(&step.statements)
+                .any(|s| s.kind.transfers_control()),
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProgramData {
     pub version: OpenQasmVersion,
@@ -420,6 +471,13 @@ impl AstNode<ProgramData> {
             for statement in &block.statements {
                 visit(statement.ast_id);
                 match &statement.kind {
+                    StatementKind::Break | StatementKind::Continue => {},
+                    StatementKind::UnrolledLoop { iterations } => {
+                        for b in iterations { visit_block(b, visit); }
+                    }
+                    StatementKind::LoopBody { body, step } => {
+                        visit_block(body, visit); visit_block(step, visit);
+                    }
                     StatementKind::While { condition, body } => {
                         classical(condition, visit);
                         visit_block(body, visit);
@@ -487,6 +545,8 @@ impl AstNode<ProgramData> {
                         ..
                     } => 1 + count(then_branch) + count(else_branch),
                     StatementKind::Scope(body) => count(body),
+                    StatementKind::UnrolledLoop { iterations } => iterations.iter().map(count).sum(),
+                    StatementKind::LoopBody { body, step } => count(body) + count(step),
                     _ => 1,
                 })
                 .sum()
@@ -565,6 +625,11 @@ pub(crate) fn compact_program_ids(mut program: crate::Program) -> crate::Program
         for s in &mut b.statements {
             id(s, next);
             match &mut s.kind {
+                S::Break | S::Continue => {},
+                S::UnrolledLoop { iterations } => {
+                    for b in iterations { block(b, next); }
+                }
+                S::LoopBody { body, step } => { block(body, next); block(step, next); }
                 S::Apply { parameters, .. } => {
                     for p in parameters {
                         numeric(p, next);

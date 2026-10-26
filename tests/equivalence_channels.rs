@@ -32,6 +32,11 @@ fn check(left: &Program, right: &Program, config: &EquivalenceConfig, equivalent
 
 #[test]
 fn identical_measurement_reset_and_feedback_channels_match() {
+    for jump in ["break", "continue"] {
+        let left = parse(&format!("bit b=measure q[0]; for int i in [0:2] {{ if(b) {jump}; x q[1]; }}"));
+        let right = parse("bit b=measure q[0]; if(!b) x q[1];");
+        check(&left, &right, &EquivalenceConfig::positional(&left, &right).unwrap(), true);
+    }
     for body in [
         "reset q[0];",
         "bit c; h q[0]; c = measure q[0];",

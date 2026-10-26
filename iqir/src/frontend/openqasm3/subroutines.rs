@@ -229,6 +229,8 @@ impl Lowerer {
                     _ => unreachable!("actual argument types checked"),
                 }
             }
+            // A callee's break/continue must never target its caller's loop.
+            let caller_controls = std::mem::take(&mut self.loop_controls);
             let body_result = self.lower_subroutine_body(
                 template
                     .definition
@@ -237,6 +239,7 @@ impl Lowerer {
                 template.return_type,
                 target,
             );
+            self.loop_controls = caller_controls;
             let mut body = body_result?;
             prefix.statements.append(&mut body.statements);
             prefix

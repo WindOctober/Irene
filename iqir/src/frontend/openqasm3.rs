@@ -97,6 +97,7 @@ mod constant_math;
 mod controlled_u;
 mod custom_gates;
 mod known_scalars;
+mod loop_control;
 mod power;
 mod runtime_for;
 mod scalar;
@@ -157,6 +158,7 @@ struct Lowerer {
     numeric_arguments: HashMap<SymbolId, NumericExpr>,
     gate_depth: usize,
     loop_depth: usize,
+    loop_controls: Vec<()>,
     gate_work: usize,
     ids: AstIdGenerator,
     version: Option<OpenQasmVersion>,
@@ -372,6 +374,7 @@ impl Default for Lowerer {
             numeric_arguments: HashMap::new(),
             gate_depth: 0,
             loop_depth: 0,
+            loop_controls: Vec::new(),
             gate_work: 0,
             ids: AstIdGenerator::default(),
             version: None,
@@ -753,6 +756,8 @@ impl Lowerer {
     fn lower_statement_inner(&mut self, statement: Stmt) -> Result<Statement, FrontendError> {
         self.charge_static_expansion(&statement)?;
         match statement {
+            Stmt::BreakStmt(s) => self.lower_loop_jump(true, s.syntax().text().to_string()),
+            Stmt::ContinueStmt(s) => self.lower_loop_jump(false, s.syntax().text().to_string()),
             Stmt::WhileStmt(statement) => self.lower_while(statement),
             Stmt::ForStmt(statement) => {
                 if self.for_range_is_static(&statement)? {
@@ -1821,7 +1826,9 @@ impl Lowerer {
                 .ok_or_else(|| expected!("a while condition", &statement))?,
         )?;
         self.loop_depth += 1;
+        self.loop_controls.push(());
         let result = self.lower_branch(statement.block_or_stmt());
+        self.loop_controls.pop();
         self.loop_depth -= 1;
         let body = result?;
         Ok(self.ids.node(StatementKind::While { condition, body }))

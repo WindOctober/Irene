@@ -45,7 +45,17 @@ impl KnownScalars {
     }
 
     pub(super) fn statement(&mut self, statement: &Statement) -> Result<(), FrontendError> {
+        // Facts about only the normal successor cannot describe break exits.
+        if statement.kind.transfers_control() {
+            self.0.clear();
+            return Ok(());
+        }
         match &statement.kind {
+            StatementKind::Break | StatementKind::Continue => unreachable!(),
+            StatementKind::UnrolledLoop { iterations } => {
+                for b in iterations { self.forget_writes(b); }
+            }
+            StatementKind::LoopBody { body, step } => { self.block(body)?; self.block(step)?; }
             StatementKind::ScalarDeclare {
                 id, initializer, ..
             } => {
@@ -88,6 +98,12 @@ impl KnownScalars {
     fn forget_writes(&mut self, body: &Block) {
         for s in &body.statements {
             match &s.kind {
+                StatementKind::UnrolledLoop { iterations } => {
+                    for b in iterations { self.forget_writes(b); }
+                }
+                StatementKind::LoopBody { body, step } => {
+                    self.forget_writes(body); self.forget_writes(step);
+                }
                 StatementKind::ScalarAssign { target, .. } => {
                     self.0.remove(target);
                 }

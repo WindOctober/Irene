@@ -140,10 +140,13 @@ impl Lowerer {
         }
         self.loop_depth += 1;
         self.scopes.enter(ScopeKind::Block);
+        let has_control = loop_control::has_control(&statement.block_or_stmt());
+        self.loop_controls.push(());
         let body_result = match statement.block_or_stmt() {
             BlockOrStmt::BlockExpr(block) => self.lower_block_contents(block),
             BlockOrStmt::Stmt(s) => self.lower_statement(s).map(|s| self.for_block(vec![s])),
         };
+        self.loop_controls.pop();
         self.scopes.exit();
         self.loop_depth -= 1;
         let source_body = self.ids.node(StatementKind::Scope(body_result?));
@@ -185,7 +188,14 @@ impl Lowerer {
             target: index,
             value,
         });
-        let body = self.for_block(vec![source_body, advance, restore_index]);
+        let body = if has_control {
+            let source_body = self.for_block(vec![source_body]);
+            let step = self.for_block(vec![advance, restore_index]);
+            let iteration = self.ids.node(StatementKind::LoopBody { body: source_body, step });
+            self.for_block(vec![iteration])
+        } else {
+            self.for_block(vec![source_body, advance, restore_index])
+        };
         let left = self.for_read(active, flag_ty);
         let right = self.for_literal(1, flag_ty);
         let condition = self.ids.node(ClassicalExprKind::ScalarCompare {

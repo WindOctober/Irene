@@ -97,6 +97,37 @@ declarations/assignments are unsupported;
 declare ghosts in the enclosing scope instead. Import success alone does not
 mean the loop or its assertions have been verified.
 
+## Break and continue
+
+`break` and `continue` target the innermost source loop, including static
+integer `for`, runtime unit-step `for`, and `while`. Transfers cannot cross a
+subroutine boundary. A callee can use transfers inside its own loops; a bare
+transfer in a called body is rejected even when the caller is inside a loop.
+
+The frontend emits native `Break` / `Continue` nodes. It creates no jump flags
+and does not cache a while's source guard. Executors use `ExecutionFlow<T>`:
+normal successors, break successors, and continue successors. These are
+path-local control outcomes, not program variables or new SMT symbols. Only
+normal successors execute a block suffix; lexical cleanup applies to all three.
+No probability mass is discarded or renormalized when paths change outcome.
+
+Static specialization preserves a finite `UnrolledLoop` boundary and its
+iteration blocks, so a break skips subsequent iterations and a continue advances
+to the next specialized iteration. Static qubit indices remain supported.
+Runtime for retains the existing range snapshot/cursor/endpoint bookkeeping;
+its `LoopBody { body, step }` routes continue to the update and break past it.
+The endpoint's existing `active` bit is range bookkeeping, not a break/continue
+flag. No wrapping final step is introduced.
+
+Ordinary while keeps the source guard. A break never re-evaluates that guard
+(it may now be undefined) and does not imply its negation. Contracts attach to
+the actual While node without a jump-specific setup scope.
+
+Irene executes finite specialized control flow. Until exit-sensitive liveness
+is implemented, programs containing transfers use conservative unsliced
+execution and project outputs only at program exit. Existing restrictions on
+runtime loops and scalar storage in Irene's equivalence backend remain.
+
 ## Scalar types, declarations and constant evaluation
 
 `ScalarType` describes integer signedness/width or floating precision, not
@@ -253,8 +284,7 @@ operations remain errors/obligations. CoqQ currently rejects these parameters
 instead of replacing IEEE computations with real arithmetic; Irene's
 equivalence backend also rejects this unsupported machine-number fragment.
 
-This remains a supported subset, not a full OpenQASM implementation: `break`,
-`continue`, runtime array indexing, numeric
+This remains a supported subset, not a full OpenQASM implementation: runtime array indexing, numeric
 subroutine parameters/returns, mixed signed/unsigned arithmetic, narrowing/reinterpreting scalar integer casts, runtime scalar
 shifts, non-integer gate powers, `negctrl`, and
 non-gate bodies inside gate definitions remain explicitly unsupported.

@@ -55,7 +55,25 @@ pub(crate) fn build_slice_plan(
     let mut plan = SlicePlan {
         live_quantum: BTreeSet::new(),
         entries: vec![NodePlan::default(); node_count],
+        unsliced: false,
     };
+    fn transfers(b: &Block) -> bool {
+        b.statements.iter().any(|s| match &s.kind {
+            StatementKind::Break | StatementKind::Continue | StatementKind::UnrolledLoop { .. }
+            | StatementKind::LoopBody { .. } => true,
+            StatementKind::Scope(b) | StatementKind::While { body: b, .. } => transfers(b),
+            StatementKind::If { then_branch, else_branch, .. } => transfers(then_branch) || transfers(else_branch),
+            _ => false,
+        })
+    }
+    // Last-use slicing across early exits needs successor-sensitive liveness.
+    // Retain the original program until then, and project only at its exit.
+    if transfers(&program.body) {
+        program.visit_ast_ids(|id| plan.retain(id));
+        plan.live_quantum = register_cells(&program.quantum_registers).into_iter().collect();
+        plan.unsliced = true;
+        return Ok(plan);
+    }
     let analysis = analyze_block(&program.body, outputs, &mut plan);
     plan.live_quantum = analysis.live.quantum;
     Ok(plan)
@@ -70,6 +88,7 @@ pub(crate) fn build_slice_plan(
 /// executable IR is copied into the plan.
 #[derive(Debug)]
 pub(crate) struct SlicePlan {
+    pub(crate) unsliced: bool,
     pub(crate) live_quantum: BTreeSet<Qubit>,
     entries: Vec<NodePlan>,
 }
@@ -173,6 +192,8 @@ fn analyze_block(block: &Block, mut live: LiveSet, plan: &mut SlicePlan) -> Bloc
     let mut retained = false;
     for statement in block.statements.iter().rev() {
         match &statement.kind {
+            StatementKind::Break | StatementKind::Continue | StatementKind::UnrolledLoop { .. }
+            | StatementKind::LoopBody { .. } => unreachable!("control flow uses conservative slicing"),
             StatementKind::While { .. }
             | StatementKind::ScalarDeclare { .. }
             | StatementKind::ScalarAssign { .. }

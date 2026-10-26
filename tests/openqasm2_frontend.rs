@@ -43,6 +43,10 @@ fn collect_applies<'a>(block: &'a Block, applies: &mut Vec<(Gate, &'a [NumericEx
     for statement in &block.statements {
         match &statement.kind {
             StatementKind::While { .. }
+            | StatementKind::Break
+            | StatementKind::Continue
+            | StatementKind::UnrolledLoop { .. }
+            | StatementKind::LoopBody { .. }
             | StatementKind::ScalarDeclare { .. }
             | StatementKind::ScalarAssign { .. }
             | StatementKind::GlobalPhase(_)

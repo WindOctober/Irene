@@ -150,6 +150,13 @@ fn block(source: &Block, work: &mut usize, depth: usize) -> Result<(), SymbolicE
     for statement in &source.statements {
         spend(work)?;
         match &statement.kind {
+            StatementKind::Break | StatementKind::Continue => {},
+            StatementKind::UnrolledLoop { iterations } => {
+                for b in iterations { block(b, work, depth + 1)?; }
+            }
+            StatementKind::LoopBody { body, step } => {
+                block(body, work, depth + 1)?; block(step, work, depth + 1)?;
+            }
             StatementKind::While { .. } => {
                 return Err(SymbolicError::UnsupportedConstruct("while loops"));
             }

@@ -453,8 +453,8 @@ fn rejects_unsupported_or_ill_typed_scalar_forms_instead_of_erasing_them() {
         "int[8] n=1.5;",
         "int[8] n=1; int[16] m=n;",
         "int[8] n=1; n[0]=0;",
-        "while(true) {break;}",
-        "while(true) {continue;}",
+        "break;",
+        "continue;",
         "qubit q; int[8] n; rx(n) q;",
         "int[8] n=0; qubit[n] q;",
     ] {

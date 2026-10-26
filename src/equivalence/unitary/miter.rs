@@ -201,6 +201,8 @@ fn append_block(
             offset
         };
         match &block.statements[index].kind {
+            StatementKind::Break | StatementKind::Continue
+            | StatementKind::UnrolledLoop { .. } | StatementKind::LoopBody { .. } => return Err(UnitaryMiterError::UnsupportedStatement),
             StatementKind::Scope(inner) => append_block(inner, wires, inverse, ids, out)?,
             StatementKind::Apply {
                 gate,

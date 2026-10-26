@@ -206,7 +206,7 @@ impl Executor {
         for statement in &statements[..length] {
             result = executor
                 .execute_statements(result, std::slice::from_ref(statement), plan, true)
-                .ok()?;
+                .ok()?.finish().ok()?;
             if result.len() > MAX_COMPONENTS {
                 return None;
             }

@@ -124,8 +124,6 @@ fn invalid_dynamic_or_unsupported_ranges_are_rejected_completely() {
         "qubit q; for float i in [0:1] x q;",
         "qubit q; input int n; for int i in [0:n] x q;",
         "qubit q; for int i in [0:1] { i=1; x q; }",
-        "qubit q; for int i in [0:1] { break; }",
-        "qubit q; for int i in [0:1] { continue; }",
         "qubit q; for int i in [0:1] { const int n=i; }",
         "qubit q; for int i in [1:2] { bit[i] c; }",
         "qubit q; for int i in [0:1] { const int i=1; }",

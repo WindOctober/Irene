@@ -27,7 +27,11 @@ impl KnownBits {
     }
 
     pub(super) fn statement(&mut self, s: &Statement) {
+        if s.kind.transfers_control() { self.0.clear(); return; }
         match &s.kind {
+            StatementKind::Break | StatementKind::Continue => unreachable!(),
+            StatementKind::UnrolledLoop { .. } => self.0.clear(),
+            StatementKind::LoopBody { body, step } => { self.block(body); self.block(step); }
             StatementKind::While { .. } => self.0.clear(),
             StatementKind::ScalarDeclare { .. }
             | StatementKind::ScalarAssign { .. }

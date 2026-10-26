@@ -18,7 +18,8 @@ pub(crate) fn definite_assignment(
     program: &Program,
     output_selection: &OutputSelection,
 ) -> Result<(), SymbolicError> {
-    let assigned = validate_block(&program.body, BTreeSet::new())?;
+    let flow = validate_block(&program.body, BTreeSet::new())?;
+    let assigned = meet(flow.finish().map_err(SymbolicError::UnsupportedConstruct)?).unwrap_or_default();
     if let Some(bit) = output_selection.classical.difference(&assigned).next() {
         return Err(SymbolicError::UninitializedClassical(bit.clone()));
     }
@@ -33,9 +34,28 @@ pub(crate) fn definite_assignment(
 fn validate_block(
     block: &Block,
     mut assigned: BTreeSet<ClassicalBit>,
-) -> Result<BTreeSet<ClassicalBit>, SymbolicError> {
+) -> Result<iqir::ExecutionFlow<BTreeSet<ClassicalBit>>, SymbolicError> {
+    let mut exits = iqir::ExecutionFlow::normal(Vec::new());
+    let mut reachable = true;
     for statement in &block.statements {
+        if !reachable { break; }
         match &statement.kind {
+            StatementKind::Break => { exits.breaks.push(assigned.clone()); reachable = false; }
+            StatementKind::Continue => { exits.continues.push(assigned.clone()); reachable = false; }
+            StatementKind::LoopBody { .. } => return Err(SymbolicError::UnsupportedConstruct("runtime for update")),
+            StatementKind::UnrolledLoop { iterations } => {
+                let mut normal = Some(assigned.clone());
+                let mut done = Vec::new();
+                for body in iterations {
+                    let Some(entry) = normal.take() else { break; };
+                    let mut flow = validate_block(body, entry)?;
+                    done.append(&mut flow.breaks);
+                    flow.resume_continue();
+                    normal = meet(flow.normal);
+                }
+                done.extend(normal);
+                match meet(done) { Some(a) => assigned = a, None => reachable = false }
+            }
             StatementKind::While { .. }
             | StatementKind::ScalarDeclare { .. }
             | StatementKind::ScalarAssign { .. }
@@ -56,26 +76,33 @@ fn validate_block(
                 else_branch,
             } => {
                 require_assigned(condition, &assigned)?;
-                assigned = match constant_boolean(condition) {
+                let mut flow = match constant_boolean(condition) {
                     Some(true) => validate_block(then_branch, assigned)?,
                     Some(false) => validate_block(else_branch, assigned)?,
                     None => {
-                        let then_assigned = validate_block(then_branch, assigned.clone())?;
-                        let else_assigned = validate_block(else_branch, assigned)?;
-                        then_assigned
-                            .intersection(&else_assigned)
-                            .cloned()
-                            .collect()
+                        let mut yes = validate_block(then_branch, assigned.clone())?;
+                        yes.append(validate_block(else_branch, assigned)?);
+                        yes
                     }
                 };
+                assigned = meet(std::mem::take(&mut flow.normal)).unwrap_or_else(|| {
+                    reachable = false; BTreeSet::new()
+                });
+                exits.append(flow);
             }
             StatementKind::Scope(body) => {
-                assigned = validate_block(body, assigned)?;
+                let mut flow = validate_block(body, assigned)?;
+                assigned = meet(std::mem::take(&mut flow.normal)).unwrap_or_else(|| {
+                    reachable = false; BTreeSet::new()
+                });
+                exits.append(flow);
             }
             StatementKind::Reset(_) | StatementKind::Apply { .. } => {}
         }
     }
 
+    if reachable { exits.normal.push(assigned); }
+    for assigned in exits.states_mut() {
     for register in &block.classical_registers {
         for index in 0..register.width {
             assigned.remove(&ClassicalBit {
@@ -84,7 +111,14 @@ fn validate_block(
             });
         }
     }
-    Ok(assigned)
+    }
+    Ok(exits)
+}
+
+fn meet(mut states: Vec<BTreeSet<ClassicalBit>>) -> Option<BTreeSet<ClassicalBit>> {
+    let mut result = states.pop()?;
+    for state in states { result.retain(|b| state.contains(b)); }
+    Some(result)
 }
 
 fn constant_boolean(expression: &ClassicalExpr) -> Option<bool> {

@@ -439,6 +439,13 @@ impl Lowerer {
         &mut self,
         statement: ast::ForStmt,
     ) -> Result<Statement, FrontendError> {
+        self.scopes.enter(ScopeKind::Block);
+        let result = self.static_for_inner(statement);
+        self.scopes.exit();
+        result
+    }
+
+    fn static_for_inner(&mut self, statement: ast::ForStmt) -> Result<Statement, FrontendError> {
         let ty = statement
             .scalar_type()
             .ok_or_else(|| expected!("an explicit loop type", &statement))?;
@@ -448,6 +455,9 @@ impl Lowerer {
             .for_iterable()
             .and_then(|iterable| iterable.range_expr())
             .ok_or_else(|| unsupported!("non-range static iteration", &statement))?;
+        // Actual arguments copied into formals may be known without being
+        // const. Evaluate the range once at this program point, restoring the
+        // ordinary mutable bindings before lowering the body/back edges.
         let (start, step, stop) = self.with_known_scalars(|this| this.static_range(&range))?;
         let count = ((stop - start) / step)
             .checked_add(1)
@@ -470,9 +480,16 @@ impl Lowerer {
             .ok_or_else(|| expected!("a loop variable", &statement))?
             .string();
         let mut statements = Vec::new();
+        let has_control = loop_control::has_control(&statement.block_or_stmt());
+        let mut iterations = Vec::new();
         self.static_loop_depth += 1;
+        self.loop_controls.push(());
         let result = (|| {
             for i in 0..count {
+                if has_control {
+                    self.known_scalars = Default::default();
+                    if self.known_bits.is_some() { self.known_bits = Some(Default::default()); }
+                }
                 let before = self.known_scalars.clone();
                 let bits_before = self.known_bits.clone();
                 self.scopes.enter(ScopeKind::Block);
@@ -502,7 +519,11 @@ impl Lowerer {
                     }
                 })();
                 self.scopes.exit();
-                let iteration = self.ids.node(StatementKind::Scope(lowered?));
+                let body = lowered?;
+                if has_control { iterations.push(body.clone()); }
+                let iteration = self.ids.node(StatementKind::Scope(body));
+                // Lowering the body visited code which might be skipped.
+                // Transfer the guarded iteration, never those unguarded facts.
                 self.known_scalars = before;
                 self.known_bits = bits_before;
                 self.known_scalars.statement(&iteration)?;
@@ -511,8 +532,18 @@ impl Lowerer {
                 }
                 statements.push(iteration);
             }
-            Ok(self.sequence(statements))
+            if has_control {
+                self.known_scalars = Default::default();
+                if self.known_bits.is_some() { self.known_bits = Some(Default::default()); }
+                return Ok(self.ids.node(StatementKind::UnrolledLoop { iterations }));
+            }
+            let body = self.ids.node(BlockData {
+                classical_registers: Vec::new(),
+                statements,
+            });
+            Ok(self.ids.node(StatementKind::Scope(body)))
         })();
+        self.loop_controls.pop();
         self.static_loop_depth -= 1;
         result
     }

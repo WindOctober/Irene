@@ -182,6 +182,8 @@ pub struct Component {
     pub output: HybridMemory,
 }
 
+type Flow = iqir::ExecutionFlow<Component>;
+
 /// Symbolic denotation of a hybrid program as a finite sum of HPS components.
 ///
 /// `PartialEq` on this type is structural equality only. Program equivalence
@@ -213,7 +215,15 @@ pub fn execute(
     validate::numeric_domains(program)?;
     let plan = slice::build_slice_plan(program, output_selection)?;
     validate::definite_assignment(program, output_selection)?;
-    let executed = execute_with_plan(program, config, &plan)?;
+    let mut executed = execute_with_plan(program, config, &plan)?;
+    if plan.unsliced {
+        for c in &mut executed.components {
+            DiscardSet {
+                quantum: c.output.quantum.keys().filter(|q| !output_selection.quantum.contains(*q)).cloned().collect(),
+                classical: c.output.classical.keys().filter(|b| !output_selection.classical.contains(*b)).cloned().collect(),
+            }.apply(c);
+        }
+    }
     if std::env::var_os("IRENE_DEBUG_COMPACTION").is_some() {
         eprintln!(
             "execution finished: {:?}; final simplify start",
@@ -400,11 +410,22 @@ impl Executor {
     /// interference between the worlds it created.
     fn execute_block(
         &mut self,
-        mut components: Vec<Component>,
+        components: Vec<Component>,
         block: &Block,
         plan: &SlicePlan,
         complete_component_set: bool,
     ) -> Result<Vec<Component>, SymbolicError> {
+        self.execute_block_flow(components, block, plan, complete_component_set)?
+            .finish().map_err(SymbolicError::UnsupportedConstruct)
+    }
+
+    fn execute_block_flow(
+        &mut self,
+        mut components: Vec<Component>,
+        block: &Block,
+        plan: &SlicePlan,
+        complete_component_set: bool,
+    ) -> Result<Flow, SymbolicError> {
         // Entry discard sets primarily occur on `if` branches. Backward analysis
         // takes the union of both branches' dependencies before the `if`, so a
         // value needed only by the sibling branch is still present here. The
@@ -419,20 +440,21 @@ impl Executor {
             }
             components = self.compact_at_boundary(components, complete_component_set);
         }
-        components =
+        let mut flow =
             self.execute_statements(components, &block.statements, plan, complete_component_set)?;
         let removes_locals = !block.classical_registers.is_empty();
-        for component in &mut components {
+        for component in flow.states_mut() {
             for bit in classical_cells(&block.classical_registers) {
                 component.output.classical.remove(&bit);
                 self.pending_feedback.insert(bit);
             }
         }
         if removes_locals {
-            components = self.merge_pending_feedback(components, complete_component_set);
-            components = self.compact_at_boundary(components, complete_component_set);
+            let complete = complete_component_set && flow.breaks.is_empty() && flow.continues.is_empty();
+            flow.normal = self.merge_pending_feedback(flow.normal, complete);
+            flow.normal = self.compact_at_boundary(flow.normal, complete);
         }
-        Ok(components)
+        Ok(flow)
     }
 
     fn execute_statements(
@@ -440,10 +462,12 @@ impl Executor {
         mut components: Vec<Component>,
         statements: &[crate::ir::Statement],
         plan: &SlicePlan,
-        complete_component_set: bool,
-    ) -> Result<Vec<Component>, SymbolicError> {
+        mut complete_component_set: bool,
+    ) -> Result<Flow, SymbolicError> {
+        let mut flow = Flow::normal(Vec::new());
         let mut summarized_until = 0;
         for (index, statement) in statements.iter().enumerate() {
+            if components.is_empty() { break; }
             if super::deadline::expired() {
                 return Err(SymbolicError::TimeBudget);
             }
@@ -465,23 +489,49 @@ impl Executor {
             }
             let is_join = matches!(&statement.kind, StatementKind::If { .. });
             let is_reset = matches!(&statement.kind, StatementKind::Reset(_));
-            components = match &statement.kind {
+            let result = match &statement.kind {
+                StatementKind::Break => Flow { normal: Vec::new(), breaks: components, continues: Vec::new() },
+                StatementKind::Continue => Flow { normal: Vec::new(), breaks: Vec::new(), continues: components },
+                StatementKind::UnrolledLoop { iterations } => {
+                    let mut active = components;
+                    let mut exits = Vec::new();
+                    for body in iterations {
+                        if active.is_empty() { break; }
+                        let mut result = self.execute_block_flow(active, body, plan, false)?;
+                        exits.append(&mut result.breaks);
+                        result.resume_continue();
+                        active = result.normal;
+                    }
+                    exits.extend(active);
+                    Flow::normal(exits)
+                }
+                StatementKind::LoopBody { body, step } => {
+                    let mut result = self.execute_block_flow(components, body, plan, false)?;
+                    result.resume_continue();
+                    let next = self.execute_block_flow(std::mem::take(&mut result.normal), step, plan, false)?;
+                    result.append(next);
+                    result
+                }
                 StatementKind::If {
                     condition,
                     then_branch,
                     else_branch,
                 } => self.execute_if(components, condition, then_branch, else_branch, plan)?,
                 StatementKind::Scope(body) => {
-                    self.execute_block(components, body, plan, complete_component_set)?
+                    self.execute_block_flow(components, body, plan, complete_component_set)?
                 }
-                _ => components
+                _ => Flow::normal(components
                     .into_iter()
                     .map(|mut component| {
                         self.execute_linear(&mut component, &statement.kind)?;
                         Ok(component)
                     })
-                    .collect::<Result<_, _>>()?,
+                    .collect::<Result<_, _>>()?),
             };
+            components = result.normal;
+            flow.breaks.extend(result.breaks);
+            flow.continues.extend(result.continues);
+            complete_component_set &= flow.breaks.is_empty() && flow.continues.is_empty();
             // A post-statement discard set denotes the last point at which a
             // value can influence the selected outputs. For example, after
             // `cx a, out`, `a` can be traced out when no later live statement
@@ -518,7 +568,8 @@ impl Executor {
             }
             super::representation_stats::observe("statement", &components, false);
         }
-        Ok(components)
+        flow.normal = components;
+        Ok(flow)
     }
 
     /// Executes a classical conditional either as a guarded unitary or as an
@@ -536,7 +587,7 @@ impl Executor {
         then_branch: &Block,
         else_branch: &Block,
         plan: &SlicePlan,
-    ) -> Result<Vec<Component>, SymbolicError> {
+    ) -> Result<Flow, SymbolicError> {
         if is_predicable_block(then_branch, plan) && is_predicable_block(else_branch, plan) {
             let mut result = Vec::with_capacity(components.len());
             for mut component in components {
@@ -550,10 +601,10 @@ impl Executor {
                 );
                 result.push(component);
             }
-            return Ok(result);
+            return Ok(Flow::normal(result));
         }
 
-        let mut result = Vec::new();
+        let mut result = Flow::normal(Vec::new());
         for component in components {
             let condition = evaluate_classical(condition, &component.output.classical)?;
             // Guards are equations equal to zero. The then branch therefore
@@ -570,7 +621,7 @@ impl Executor {
                 else_component.guard.push(condition);
             }
             if simplify_component(&mut then_component) {
-                result.extend(self.execute_block(
+                result.append(self.execute_block_flow(
                     vec![then_component],
                     then_branch,
                     plan,
@@ -578,7 +629,7 @@ impl Executor {
                 )?);
             }
             if simplify_component(&mut else_component) {
-                result.extend(self.execute_block(
+                result.append(self.execute_block_flow(
                     vec![else_component],
                     else_branch,
                     plan,
@@ -635,6 +686,8 @@ impl Executor {
         // Linear statements transform each existing component independently;
         // only classical `if` forms an explicit sum of components.
         match statement {
+            StatementKind::Break | StatementKind::Continue | StatementKind::UnrolledLoop { .. }
+            | StatementKind::LoopBody { .. } => unreachable!("handled by control-flow execution"),
             StatementKind::While { .. }
             | StatementKind::ScalarDeclare { .. }
             | StatementKind::ScalarAssign { .. }
@@ -1082,6 +1135,8 @@ fn is_predicable_block(block: &Block, plan: &SlicePlan) -> bool {
                 return true;
             }
             match &statement.kind {
+                StatementKind::Break | StatementKind::Continue | StatementKind::UnrolledLoop { .. }
+                | StatementKind::LoopBody { .. } => false,
                 StatementKind::Apply { gate, .. } => is_monomial_gate(*gate),
                 StatementKind::Scope(body) => is_predicable_block(body, plan),
                 StatementKind::Reset(_)
