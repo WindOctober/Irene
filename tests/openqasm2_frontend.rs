@@ -74,7 +74,9 @@ fn exact_rational(expression: &NumericExpr) -> Option<BigRational> {
         NumericExprKind::Sub(left, right) => Some(exact_rational(left)? - exact_rational(right)?),
         NumericExprKind::Mul(left, right) => Some(exact_rational(left)? * exact_rational(right)?),
         NumericExprKind::Div(left, right) => Some(exact_rational(left)? / exact_rational(right)?),
-        NumericExprKind::Constant(_) | NumericExprKind::Input(_) => None,
+        NumericExprKind::Constant(_) | NumericExprKind::Input(_) | NumericExprKind::Scalar(_) => {
+            None
+        }
     }
 }
 
@@ -97,9 +99,10 @@ fn pi_coefficient(expression: &NumericExpr) -> Option<BigRational> {
         NumericExprKind::Rational(value) if value == &BigRational::from_integer(0.into()) => {
             Some(BigRational::from_integer(0.into()))
         }
-        NumericExprKind::Rational(_) | NumericExprKind::Constant(_) | NumericExprKind::Input(_) => {
-            None
-        }
+        NumericExprKind::Rational(_)
+        | NumericExprKind::Constant(_)
+        | NumericExprKind::Input(_)
+        | NumericExprKind::Scalar(_) => None,
     }
 }
 

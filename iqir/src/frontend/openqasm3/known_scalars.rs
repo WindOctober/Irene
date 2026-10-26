@@ -9,43 +9,50 @@ use crate::ScalarExpr;
 pub(super) struct KnownScalars(HashMap<SymbolId, ScalarValue>);
 
 impl KnownScalars {
-    pub(super) fn declare(&mut self, id: SymbolId, initializer: Option<&ScalarExpr>) {
-        let value = initializer.and_then(|e| self.value(e));
+    pub(super) fn declare(
+        &mut self,
+        id: SymbolId,
+        initializer: Option<&ScalarExpr>,
+    ) -> Result<(), FrontendError> {
+        let value = initializer.map(|e| self.value(e)).transpose()?.flatten();
         self.0.remove(&id);
         if let Some(value) = value {
             self.0.insert(id, value);
         }
+        Ok(())
     }
 
-    pub(super) fn value(&self, expression: &ScalarExpr) -> Option<ScalarValue> {
-        // Invalid or unknown computations never establish a flow fact. Their
-        // original executable IR remains responsible for definedness checks.
+    pub(super) fn value(&self, expression: &ScalarExpr) -> Result<Option<ScalarValue>, FrontendError> {
+        // Unknown values establish no fact; errors must not become unknown.
         expression
             .constant_value_with(&|id| self.0.get(&id).copied())
-            .ok()
-            .flatten()
+            .map_err(|reason| FrontendError::ScalarEvaluation {
+                reason,
+                snippet: format!("known-value propagation at {:?}", expression.ast_id()),
+            })
     }
 
-    fn block(&mut self, body: &Block) {
+    fn block(&mut self, body: &Block) -> Result<(), FrontendError> {
         for statement in &body.statements {
-            self.statement(statement);
+            self.statement(statement)?;
         }
         for statement in &body.statements {
             if let StatementKind::ScalarDeclare { id, .. } = &statement.kind {
                 self.0.remove(id);
             }
         }
+        Ok(())
     }
 
-    pub(super) fn statement(&mut self, statement: &Statement) {
+    pub(super) fn statement(&mut self, statement: &Statement) -> Result<(), FrontendError> {
         match &statement.kind {
             StatementKind::ScalarDeclare {
                 id, initializer, ..
             } => {
-                self.declare(*id, initializer.as_ref());
+                self.declare(*id, initializer.as_ref())?;
             }
             StatementKind::ScalarAssign { target, value } => {
-                let value = self.value(value);
+                let value = self.value(value)?;
                 self.0.remove(target);
                 if let Some(value) = value {
                     self.0.insert(*target, value);
@@ -56,18 +63,18 @@ impl KnownScalars {
                 then_branch,
                 else_branch,
             } => match constants::eval_constant_bit(condition) {
-                Some(true) => self.block(then_branch),
-                Some(false) => self.block(else_branch),
+                Some(true) => self.block(then_branch)?,
+                Some(false) => self.block(else_branch)?,
                 None => {
                     let mut other = self.clone();
-                    self.block(then_branch);
-                    other.block(else_branch);
+                    self.block(then_branch)?;
+                    other.block(else_branch)?;
                     self.0.retain(|id, value| other.0.get(id) == Some(value));
                 }
             },
             // Preserve only frame facts, irrespective of iteration count.
             StatementKind::While { body, .. } => self.forget_writes(body),
-            StatementKind::Scope(body) => self.block(body),
+            StatementKind::Scope(body) => self.block(body)?,
             StatementKind::Assign { .. }
             | StatementKind::Measure { .. }
             | StatementKind::Apply { .. }
@@ -75,6 +82,7 @@ impl KnownScalars {
             | StatementKind::GlobalPhase(_)
             | StatementKind::Unitary { .. } => {}
         }
+        Ok(())
     }
 
     fn forget_writes(&mut self, body: &Block) {

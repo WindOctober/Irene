@@ -39,6 +39,8 @@ enum NumericForm {
     Rational(BigRational),
     Constant(NumericConstant),
     Input(SymbolId),
+    // Opaque syntax only; entry-point validation refuses machine expressions.
+    Scalar(Box<iqir::ScalarExpr>),
     Add(Vec<NumericForm>),
     Mul(Vec<NumericForm>),
     Inverse(Box<NumericForm>),
@@ -110,6 +112,9 @@ impl PhaseCoefficient {
             return;
         }
         match &angle.kind {
+            NumericExprKind::Scalar(_) => {
+                self.add_basis(AngleBasis::Nonlinear(NumericForm::from(angle)), scale);
+            }
             NumericExprKind::Rational(value) => {
                 self.add_basis(AngleBasis::Radian, scale * value);
             }
@@ -212,6 +217,7 @@ impl PhaseCoefficient {
 impl From<&NumericExpr> for NumericForm {
     fn from(expression: &NumericExpr) -> Self {
         match &expression.kind {
+            NumericExprKind::Scalar(value) => Self::Scalar(value.clone()),
             NumericExprKind::Rational(value) => Self::Rational(value.clone()),
             NumericExprKind::Constant(NumericConstant::Tau) => normalize_mul(vec![
                 Self::Rational(integer(2)),
@@ -257,7 +263,9 @@ fn exact_rational(expression: &NumericExpr) -> Option<BigRational> {
             let denominator = exact_rational(right)?;
             (denominator != integer(0)).then(|| numerator / denominator)
         }
-        NumericExprKind::Constant(_) | NumericExprKind::Input(_) => None,
+        NumericExprKind::Constant(_) | NumericExprKind::Input(_) | NumericExprKind::Scalar(_) => {
+            None
+        }
     }
 }
 
@@ -638,6 +646,7 @@ impl fmt::Display for NumericForm {
             Self::Constant(NumericConstant::Euler) => formatter.write_str("ℇ"),
             Self::Input(id) => write!(formatter, "input{}", id.0),
             Self::Add(terms) => display_joined(formatter, terms, " + "),
+            Self::Scalar(value) => write!(formatter, "scalar({:?})", value.kind),
             Self::Mul(factors) => display_joined(formatter, factors, " · "),
             Self::Inverse(value) => write!(formatter, "1/({value})"),
         }

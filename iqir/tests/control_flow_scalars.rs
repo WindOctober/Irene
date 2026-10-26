@@ -142,6 +142,22 @@ fn value(e: &ScalarExpr, store: &BTreeMap<SymbolId, Value>) -> Value {
         E::Float64(n) => Value::Float(f64::from_bits(*n)),
         E::Read(id) => store[id],
         E::FloatCast(a) | E::IntWiden(a) => value(a, store),
+        E::IntFromFloat(a) => match value(a, store) {
+            Value::Float(x) => Value::Integer(x.trunc() as i128),
+            _ => panic!("floating operand required"),
+        },
+        E::FloatUnary { op, argument } => match value(argument, store) {
+            Value::Float(x) => Value::Float(match op {
+                FloatUnary::Floor => x.floor(),
+                FloatUnary::Ceiling => x.ceil(),
+                FloatUnary::Sqrt => x.sqrt(),
+                FloatUnary::Acos => x.acos(),
+                FloatUnary::Sin => x.sin(),
+                FloatUnary::Asin => x.asin(),
+                FloatUnary::Log => x.ln(),
+            }),
+            _ => panic!("floating operand required"),
+        },
         E::FromBits(_) => panic!("bit stores are outside this scalar-only test interpreter"),
         E::Neg(a) => match value(a, store) {
             Value::Integer(n) => Value::Integer(-n),
@@ -401,7 +417,6 @@ fn rejects_unsupported_or_ill_typed_scalar_forms_instead_of_erasing_them() {
         "uint[8] n=-1;",
         "float[64] f=1e400;",
         "int[8] n=1.5;",
-        "int[8] n=1; float[64] f=n;",
         "int[8] n=1; int[16] m=n;",
         "int[8] n=1; n[0]=0;",
         "while(true) {break;}",

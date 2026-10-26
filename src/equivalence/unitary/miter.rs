@@ -78,7 +78,7 @@ pub fn validate(source: &Program) -> Result<(), UnitaryMiterError> {
                     let mut pending = parameters.iter().collect::<Vec<_>>();
                     while let Some(e) = pending.pop() {
                         match &e.kind {
-                            NumericExprKind::Input(_) => {
+                            NumericExprKind::Input(_) | NumericExprKind::Scalar(_) => {
                                 return Err(UnitaryMiterError::NumericInput);
                             }
                             NumericExprKind::Neg(a) => pending.push(a),
@@ -298,7 +298,7 @@ fn copy_numeric(
 ) -> Result<NumericExpr, UnitaryMiterError> {
     use NumericExprKind::*;
     let kind = match &expr.kind {
-        Input(_) => return Err(UnitaryMiterError::NumericInput),
+        Input(_) | Scalar(_) => return Err(UnitaryMiterError::NumericInput),
         Rational(value) => Rational(value.clone()),
         Constant(value) => Constant(*value),
         Neg(x) => Neg(Box::new(copy_numeric(x, ids)?)),

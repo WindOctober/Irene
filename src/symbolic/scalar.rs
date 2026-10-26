@@ -251,6 +251,8 @@ pub enum ScalarEvaluationError {
     MissingBoolean(Variable),
     #[error("missing numeric value for input{0}")]
     MissingNumericInput(usize),
+    #[error("runtime scalar gate parameters require machine-number semantics")]
+    RuntimeScalar,
 }
 
 /// Evaluates a Boolean graph under one concrete assignment.
@@ -274,6 +276,7 @@ fn evaluate_numeric(
     bindings: &ScalarBindings,
 ) -> Result<Float, ScalarEvaluationError> {
     match &expression.kind {
+        NumericExprKind::Scalar(_) => Err(ScalarEvaluationError::RuntimeScalar),
         NumericExprKind::Rational(value) => Ok(rational_float(value, precision)),
         NumericExprKind::Constant(NumericConstant::Pi) => {
             Ok(Float::with_val(precision, Constant::Pi))

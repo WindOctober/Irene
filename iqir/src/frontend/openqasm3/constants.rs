@@ -4,14 +4,21 @@ use super::*;
 use crate::{ScalarExpr, ScalarType, ScalarValue};
 
 impl Lowerer {
-    pub(super) fn has_float_binding(&self, expr: &Expr) -> Result<bool, FrontendError> {
+    pub(super) fn has_float_value(&self, expr: &Expr) -> Result<bool, FrontendError> {
+        if matches!(expr, Expr::Literal(l) if matches!(l.kind(), ast::LiteralKind::FloatNumber(_))) {
+            return Ok(true);
+        }
+        if let Expr::CallExpr(call) = expr {
+            self.builtin_math_call(call)?;
+            return Ok(true);
+        }
         if let Expr::Identifier(id) = expr {
             return Ok(matches!(
                 self.scopes.lookup(&id.string()).map_err(scope_error)?.kind,
                 BindingKind::Scalar {
                     ty: ScalarType::Float { .. },
                     ..
-                }
+                } | BindingKind::Constant(_)
             ));
         }
         if let Expr::CastExpression(c) = expr
@@ -20,11 +27,25 @@ impl Lowerer {
             return Ok(true);
         }
         for child in expr.syntax().children().filter_map(Expr::cast) {
-            if self.has_float_binding(&child)? {
+            if self.has_float_value(&child)? {
                 return Ok(true);
             }
         }
         Ok(false)
+    }
+
+    /// Gate formals and symbolic numeric inputs belong to NumericExpr, not
+    /// scalar storage. Lower their floating subexpressions separately; never
+    /// attempt to read a gate formal as a mutable IEEE register.
+    pub(super) fn has_numeric_parameter(&self, expr: &Expr) -> bool {
+        expr.syntax()
+            .descendants()
+            .filter_map(ast::Identifier::cast)
+            .any(|id| {
+                self.scopes.lookup(&id.string()).is_ok_and(|binding| {
+                    matches!(binding.kind, BindingKind::NumericInput(_))
+                })
+            })
     }
 
     /// Recognition only: Boolean comparisons are not integer expressions,
@@ -72,7 +93,7 @@ impl Lowerer {
             Expr::BinExpr(b)
                 if matches!(
                     b.op_kind(),
-                    Some(ast::BinaryOp::ArithOp(_) | ast::BinaryOp::PowerOp)
+                    Some(ast::BinaryOp::ArithOp(_))
                 ) =>
             {
                 for child in expr.syntax().children().filter_map(Expr::cast) {
@@ -118,6 +139,10 @@ impl Lowerer {
         }
         match expr {
             Expr::Literal(_) => Ok(()),
+            Expr::CallExpr(call) => {
+                let (_, argument) = self.builtin_math_call(call)?;
+                self.check_const_expression(&argument, depth + 1)
+            }
             Expr::Identifier(id) => {
                 let binding = self.scopes.lookup(&id.string()).map_err(scope_error)?;
                 if !matches!(

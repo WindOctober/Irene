@@ -38,7 +38,9 @@ fn number(e: &NumericExpr) -> f64 {
         NumericExprKind::Sub(a, b) => number(a) - number(b),
         NumericExprKind::Mul(a, b) => number(a) * number(b),
         NumericExprKind::Div(a, b) => number(a) / number(b),
-        NumericExprKind::Input(_) => panic!("matrix oracle requires constant parameters"),
+        NumericExprKind::Input(_) | NumericExprKind::Scalar(_) => {
+            panic!("matrix oracle requires constant parameters")
+        }
     }
 }
 

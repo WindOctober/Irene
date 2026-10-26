@@ -112,6 +112,9 @@ impl AstIdGenerator {
             NumericExprKind::Rational(value) => NumericExprKind::Rational(value.clone()),
             NumericExprKind::Constant(value) => NumericExprKind::Constant(*value),
             NumericExprKind::Input(id) => NumericExprKind::Input(*id),
+            NumericExprKind::Scalar(value) => {
+                NumericExprKind::Scalar(Box::new(self.clone_scalar_expr(value)))
+            }
         };
         self.node(kind)
     }
@@ -204,6 +207,9 @@ pub enum NumericExprKind {
     Rational(BigRational),
     Constant(NumericConstant),
     Input(SymbolId),
+    /// Evaluate typed IEEE arithmetic first; use its finite value as radians.
+    /// This is not exact-real evaluation of the scalar expression's operators.
+    Scalar(Box<ScalarExpr>),
     Neg(Box<NumericExpr>),
     Add(Box<NumericExpr>, Box<NumericExpr>),
     Sub(Box<NumericExpr>, Box<NumericExpr>),
@@ -221,6 +227,7 @@ impl fmt::Display for AstNode<NumericExprKind> {
             NumericExprKind::Constant(NumericConstant::Tau) => formatter.write_str("τ"),
             NumericExprKind::Constant(NumericConstant::Euler) => formatter.write_str("ℇ"),
             NumericExprKind::Input(id) => write!(formatter, "input{}", id.0),
+            NumericExprKind::Scalar(value) => write!(formatter, "scalar({:?})", value.kind),
             NumericExprKind::Neg(value) => write!(formatter, "-({value})"),
             NumericExprKind::Add(left, right) => write!(formatter, "({left} + {right})"),
             NumericExprKind::Sub(left, right) => write!(formatter, "({left} - {right})"),
@@ -274,7 +281,7 @@ pub fn gate_shape(gate: Gate) -> (usize, usize) {
 /// exact representation. Register operations are expanded cell by cell before
 /// reaching the core IR. The symbolic executor interprets `Not`, `And`, `Or`,
 /// and `Xor` as Boolean operations, and `Eq(a, b)` as `!(a ^ b)`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ClassicalExprKind {
     ScalarCompare {
         op: ScalarComparison,
@@ -384,6 +391,7 @@ impl AstNode<ProgramData> {
         fn numeric(expression: &NumericExpr, visit: &mut impl FnMut(AstId)) {
             visit(expression.ast_id);
             match &expression.kind {
+                NumericExprKind::Scalar(value) => value.visit_ids(visit),
                 NumericExprKind::Neg(inner) => numeric(inner, visit),
                 NumericExprKind::Add(left, right)
                 | NumericExprKind::Sub(left, right)
@@ -503,6 +511,7 @@ pub(crate) fn compact_program_ids(mut program: crate::Program) -> crate::Program
     fn numeric(e: &mut NumericExpr, next: &mut usize) {
         id(e, next);
         match &mut e.kind {
+            N::Scalar(value) => scalar(value, next),
             N::Neg(a) => numeric(a, next),
             N::Add(a, b) | N::Sub(a, b) | N::Mul(a, b) | N::Div(a, b) => {
                 numeric(a, next);
@@ -516,7 +525,9 @@ pub(crate) fn compact_program_ids(mut program: crate::Program) -> crate::Program
         match &mut e.kind.kind {
             ScalarExprKind::Neg(a)
             | ScalarExprKind::FloatCast(a)
-            | ScalarExprKind::IntWiden(a) => scalar(a, next),
+            | ScalarExprKind::IntWiden(a)
+            | ScalarExprKind::IntFromFloat(a)
+            | ScalarExprKind::FloatUnary { argument: a, .. } => scalar(a, next),
             ScalarExprKind::FromBits(bits) => {
                 for bit in bits {
                     classical(bit, next);

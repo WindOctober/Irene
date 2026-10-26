@@ -52,8 +52,14 @@ statement and Boolean-expression IR. Constants are evaluated from the same
 `ScalarExpr` tree and stored in the symbol table, without executable storage.
 Static integer specialization shares the checked integer arithmetic with that
 evaluator. Floating constant arithmetic no longer has a separate AST evaluator.
-The existing exact symbolic `NumericExpr` representation remains for gate
-parameters; it is a different numeric domain, not a non-runtime scalar type.
+The symbolic `NumericExpr` representation remains for gate angle parameters.
+OpenQASM 3 floating literals, builtin float constants (`pi`, `tau`, `euler`),
+and machine arithmetic inside gate arguments first use the same typed scalar
+evaluator as classical declarations. Only the final finite IEEE value is
+embedded as an exact rational for the mathematical gate; decimal `0.1` is
+therefore not the rational `1/10`. Closed floating subexpressions in symbolic
+angle expressions follow this rule too. Gate formals retain angle algebra;
+this does not add a finite-width angle hardware model.
 
 The target defaults are 32-bit signed integers and binary64 floats.
 Explicit versus omitted widths are retained as declaration metadata, not type
@@ -76,6 +82,42 @@ are retained. Arithmetic/conversion can produce infinities or NaNs; comparisons
 must follow IEEE behavior (`NaN != value`, other comparisons false).
 Nonfinite source literals are rejected.
 
+Closed calls to `sin`, `cos`, `tan`, `arcsin`, `arccos`, `arctan`, `sqrt`,
+`exp`, `log`, `floor`, and `ceiling` are evaluated at import. Calls may nest;
+each result is rounded to its argument's binary32/binary64 precision (integer
+arguments promote to binary64). Assignment narrowing happens afterwards.
+This target uses correctly rounded, nearest/ties-to-even results (except the
+explicit directed rounding in floor/ceiling), using native IEEE basic operations
+or directed MPFR bounds for transcendental functions; it does not assume every device math library
+implements that profile. Domain errors, nonfinite results, and unresolved
+rounding are rejected for closed calls. `floor`/`ceiling` still return floats; a separate
+`int[n](...)`/`uint[n](...)` cast truncates toward zero and checks the range.
+Gate arguments containing these calls use the same floating evaluator and
+export the rounded binary value as an exact rational. A flow-sensitive scalar
+analysis also evaluates calls/casts/gate parameters using known mutable values:
+declarations and assignments propagate typed values; branch joins retain only
+bit-identical facts; while headers and exits forget possibly written variables
+and preserve read-only ones. This is not const qualification: mutable reads
+remain illegal in const declarations and const-required sizes. Ordinary scalar
+reads remain in executable IR. Unknown arguments to `floor`, `ceiling`,
+`sqrt`, `arccos`, `sin`, `arcsin`, and `log` remain as `ScalarExprKind::FloatUnary` nodes; explicit floating-to-integer
+casts remain as `IntFromFloat`. The shared constant evaluator and symbolic
+consumer use the same precision and truncation semantics. Unary IEEE operations
+preserve signed zero and special values; integer conversions require a finite,
+representable truncated integer. Consumers must prove these conditions even for
+unused or overwritten conversions. `arccos` and `arcsin` denote principal branches on
+[-1,1]; `sin` takes finite radians; `log` is natural logarithm on finite positive
+arguments. All round to operand precision, rather than
+denoting exact-real functions. Their shared closed evaluator uses directed MPFR
+rounding bounds. Saria preserves symbolic calls
+but both SMT and Rocq currently reject dependent goals; a future checked model
+must establish domain and rounding semantics. Pending transcendental evaluation is not
+erased when its result is overwritten. Unknown arguments to other math functions
+(including measurement-driven statistics and loop-carried values) are still
+rejected rather than approximated or replaced by a first-iteration value.
+Typed arithmetic and integer-to-float casts can remain dynamic, including
+inside gate parameters as described below.
+
 Declarations without initializers stay uninitialized. The frontend does not
 prove definite initialization or execute runtime arithmetic. Backends must
 check reads, overflow, zero division, and allocation lifetimes; they must not
@@ -94,10 +136,29 @@ the original bit dependencies; consumers must retain uninitialized-read errors
 and classical/quantum correlations rather than create fresh unconstrained
 integers. Closed bit values can fold; runtime values remain symbolic.
 
+Integer-to-float conversion reuses `FloatCast` (numeric conversion, not bit
+reinterpretation). The target profile uses round-to-nearest, ties-to-even
+(RNE); constants and symbolic execution share `ScalarValue::to_float`, and SMT
+uses signed `to_fp` or unsigned `to_fp_unsigned` with the same rounding mode.
+Conversion goes directly to the requested precision, avoiding double rounding
+through binary64 when the target is binary32. `int[32]` and `uint[32]` values
+are exactly representable in binary64; wider integers may round. Integer
+subexpressions retain their arithmetic before promotion: `float[64](n / 2)`
+performs integer division, whereas `float[64](n) / 2.0` performs float division.
+Explicit intermediate casts such as `float[64](float[32](n))` remain visible.
+
+Dynamic typed float gate parameters use `NumericExprKind::Scalar`, preserving
+all intermediate IEEE operations and current classical-memory reads. Only the
+final finite float value is interpreted as a real angle. Saria's SMT encoding
+uses `fp.to_real` with explicit non-NaN/non-infinite definedness requirements;
+it never assumes those requirements. Uninitialized reads and undefined integer
+operations remain errors/obligations. CoqQ currently rejects these parameters
+instead of replacing IEEE computations with real arithmetic; Irene's
+equivalence backend also rejects this unsupported machine-number fragment.
+
 This remains a supported subset, not a full OpenQASM implementation: `break`,
-`continue`, runtime array indexing, unknown numeric gate parameters, numeric
-subroutine parameters/returns, mixed signed/unsigned arithmetic, int/float
-variable conversions, narrowing/reinterpreting scalar integer casts, runtime scalar
+`continue`, runtime array indexing, numeric
+subroutine parameters/returns, mixed signed/unsigned arithmetic, narrowing/reinterpreting scalar integer casts, runtime scalar
 shifts, non-integer gate powers, `negctrl`, and
 non-gate bodies inside gate definitions remain explicitly unsupported.
 Unsigned `uint[n]` keeps the existing word/bit lowering, including indexed reads,
@@ -126,7 +187,21 @@ are not lowered by this constant-specialization path.
 
 Boolean constants and known-bit flow analysis share one bounded evaluator.
 `ScalarExpr::constant_value_with` reads a typed known-value environment without
-cloning and substituting the expression tree. Comparison folding uses this
+cloning and substituting the expression tree. Each node checks its type and
+operation before evaluating operands: mixed-width/signedness arithmetic requires
+explicit conversions, even when operands are unknown. Malformed IR returns an
+error. Floating remainder in the public scalar IR is an explicit `todo!()`
+(panic), for both known and unknown operands; it must never be treated as an
+unknown value or a successful proof. Evaluation budget exhaustion remains an
+error, not evidence of program invalidity.
+
+Known-value propagation preserves evaluation errors and aborts import with a
+scalar-evaluation diagnostic; it no longer converts errors to unknown values.
+This includes overflow or integer division by zero revealed by current flow
+facts. Import can conservatively reject errors in branches being lowered even
+if a later analysis could establish that they are unreachable. Unknown runtime
+values still require backend definedness checks; import is not such a proof.
+Comparison folding uses this
 same evaluator, preserving integer checks and each floating rounding step.
 Declarations and assignments propagate typed values; branch joins retain only
 bit-identical facts; while headers and exits forget possibly written variables

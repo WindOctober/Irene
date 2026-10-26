@@ -9,7 +9,7 @@
 //! Constant evaluation uses these same expression nodes and arithmetic rules.
 use crate::{AstId, AstIdGenerator, AstNode, SymbolId};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ScalarType {
     Int { width: u32, signed: bool },
     Float { width: u32 },
@@ -139,6 +139,42 @@ pub enum ScalarValue {
 }
 
 impl ScalarValue {
+    /// Explicit float -> machine integer conversion, truncating toward zero.
+    /// Check the rounded integer before conversion; never use saturating casts.
+    pub fn to_integer(self, target: ScalarType) -> Result<Self, &'static str> {
+        let value = self.as_float().ok_or("floating operand required")?;
+        let (integer, _) = rug::Float::with_val(64, value)
+            .to_integer_round(rug::float::Round::Zero)
+            .ok_or("non-finite integer cast")?;
+        let integer = integer.to_i128().ok_or("out-of-range integer cast")?;
+        if !target.contains_integer(integer) {
+            return Err("out-of-range integer cast");
+        }
+        Ok(Self::Integer(integer))
+    }
+
+    /// Numeric conversion with RNE, directly to the destination precision.
+    /// In particular, integer -> binary32 must not round via binary64 first.
+    pub fn to_float(self, target: ScalarType) -> Result<Self, &'static str> {
+        Ok(match (target, self) {
+            (ScalarType::Float { width: 32 }, Self::Integer(v)) => {
+                Self::Float32((v as f32).to_bits())
+            }
+            (ScalarType::Float { width: 64 }, Self::Integer(v)) => {
+                Self::Float64((v as f64).to_bits())
+            }
+            (ScalarType::Float { width: 32 }, Self::Float32(v)) => Self::Float32(v),
+            (ScalarType::Float { width: 64 }, Self::Float64(v)) => Self::Float64(v),
+            (ScalarType::Float { width: 32 }, Self::Float64(v)) => {
+                Self::Float32((f64::from_bits(v) as f32).to_bits())
+            }
+            (ScalarType::Float { width: 64 }, Self::Float32(v)) => {
+                Self::Float64(f64::from(f32::from_bits(v)).to_bits())
+            }
+            _ => return Err("unsupported float precision"),
+        })
+    }
+
     pub fn as_float(self) -> Option<f64> {
         match self {
             Self::Float32(bits) => Some(f64::from(f32::from_bits(bits))),
@@ -156,19 +192,20 @@ impl ScalarValue {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ScalarArithmetic {
     Add,
     Sub,
     Mul,
     Div,
     Rem,
+    /// Fixed-width bit-pattern operations; never Boolean short-circuiting.
     BitAnd,
     BitOr,
     BitXor,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ScalarComparison {
     Eq,
     Ne,
@@ -196,7 +233,7 @@ impl ScalarComparison {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ScalarExprKind {
     /// Range-checked at import, with signedness and width supplied by `ty`.
     Integer(i128),
@@ -209,8 +246,15 @@ pub enum ScalarExprKind {
     FromBits(Vec<crate::ClassicalExpr>),
     /// Value-preserving integer conversion; narrowing/reinterpretation is not supported.
     IntWiden(Box<ScalarExpr>),
-    /// IEEE conversion between binary32/binary64. The destination is `ty`.
+    /// RNE numeric conversion from an integer or float to binary32/binary64.
+    /// The source type retains integer signedness; the destination is `ty`.
     FloatCast(Box<ScalarExpr>),
+    /// Explicit finite, representable floating-to-integer conversion (RTZ).
+    IntFromFloat(Box<ScalarExpr>),
+    FloatUnary {
+        op: FloatUnary,
+        argument: Box<ScalarExpr>,
+    },
     Neg(Box<ScalarExpr>),
     Binary {
         op: ScalarArithmetic,
@@ -219,7 +263,121 @@ pub enum ScalarExprKind {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Typed floating functions, distinct from exact-real math. A consumer must
+/// reject operations for which it has no checked semantics (e.g. runtime Acos).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum FloatUnary {
+    Floor,
+    Ceiling,
+    Sqrt,
+    /// Principal arccosine on [-1, 1], rounded to the operand precision (RNE).
+    Acos,
+    /// Sine of a finite argument in radians, rounded at operand precision (RNE).
+    Sin,
+    /// Principal arcsine on [-1, 1], rounded at operand precision (RNE).
+    Asin,
+    /// Natural logarithm of a finite positive argument, rounded with RNE.
+    Log,
+}
+
+impl FloatUnary {
+    /// These functions use a finite-input/domain-checked target profile, unlike
+    /// total IEEE basic operations. Evaluating them must not be silently erased.
+    pub fn requires_domain_check(self) -> bool {
+        matches!(self, Self::Acos | Self::Sin | Self::Asin | Self::Log)
+    }
+    /// Evaluate at the operand's precision. Basic IEEE operations preserve
+    /// signed zero/special values; transcendentals require finite inputs in their domains
+    /// and a certified rounded result, otherwise evaluation fails closed.
+    pub fn evaluate(self, value: ScalarValue) -> Result<ScalarValue, &'static str> {
+        if self.requires_domain_check() {
+            return rounded_float_math(value, |v, round| match self {
+                Self::Acos => {
+                    v.acos_round(round);
+                }
+                Self::Sin => {
+                    v.sin_round(round);
+                }
+                Self::Asin => {
+                    v.asin_round(round);
+                }
+                Self::Log => {
+                    v.ln_round(round);
+                }
+                _ => unreachable!(),
+            });
+        }
+        Ok(match value {
+            ScalarValue::Float32(bits) => {
+                let x = f32::from_bits(bits);
+                ScalarValue::Float32(
+                    match self {
+                        Self::Floor => x.floor(),
+                        Self::Ceiling => x.ceil(),
+                        Self::Sqrt => x.sqrt(),
+                        Self::Acos | Self::Sin | Self::Asin | Self::Log => unreachable!(),
+                    }
+                    .to_bits(),
+                )
+            }
+            ScalarValue::Float64(bits) => {
+                let x = f64::from_bits(bits);
+                ScalarValue::Float64(
+                    match self {
+                        Self::Floor => x.floor(),
+                        Self::Ceiling => x.ceil(),
+                        Self::Sqrt => x.sqrt(),
+                        Self::Acos | Self::Sin | Self::Asin | Self::Log => unreachable!(),
+                    }
+                    .to_bits(),
+                )
+            }
+            _ => return Err("floating operand required"),
+        })
+    }
+}
+
+/// Shared certified rounding for closed transcendental calls, including values
+/// that become known only during symbolic execution. No host libm approximation.
+pub fn rounded_float_math(
+    input: ScalarValue,
+    apply: impl Fn(&mut rug::Float, rug::float::Round),
+) -> Result<ScalarValue, &'static str> {
+    use rug::{Float, float::Round};
+    let value = input.as_float().ok_or("floating operand required")?;
+    if !value.is_finite() {
+        return Err("non-finite constant math argument");
+    }
+    for precision in [128, 256, 512, 1024, 2048, 4096] {
+        let mut lo = Float::with_val(precision, value);
+        let mut hi = lo.clone();
+        apply(&mut lo, Round::Down);
+        apply(&mut hi, Round::Up);
+        if lo.is_nan() || hi.is_nan() {
+            return Err("constant math function domain");
+        }
+        let round = |v: &Float| match input {
+            ScalarValue::Float32(_) => {
+                ScalarValue::Float32(v.to_f32_round(Round::Nearest).to_bits())
+            }
+            ScalarValue::Float64(_) => {
+                ScalarValue::Float64(v.to_f64_round(Round::Nearest).to_bits())
+            }
+            _ => unreachable!(),
+        };
+        let lower = round(&lo);
+        if lower == round(&hi) {
+            return if lower.as_float().unwrap().is_finite() {
+                Ok(lower)
+            } else {
+                Err("non-finite constant math result")
+            };
+        }
+    }
+    Err("constant math rounding precision budget")
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ScalarExprData {
     pub ty: ScalarType,
     pub kind: ScalarExprKind,
@@ -227,6 +385,52 @@ pub struct ScalarExprData {
 pub type ScalarExpr = AstNode<ScalarExprData>;
 
 impl ScalarExpr {
+    /// Check local IR typing before looking up any values. Unknown operands
+    /// must not hide malformed nodes or unsupported operations.
+    fn validate_operation(&self) -> Result<(), &'static str> {
+        use ScalarExprKind as E;
+        let valid_type = |ty| {
+            matches!(ty,
+                ScalarType::Int { width: 1..=64, .. }
+                    | ScalarType::Float { width: 32 | 64 })
+        };
+        if !valid_type(self.ty) {
+            return Err("invalid scalar IR type");
+        }
+        match &self.kind.kind {
+            E::Neg(a) if a.ty != self.ty => return Err("scalar negation type mismatch"),
+            E::Binary { op, left, right } => {
+                if left.ty != self.ty || right.ty != self.ty {
+                    return Err("scalar binary type mismatch");
+                }
+                if self.ty.is_float() {
+                    match op {
+                        ScalarArithmetic::BitAnd
+                        | ScalarArithmetic::BitOr
+                        | ScalarArithmetic::BitXor => {
+                            return Err("bitwise operands must be integers");
+                        }
+                        ScalarArithmetic::Rem => {
+                            todo!("IEEE floating remainder is not implemented in scalar IR");
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            E::FloatCast(a) if !self.ty.is_float() || !valid_type(a.ty) => {
+                return Err("invalid floating cast types");
+            }
+            E::IntFromFloat(a) if self.ty.is_float() || !a.ty.is_float() || !valid_type(a.ty) => {
+                return Err("invalid float-to-integer cast types");
+            }
+            E::FloatUnary { argument, .. } if !self.ty.is_float() || argument.ty != self.ty => {
+                return Err("floating unary type mismatch");
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
     /// Evaluate a closed expression. Unknown reads are not implicit zeroes.
     /// Nonfinite floating results follow IEEE; const declarations may reject
     /// them separately as part of the frontend's supported constant subset.
@@ -254,6 +458,7 @@ impl ScalarExpr {
             return Err("constant scalar evaluation budget");
         }
         *work -= 1;
+        self.validate_operation()?;
         use ScalarArithmetic as A;
         use ScalarExprKind as E;
         use ScalarValue as V;
@@ -303,12 +508,22 @@ impl ScalarExpr {
                 let Some(v) = a.constant_value_inner(lookup, depth + 1, work)? else {
                     return Ok(None);
                 };
-                let v = v.as_float().ok_or("expected floating conversion operand")?;
-                match self.ty {
-                    ScalarType::Float { width: 32 } => V::Float32((v as f32).to_bits()),
-                    ScalarType::Float { width: 64 } => V::Float64(v.to_bits()),
-                    _ => return Err("unsupported float precision"),
+                v.to_float(self.ty)?
+            }
+            E::IntFromFloat(a) => {
+                let Some(v) = a.constant_value_inner(lookup, depth + 1, work)? else {
+                    return Ok(None);
+                };
+                v.to_integer(self.ty)?
+            }
+            E::FloatUnary { op, argument } => {
+                if self.ty != argument.ty || !self.ty.is_float() {
+                    return Err("floating unary type mismatch");
                 }
+                let Some(v) = argument.constant_value_inner(lookup, depth + 1, work)? else {
+                    return Ok(None);
+                };
+                op.evaluate(v)?
             }
             E::Neg(a) => {
                 let Some(v) = a.constant_value_inner(lookup, depth + 1, work)? else {
@@ -325,6 +540,11 @@ impl ScalarExpr {
             E::Binary { op, left, right } => {
                 let left = left.constant_value_inner(lookup, depth + 1, work)?;
                 let right = right.constant_value_inner(lookup, depth + 1, work)?;
+                if !self.ty.is_float() {
+                    if matches!(op, A::Div | A::Rem) && right == Some(V::Integer(0)) {
+                        return Err("zero divisor");
+                    }
+                }
                 let (Some(left), Some(right)) = (left, right) else {
                     return Ok(None);
                 };
@@ -340,7 +560,7 @@ impl ScalarExpr {
                                 A::Sub => a - b,
                                 A::Mul => a * b,
                                 A::Div => a / b,
-                                A::Rem => return Err("floating remainder is unsupported"),
+                                A::Rem => unreachable!("validated scalar operation"),
                                 A::BitAnd | A::BitOr | A::BitXor => {
                                     return Err("bitwise operands must be integers");
                                 }
@@ -356,7 +576,7 @@ impl ScalarExpr {
                                 A::Sub => a - b,
                                 A::Mul => a * b,
                                 A::Div => a / b,
-                                A::Rem => return Err("floating remainder is unsupported"),
+                                A::Rem => unreachable!("validated scalar operation"),
                                 A::BitAnd | A::BitOr | A::BitXor => {
                                     return Err("bitwise operands must be integers");
                                 }
@@ -380,9 +600,11 @@ impl ScalarExpr {
     pub fn visit_ids(&self, visit: &mut impl FnMut(AstId)) {
         visit(self.ast_id());
         match &self.kind.kind {
-            ScalarExprKind::Neg(a) | ScalarExprKind::FloatCast(a) | ScalarExprKind::IntWiden(a) => {
-                a.visit_ids(visit)
-            }
+            ScalarExprKind::Neg(a)
+            | ScalarExprKind::FloatCast(a)
+            | ScalarExprKind::IntWiden(a)
+            | ScalarExprKind::IntFromFloat(a)
+            | ScalarExprKind::FloatUnary { argument: a, .. } => a.visit_ids(visit),
             ScalarExprKind::FromBits(bits) => {
                 for bit in bits {
                     bit.visit_ids(visit);
@@ -404,6 +626,13 @@ impl AstIdGenerator {
             ScalarExprKind::FloatCast(a) => {
                 ScalarExprKind::FloatCast(Box::new(self.clone_scalar_expr(a)))
             }
+            ScalarExprKind::IntFromFloat(a) => {
+                ScalarExprKind::IntFromFloat(Box::new(self.clone_scalar_expr(a)))
+            }
+            ScalarExprKind::FloatUnary { op, argument } => ScalarExprKind::FloatUnary {
+                op: *op,
+                argument: Box::new(self.clone_scalar_expr(argument)),
+            },
             ScalarExprKind::IntWiden(a) => {
                 ScalarExprKind::IntWiden(Box::new(self.clone_scalar_expr(a)))
             }

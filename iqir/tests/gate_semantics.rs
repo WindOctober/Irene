@@ -33,7 +33,7 @@ fn numeric(e: &NumericExpr) -> f64 {
         N::Sub(a, b) => numeric(a) - numeric(b),
         N::Mul(a, b) => numeric(a) * numeric(b),
         N::Div(a, b) => numeric(a) / numeric(b),
-        N::Input(_) => panic!(),
+        N::Input(_) | N::Scalar(_) => panic!("oracle requires constant parameters"),
     }
 }
 fn block(b: &Block, state: &mut [C], mask: usize, inverse: bool) {

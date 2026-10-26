@@ -5,6 +5,7 @@ fn numeric_ids(expression: &NumericExpr) -> Vec<usize> {
     fn visit(expression: &NumericExpr, ids: &mut Vec<usize>) {
         ids.push(expression.ast_id.index());
         match &expression.kind {
+            NumericExprKind::Scalar(value) => value.visit_ids(&mut |id| ids.push(id.index())),
             NumericExprKind::Rational(_)
             | NumericExprKind::Constant(_)
             | NumericExprKind::Input(_) => {}

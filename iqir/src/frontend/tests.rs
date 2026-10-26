@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 use num_rational::BigRational;
 
 use crate::{
-    AstIdGenerator, AstNode, Gate, NumericConstant, NumericExpr, NumericExprKind, NumericType,
+    AstIdGenerator, AstNode, Gate, NumericExpr, NumericExprKind, NumericType,
     StatementKind,
 };
 
@@ -915,14 +915,8 @@ fn integer_parameter_subexpressions_use_truncating_division_and_dense_ids() {
     expected.extend([
         rational(1, 1),
         rational(3, 1),
-        node(NumericExprKind::Add(
-            Box::new(rational(1, 1)),
-            Box::new(rational(3, 1)),
-        )),
-        node(NumericExprKind::Div(
-            Box::new(rational(7, 1)),
-            Box::new(rational(2, 1)),
-        )),
+        rational(4, 1),
+        rational(7, 2),
     ]);
     let program = parse_str(&source, "integer-parameters.qasm").unwrap();
     assert_eq!(program.body.statements.len(), expected.len());
@@ -962,7 +956,7 @@ fn integer_parameter_zero_divisors_are_rejected_even_inside_mixed_expressions() 
 }
 
 #[test]
-fn preserves_numeric_gate_parameters_without_float_conversion() {
+fn rounds_machine_gate_parameters_and_preserves_symbolic_inputs() {
     let program = parse_str(
         r#"
         OPENQASM 3.0;
@@ -990,12 +984,17 @@ fn preserves_numeric_gate_parameters_without_float_conversion() {
         panic!("expected an rz gate");
     };
     assert_eq!(*gate, Gate::Rz);
-    assert_eq!(parameters, &[rational(1, 10)]);
+    let rounded = |value| {
+        node(NumericExprKind::Rational(
+            BigRational::from_float(value).unwrap(),
+        ))
+    };
+    assert_eq!(parameters, &[rounded(0.1)]);
     for statement in &program.body.statements[1..3] {
         let StatementKind::Apply { parameters, .. } = &statement.kind else {
             panic!("expected an rz gate");
         };
-        assert_eq!(parameters, &[rational(1, 10)]);
+        assert_eq!(parameters, &[rounded(0.1)]);
     }
 
     let theta = node(NumericExprKind::Input(program.numeric_inputs[0].id));
@@ -1005,10 +1004,7 @@ fn preserves_numeric_gate_parameters_without_float_conversion() {
     assert_eq!(
         parameters,
         &[node(NumericExprKind::Add(
-            Box::new(node(NumericExprKind::Div(
-                Box::new(node(NumericExprKind::Constant(NumericConstant::Pi))),
-                Box::new(rational(7, 1)),
-            ))),
+            Box::new(rounded(std::f64::consts::PI / 7.0)),
             Box::new(theta),
         ))]
     );
@@ -1020,7 +1016,7 @@ fn preserves_numeric_gate_parameters_without_float_conversion() {
     assert_eq!(
         parameters,
         &[node(NumericExprKind::Mul(
-            Box::new(node(NumericExprKind::Neg(Box::new(rational(1, 800))))),
+            Box::new(rounded(-1.25e-3)),
             Box::new(delta),
         ))]
     );

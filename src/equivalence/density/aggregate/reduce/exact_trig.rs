@@ -22,7 +22,7 @@ pub(in crate::equivalence::density::aggregate) fn admitted(
     match &angle.kind {
         NumericExprKind::Rational(r) => r.numer().bits() <= 4096 && r.denom().bits() <= 4096,
         NumericExprKind::Constant(_) => true,
-        NumericExprKind::Input(_) => false,
+        NumericExprKind::Input(_) | NumericExprKind::Scalar(_) => false,
         NumericExprKind::Neg(a) => admitted(a, nodes),
         NumericExprKind::Add(a, b) | NumericExprKind::Sub(a, b) | NumericExprKind::Mul(a, b) => {
             admitted(a, nodes) && admitted(b, nodes)

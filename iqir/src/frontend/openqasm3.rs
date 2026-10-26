@@ -1,8 +1,7 @@
 use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
-use std::str::FromStr;
 
-use bigdecimal::{BigDecimal, num_bigint::BigInt};
+use bigdecimal::num_bigint::BigInt;
 use num_rational::BigRational;
 use oq3_source_file::{SourceTrait, parse_source_string};
 use oq3_syntax::BlockOrStmt;
@@ -33,6 +32,11 @@ pub enum FrontendError {
     #[error("unsupported OpenQASM construct: {construct}: {snippet}")]
     Unsupported {
         construct: &'static str,
+        snippet: String,
+    },
+    #[error("scalar evaluation failed ({reason}): {snippet}")]
+    ScalarEvaluation {
+        reason: &'static str,
         snippet: String,
     },
     #[error("identifier `{0}` is already declared in this scope")]
@@ -89,6 +93,7 @@ macro_rules! expected {
 mod angle;
 mod annotations;
 mod constants;
+mod constant_math;
 mod controlled_u;
 mod custom_gates;
 mod known_scalars;
@@ -703,7 +708,7 @@ impl Lowerer {
         self.known_bits = before;
         self.known_scalars = scalar_before;
         if let Ok(statement) = &result {
-            self.known_scalars.statement(statement);
+            self.known_scalars.statement(statement)?;
         }
         if let (Some(known), Ok(statement)) = (&mut self.known_bits, &result) {
             known.statement(statement);
@@ -1098,7 +1103,8 @@ impl Lowerer {
     }
 
     /// Preserves the structure of an OpenQASM numeric expression while
-    /// normalizing finite literals to exact rationals.
+    /// evaluating machine expressions before embedding their finite values
+    /// in the gate's real-valued mathematical parameter domain.
     fn lower_numeric_expr(&mut self, expression: Expr) -> Result<NumericExpr, FrontendError> {
         if !self.resolving_known_scalars {
             return self.with_known_scalars(|this| this.lower_numeric_expr(expression));
@@ -1110,13 +1116,25 @@ impl Lowerer {
                 return Ok(self.ids.clone_numeric_expr(value));
             }
         }
-        // Typed float constants keep IEEE arithmetic in their use sites too;
-        // never reinterpret (rounded_const + 1) as exact real arithmetic.
-        if self.has_float_binding(&expression)? {
-            let (value, _) = self.static_float(expression, 0)?;
-            return Ok(self.ids.node(NumericExprKind::Rational(
-                BigRational::from_float(value).expect("finite constant"),
-            )));
+        // Literals, builtin constants, calls and typed float variables share
+        // one IEEE evaluator. Round the whole machine expression, not just
+        // its leaves. Symbolic gate parameters retain their angle algebra.
+        if self.has_float_value(&expression)? && !self.has_numeric_parameter(&expression) {
+            let saved_ids = self.ids.clone();
+            let scalar =
+                self.lower_scalar_expr(expression.clone(), ScalarType::Float { width: 64 })?;
+            let known = scalar
+                .constant_value()
+                .map_err(|_| unsupported!("invalid scalar gate parameter", &expression))?;
+            if let Some(known) = known {
+                let value = known
+                    .as_float()
+                    .and_then(BigRational::from_float)
+                    .ok_or_else(|| unsupported!("non-finite gate parameter", &expression))?;
+                self.ids = saved_ids;
+                return Ok(self.ids.node(NumericExprKind::Rational(value)));
+            }
+            return Ok(self.ids.node(NumericExprKind::Scalar(Box::new(scalar))));
         }
         if expression.syntax().descendants().any(|node| {
             ast::Identifier::cast(node.clone()).is_some()
@@ -1145,14 +1163,10 @@ impl Lowerer {
                 .node(NumericExprKind::Rational(BigRational::from_integer(value))));
         }
         match expression {
-            // `7`, `0.1`, and `1e-1` become exact BigRational values.
+            // Floating literals were handled by the shared IEEE path above.
             Expr::Literal(literal) => match literal.kind() {
                 ast::LiteralKind::IntNumber(number) => {
                     let value = BigRational::from_integer(exact_integer_value(number)?);
-                    Ok(self.ids.node(NumericExprKind::Rational(value)))
-                }
-                ast::LiteralKind::FloatNumber(number) => {
-                    let value = exact_decimal(number)?;
                     Ok(self.ids.node(NumericExprKind::Rational(value)))
                 }
                 _ => Err(unsupported!("non-numeric gate parameter", &literal)),
@@ -3031,35 +3045,6 @@ fn exact_integer_value(number: ast::IntNumber) -> Result<BigInt, FrontendError> 
             }
         })?;
     Ok(integer)
-}
-
-/// Converts a finite decimal or scientific token without passing through `f64`.
-/// For example, `1.25e-3` becomes exactly `1/800`.
-fn exact_decimal(number: ast::FloatNumber) -> Result<BigRational, FrontendError> {
-    let (decimal, suffix) = number.split_into_parts();
-    if !suffix.is_empty() {
-        return Err(FrontendError::Expected {
-            expected: "an unsuffixed decimal gate parameter",
-            snippet: number.to_string(),
-        });
-    }
-    let decimal =
-        BigDecimal::from_str(&decimal.replace('_', "")).map_err(|_| FrontendError::Expected {
-            expected: "a finite decimal gate parameter",
-            snippet: number.to_string(),
-        })?;
-    let (digits, exponent) = decimal.into_bigint_and_exponent();
-    let magnitude =
-        u32::try_from(exponent.unsigned_abs()).map_err(|_| FrontendError::Expected {
-            expected: "a representable decimal exponent",
-            snippet: number.to_string(),
-        })?;
-    let power = BigInt::from(10_u8).pow(magnitude);
-    if exponent >= 0 {
-        Ok(BigRational::new(digits, power))
-    } else {
-        Ok(BigRational::from_integer(digits * power))
-    }
 }
 
 /// Preserves both the numeric kind and optional precision of an input type.

@@ -80,6 +80,9 @@ fn expression(source: &NumericExpr, work: &mut usize, depth: usize) -> CheckedIn
         // Inputs have the executor's formal-real domain, but no known range.
         // The equivalence interface separately refuses numeric input pairs.
         NumericExprKind::Input(_) => Ok(None),
+        NumericExprKind::Scalar(_) => Err(error(
+            "runtime scalar gate parameters require machine-number semantics",
+        )),
         NumericExprKind::Neg(a) => match expression(a, work, depth + 1)? {
             Some((low, high)) => bounded((-high, -low)),
             None => Ok(None),

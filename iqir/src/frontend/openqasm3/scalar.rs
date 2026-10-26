@@ -88,7 +88,9 @@ impl Lowerer {
         }
         let initializer = initializer?;
         if !is_const {
-            self.known_scalars.declare(binding.id, initializer.as_ref());
+            // Declaration lowering can bypass lower_statement (top level and
+            // block declarations), so establish its fact here as well.
+            self.known_scalars.declare(binding.id, initializer.as_ref())?;
         }
         if is_const {
             let value =
@@ -125,6 +127,14 @@ impl Lowerer {
             return Err(unsupported!("scalar expression depth", expression));
         }
         match expression {
+            Expr::CallExpr(call) => {
+                self.builtin_math_call(call)?;
+                Ok(Some(self.float_expression_type_depth(
+                    expression,
+                    ScalarType::Float { width: 64 },
+                    depth + 1,
+                )?))
+            }
             Expr::Identifier(id) => Ok(
                 match self.scopes.lookup(&id.string()).map_err(scope_error)?.kind {
                     BindingKind::Scalar { ty, .. } => Some(ty),
@@ -186,6 +196,10 @@ impl Lowerer {
     ) -> Result<bool, FrontendError> {
         if depth >= 128 {
             return Err(unsupported!("scalar expression depth", expression));
+        }
+        if let Expr::CallExpr(call) = expression {
+            self.builtin_math_call(call)?;
+            return Ok(true);
         }
         if let Expr::Identifier(id) = expression {
             return Ok(matches!(
@@ -250,6 +264,15 @@ impl Lowerer {
             return Err(unsupported!("scalar expression depth", source));
         }
         let width = match source {
+            Expr::CallExpr(call) => {
+                let (_, argument) = self.builtin_math_call(call)?;
+                self.float_expression_type_depth(
+                    &argument,
+                    ScalarType::Float { width: 64 },
+                    depth + 1,
+                )?
+                .width()
+            }
             Expr::Literal(l) if matches!(l.kind(), ast::LiteralKind::FloatNumber(_)) => 64,
             Expr::Identifier(id) => {
                 match self.scopes.lookup(&id.string()).map_err(scope_error)?.kind {
@@ -292,7 +315,7 @@ impl Lowerer {
         if expression.ty == ty {
             expression
         } else {
-            debug_assert!(expression.ty.is_float() && ty.is_float());
+            debug_assert!(ty.is_float());
             self.ids.node(ScalarExprData {
                 ty,
                 kind: E::FloatCast(Box::new(expression)),
@@ -310,7 +333,7 @@ impl Lowerer {
             return Err(unsupported!("scalar expression depth", &source));
         }
         if !self.resolving_known_scalars
-            && (matches!(&source, Expr::CastExpression(_))
+            && (matches!(&source, Expr::CallExpr(_) | Expr::CastExpression(_))
                 || static_integer::is_bit_operation(&source))
         {
             return self.with_known_scalars(|this| this.scalar_expr_depth(source, ty, depth));
@@ -342,12 +365,66 @@ impl Lowerer {
             return Ok(self.ids.node(ScalarExprData { ty, kind }));
         }
         let requested = ty;
+        if ty.is_float()
+            && self
+                .float_expression_type(&source, ScalarType::Float { width: 0 })?
+                .width()
+                == 0
+            && let Some(source_ty @ ScalarType::Int { .. }) =
+                self.scalar_hint_depth(&source, depth + 1)?
+        {
+            let value = self.scalar_expr_depth(source, source_ty, depth + 1)?;
+            return Ok(self.float_convert(value, requested));
+        }
         let ty = if ty.is_float() {
             self.float_expression_type(&source, ty)?
         } else {
             ty
         };
         let kind = match source.clone() {
+            Expr::CallExpr(call) => {
+                if !ty.is_float() {
+                    return Err(expected!("an explicit float-to-integer cast", &call));
+                }
+                let (function, argument) = self.builtin_math_call(&call)?;
+                if let Some(op) = function.symbolic() {
+                    let argument = self.scalar_expr_depth(argument, ty, depth + 1)?;
+                    let expression = self.ids.node(ScalarExprData {
+                        ty,
+                        kind: E::FloatUnary {
+                            op,
+                            argument: Box::new(argument),
+                        },
+                    });
+                    // Known and unknown operands share the same typed operation.
+                    if let Some(value) = expression
+                        .constant_value()
+                        .map_err(|r| unsupported!(r, &call))?
+                    {
+                        if !value.as_float().unwrap().is_finite() {
+                            return Err(unsupported!("non-finite constant math result", &call));
+                        }
+                        return Ok(self.ids.node(ScalarExprData {
+                            ty: requested,
+                            kind: value
+                                .to_float(requested)
+                                .map_err(|r| unsupported!(r, &call))?
+                                .expression(),
+                        }));
+                    }
+                    return Ok(self.float_convert(expression, requested));
+                }
+                let saved_ids = self.ids.clone();
+                let result = (|| {
+                    let argument = self.scalar_expr_depth(argument, ty, depth + 1)?;
+                    let value = self.require_scalar_constant(&argument, &source)?;
+                    function
+                        .evaluate(value.as_float().unwrap(), ty)
+                        .map_err(|reason| unsupported!(reason, &call))
+                })();
+                self.ids = saved_ids;
+                result?.expression()
+            }
             Expr::ParenExpr(p) => {
                 return self.scalar_expr_depth(
                     p.expr()
@@ -369,13 +446,18 @@ impl Lowerer {
                         else {
                             return Err(expected!("an unsigned integer", &source));
                         };
-                        if !(1..=64).contains(&width) || source_ty != ty {
+                        if !(1..=64).contains(&width) || (!ty.is_float() && source_ty != ty) {
                             return Err(expected!("a scalar of matching type and width", &source));
                         }
-                        return Ok(self.ids.node(ScalarExprData {
+                        let value = self.ids.node(ScalarExprData {
                             ty: source_ty,
                             kind: E::FromBits(bits),
-                        }));
+                        });
+                        return Ok(if ty.is_float() {
+                            self.float_convert(value, requested)
+                        } else {
+                            value
+                        });
                     }
                     BindingKind::Scalar {
                         ty: found, value, ..
@@ -396,6 +478,10 @@ impl Lowerer {
                         }
                         if found.is_float() && ty.is_float() {
                             return Ok(self.float_convert(read, requested));
+                        }
+                        if !found.is_float() && ty.is_float() {
+                            let converted = self.float_convert(read, ty);
+                            return Ok(self.float_convert(converted, requested));
                         }
                         return Err(expected!("a scalar of matching type and width", &source));
                     }
@@ -419,67 +505,130 @@ impl Lowerer {
                     .expr()
                     .ok_or_else(|| expected!("a scalar cast operand", &c))?;
                 if !target.is_float() {
-                    if requested != target {
-                        return Err(unsupported!(
-                            "implicit conversion of an integer cast result",
-                            &c
-                        ));
-                    }
-                    let operand_hint = self.scalar_hint_depth(&operand, depth + 1)?;
-                    let kind = if let Some(source_ty) = operand_hint {
-                        if !target.losslessly_contains(source_ty) {
-                            return Err(unsupported!("non-value-preserving integer cast", &c));
-                        }
-                        E::IntWiden(Box::new(self.scalar_expr_depth(
-                            operand,
-                            source_ty,
-                            depth + 1,
-                        )?))
-                    } else if self.is_closed_integer_expression(&operand)? {
-                        let value = self.static_integer(operand, false)?;
-                        self.scalar_integer(value.value, target, &source)?
-                    } else {
-                        match self.lower_typed_classical_expr(operand)? {
-                            TypedClassicalExpr::Register(bits) => {
-                                if !c.scalar_type().is_some_and(|t| t.designator().is_some())
-                                    || bits.len() != target.width() as usize
-                                {
-                                    return Err(expected!(
-                                        "an explicitly sized integer cast matching its bit width",
-                                        &c
-                                    ));
-                                }
-                                E::FromBits(bits)
+                    let operand_hint = match &operand {
+                        Expr::CastExpression(inner) => {
+                            let ty = inner
+                                .scalar_type()
+                                .ok_or_else(|| expected!("cast type", inner))?;
+                            if ty.int_token().is_some() || ty.uint_token().is_some() {
+                                Some(self.scalar_type(&ty)?)
+                            } else {
+                                self.scalar_hint_depth(&operand, depth + 1)?
                             }
-                            TypedClassicalExpr::Integer {
-                                bits, signedness, ..
-                            } => {
-                                let source_ty = ScalarType::Int {
-                                    width: bits.len() as u32,
-                                    signed: signedness == Signedness::Signed,
-                                };
-                                if !target.losslessly_contains(source_ty) {
-                                    return Err(unsupported!(
-                                        "non-value-preserving integer cast",
-                                        &c
-                                    ));
-                                }
-                                let value = self.ids.node(ScalarExprData {
-                                    ty: source_ty,
-                                    kind: E::FromBits(bits),
-                                });
-                                E::IntWiden(Box::new(value))
-                            }
-                            _ => return Err(unsupported!("bit string to integer cast", &c)),
                         }
+                        _ => self.scalar_hint_depth(&operand, depth + 1)?,
                     };
-                    return Ok(self.ids.node(ScalarExprData { ty: target, kind }));
+                    let operand_float_ty =
+                        self.float_expression_type(&operand, ScalarType::Float { width: 0 })?;
+                    if !operand_hint.is_some_and(ScalarType::is_float)
+                        && operand_float_ty.width() == 0
+                    {
+                        if requested != target {
+                            return Err(unsupported!(
+                                "implicit conversion of an integer cast result",
+                                &c
+                            ));
+                        }
+                        let kind = if let Some(source_ty) = operand_hint {
+                            if !target.losslessly_contains(source_ty) {
+                                return Err(unsupported!("non-value-preserving integer cast", &c));
+                            }
+                            E::IntWiden(Box::new(self.scalar_expr_depth(
+                                operand,
+                                source_ty,
+                                depth + 1,
+                            )?))
+                        } else if self.is_closed_integer_expression(&operand)? {
+                            let value = self.static_integer(operand, false)?;
+                            self.scalar_integer(value.value, target, &source)?
+                        } else {
+                            match self.lower_typed_classical_expr(operand)? {
+                                TypedClassicalExpr::Register(bits) => {
+                                    if !c.scalar_type().is_some_and(|t| t.designator().is_some())
+                                        || bits.len() != target.width() as usize
+                                    {
+                                        return Err(expected!(
+                                            "an explicitly sized integer cast matching its bit width",
+                                            &c
+                                        ));
+                                    }
+                                    E::FromBits(bits)
+                                }
+                                TypedClassicalExpr::Integer {
+                                    bits, signedness, ..
+                                } => {
+                                    let source_ty = ScalarType::Int {
+                                        width: bits.len() as u32,
+                                        signed: signedness == Signedness::Signed,
+                                    };
+                                    if !target.losslessly_contains(source_ty) {
+                                        return Err(unsupported!(
+                                            "non-value-preserving integer cast",
+                                            &c
+                                        ));
+                                    }
+                                    let value = self.ids.node(ScalarExprData {
+                                        ty: source_ty,
+                                        kind: E::FromBits(bits),
+                                    });
+                                    E::IntWiden(Box::new(value))
+                                }
+                                _ => return Err(unsupported!("bit string to integer cast", &c)),
+                            }
+                        };
+                        return Ok(self.ids.node(ScalarExprData { ty: target, kind }));
+                    }
+                    // Preserve an explicit conversion when the operand is symbolic.
+                    let operand_ty = operand_float_ty;
+                    if operand_ty.width() == 0 || (!requested.is_float() && requested != target) {
+                        return Err(unsupported!("scalar cast", &c));
+                    }
+                    let operand = self.scalar_expr_depth(operand, operand_ty, depth + 1)?;
+                    let mut converted = self.ids.node(ScalarExprData {
+                        ty: target,
+                        kind: E::IntFromFloat(Box::new(operand)),
+                    });
+                    if let Some(value) = converted
+                        .constant_value()
+                        .map_err(|r| unsupported!(r, &c))?
+                    {
+                        converted = self.ids.node(ScalarExprData {
+                            ty: target,
+                            kind: value.expression(),
+                        });
+                    }
+                    return Ok(if requested.is_float() {
+                        self.float_convert(converted, requested)
+                    } else {
+                        converted
+                    });
                 }
                 if !requested.is_float() {
                     return Err(unsupported!("scalar cast", &c));
                 }
-                let value = self.scalar_expr_depth(operand, target, depth + 1)?;
-                return Ok(self.float_convert(value, requested));
+                // Evaluate integer arithmetic at its original width before
+                // conversion, e.g. float[64](n / 2) retains integer division.
+                let source_hint = match &operand {
+                    Expr::CastExpression(inner) => Some(
+                        self.scalar_type(
+                            &inner
+                                .scalar_type()
+                                .ok_or_else(|| expected!("cast type", inner))?,
+                        )?,
+                    ),
+                    _ if self
+                        .float_expression_type(&operand, ScalarType::Float { width: 0 })?
+                        .width()
+                        == 0 =>
+                    {
+                        self.scalar_hint_depth(&operand, depth + 1)?
+                    }
+                    _ => None,
+                };
+                let source_ty = source_hint.filter(|ty| !ty.is_float()).unwrap_or(target);
+                let value = self.scalar_expr_depth(operand, source_ty, depth + 1)?;
+                let converted = self.float_convert(value, target);
+                return Ok(self.float_convert(converted, requested));
             }
             Expr::Literal(ref lit) => match lit.kind() {
                 ast::LiteralKind::IntNumber(n) if !ty.is_float() => {
@@ -683,8 +832,8 @@ impl Lowerer {
         // additionally specialize from current flow facts, using the SAME
         // typed evaluator (including each IEEE rounding step), not host math.
         if let (Some(a), Some(b)) = (
-            self.known_scalars.value(&left),
-            self.known_scalars.value(&right),
+            self.known_scalars.value(&left)?,
+            self.known_scalars.value(&right)?,
         ) {
             return Ok(self
                 .ids

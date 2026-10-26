@@ -505,7 +505,7 @@ impl Lowerer {
                 let iteration = self.ids.node(StatementKind::Scope(lowered?));
                 self.known_scalars = before;
                 self.known_bits = bits_before;
-                self.known_scalars.statement(&iteration);
+                self.known_scalars.statement(&iteration)?;
                 if let Some(bits) = &mut self.known_bits {
                     bits.statement(&iteration);
                 }
