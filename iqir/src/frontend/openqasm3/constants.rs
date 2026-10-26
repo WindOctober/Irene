@@ -27,7 +27,22 @@ impl Lowerer {
         Ok(false)
     }
 
-    pub(super) fn is_integer_expression(&self, expr: &Expr) -> Result<bool, FrontendError> {
+    /// Recognition only: Boolean comparisons are not integer expressions,
+    /// and mutable values count only while an explicit flow-fact overlay is active.
+    pub(super) fn is_closed_integer_expression(&self, expr: &Expr) -> Result<bool, FrontendError> {
+        self.closed_integer_expression_inner(expr, 0, &mut 4096)
+    }
+
+    fn closed_integer_expression_inner(
+        &self,
+        expr: &Expr,
+        depth: usize,
+        work: &mut usize,
+    ) -> Result<bool, FrontendError> {
+        if depth >= 64 || *work == 0 {
+            return Err(unsupported!("static integer expression budget", expr));
+        }
+        *work -= 1;
         match expr {
             Expr::Literal(l) => Ok(matches!(l.kind(), ast::LiteralKind::IntNumber(_))),
             Expr::Identifier(id) => Ok(matches!(
@@ -38,9 +53,30 @@ impl Lowerer {
                     ..
                 }
             )),
-            Expr::ParenExpr(_) | Expr::PrefixExpr(_) | Expr::BinExpr(_) => {
+            Expr::ParenExpr(_) => {
                 for child in expr.syntax().children().filter_map(Expr::cast) {
-                    if !self.is_integer_expression(&child)? {
+                    if !self.closed_integer_expression_inner(&child, depth + 1, work)? {
+                        return Ok(false);
+                    }
+                }
+                Ok(true)
+            }
+            Expr::PrefixExpr(p)
+                if matches!(p.op_kind(), Some(ast::UnaryOp::Neg | ast::UnaryOp::Not)) =>
+            {
+                p.expr()
+                    .map(|e| self.closed_integer_expression_inner(&e, depth + 1, work))
+                    .transpose()
+                    .map(|v| v.unwrap_or(false))
+            }
+            Expr::BinExpr(b)
+                if matches!(
+                    b.op_kind(),
+                    Some(ast::BinaryOp::ArithOp(_) | ast::BinaryOp::PowerOp)
+                ) =>
+            {
+                for child in expr.syntax().children().filter_map(Expr::cast) {
+                    if !self.closed_integer_expression_inner(&child, depth + 1, work)? {
                         return Ok(false);
                     }
                 }
@@ -218,7 +254,9 @@ impl Lowerer {
         expr: Expr,
         _depth: usize,
     ) -> Result<(f64, u32), FrontendError> {
-        self.check_const_expression(&expr, 0)?;
+        if !self.resolving_known_scalars {
+            return self.with_known_scalars(|this| this.static_float(expr, _depth));
+        }
         let saved_ids = self.ids.clone();
         let result = (|| {
             let value = self.lower_scalar_expr(expr.clone(), ScalarType::Float { width: 64 })?;
@@ -236,14 +274,44 @@ impl Lowerer {
 }
 
 pub(super) fn eval_constant_bit(e: &ClassicalExpr) -> Option<bool> {
-    Some(match &e.kind {
-        ClassicalExprKind::ScalarCompare { .. } => return None,
-        ClassicalExprKind::Bool(b) => *b,
-        ClassicalExprKind::Bit(_) => return None,
-        ClassicalExprKind::Not(a) => !eval_constant_bit(a)?,
-        ClassicalExprKind::And(a, b) => eval_constant_bit(a)? & eval_constant_bit(b)?,
-        ClassicalExprKind::Or(a, b) => eval_constant_bit(a)? | eval_constant_bit(b)?,
-        ClassicalExprKind::Xor(a, b) => eval_constant_bit(a)? ^ eval_constant_bit(b)?,
-        ClassicalExprKind::Eq(a, b) => eval_constant_bit(a)? == eval_constant_bit(b)?,
-    })
+    eval_known_bit(e, |_| None)
+}
+
+/// Common bounded Boolean evaluator for const declarations and flow facts.
+/// Evaluate both operands: an absorbing Boolean value must not hide an unknown
+/// read or accidentally turn it into a compile-time constant.
+pub(super) fn eval_known_bit(
+    e: &ClassicalExpr,
+    lookup: impl Fn(&ClassicalBit) -> Option<bool>,
+) -> Option<bool> {
+    fn eval(
+        e: &ClassicalExpr,
+        lookup: &impl Fn(&ClassicalBit) -> Option<bool>,
+        work: &mut usize,
+        depth: usize,
+    ) -> Option<bool> {
+        *work = work.checked_sub(1)?;
+        if depth >= 128 {
+            return None;
+        }
+        Some(match &e.kind {
+            ClassicalExprKind::ScalarCompare { .. } => return None,
+            ClassicalExprKind::Bool(b) => *b,
+            ClassicalExprKind::Bit(b) => lookup(b)?,
+            ClassicalExprKind::Not(a) => !eval(a, lookup, work, depth + 1)?,
+            ClassicalExprKind::And(a, b) => {
+                eval(a, lookup, work, depth + 1)? & eval(b, lookup, work, depth + 1)?
+            }
+            ClassicalExprKind::Or(a, b) => {
+                eval(a, lookup, work, depth + 1)? | eval(b, lookup, work, depth + 1)?
+            }
+            ClassicalExprKind::Xor(a, b) => {
+                eval(a, lookup, work, depth + 1)? ^ eval(b, lookup, work, depth + 1)?
+            }
+            ClassicalExprKind::Eq(a, b) => {
+                eval(a, lookup, work, depth + 1)? == eval(b, lookup, work, depth + 1)?
+            }
+        })
+    }
+    eval(e, &lookup, &mut 65536, 0)
 }

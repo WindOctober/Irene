@@ -154,6 +154,9 @@ fn value(e: &ScalarExpr, store: &BTreeMap<SymbolId, Value>) -> Value {
                 A::Mul => a * b,
                 A::Div => a / b,
                 A::Rem => a % b,
+                A::BitAnd => a & b,
+                A::BitOr => a | b,
+                A::BitXor => a ^ b,
             }),
             (Value::Float(a), Value::Float(b)) => Value::Float(match op {
                 A::Add => a + b,
@@ -403,7 +406,7 @@ fn rejects_unsupported_or_ill_typed_scalar_forms_instead_of_erasing_them() {
         "int[8] n=1; n[0]=0;",
         "while(true) {break;}",
         "while(true) {continue;}",
-        "qubit q; int[8] n=0; rx(n) q;",
+        "qubit q; int[8] n; rx(n) q;",
         "int[8] n=0; qubit[n] q;",
     ] {
         assert!(

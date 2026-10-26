@@ -6,6 +6,25 @@ use super::*;
 // 32 bits for both `int` and `uint`; this is not a language-wide default.
 pub(super) const DEFAULT_INTEGER_WIDTH: u32 = 32;
 
+/// These operations can use flow-known integer values without requiring
+/// Boolean-word storage. Unknown scalar values retain typed runtime operations.
+pub(super) fn is_bit_operation(expression: &Expr) -> bool {
+    match expression {
+        Expr::PrefixExpr(p) => matches!(p.op_kind(), Some(ast::UnaryOp::Not)),
+        Expr::BinExpr(b) => matches!(
+            b.op_kind(),
+            Some(ast::BinaryOp::ArithOp(
+                ast::ArithOp::BitAnd
+                    | ast::ArithOp::BitOr
+                    | ast::ArithOp::BitXor
+                    | ast::ArithOp::Shl
+                    | ast::ArithOp::Shr
+            ))
+        ),
+        _ => false,
+    }
+}
+
 pub(super) struct StaticInteger {
     pub(super) value: i128,
     pub(super) width: Option<u32>,
@@ -14,6 +33,43 @@ pub(super) struct StaticInteger {
 }
 
 impl Lowerer {
+    /// A single closed-integer entry point for scalar, gate and Boolean
+    /// consumers. Unknown values are not errors; invalid CLOSED arithmetic is.
+    /// Flow facts are supplied explicitly by consumers that specialize values.
+    pub(super) fn closed_integer(
+        &self,
+        expression: &Expr,
+    ) -> Result<Option<StaticInteger>, FrontendError> {
+        if !self.is_closed_integer_expression(expression)? {
+            return Ok(None);
+        }
+        self.static_integer(expression.clone(), false).map(Some)
+    }
+
+    /// Retain type/width when bridging a computed integer into the bit/Boolean
+    /// interface. Literals remain unsized until their consuming context.
+    pub(super) fn classical_integer_constant(
+        &mut self,
+        value: StaticInteger,
+    ) -> TypedClassicalExpr {
+        let Some(width) = value.width else {
+            return TypedClassicalExpr::IntegerLiteral(BigInt::from(value.value));
+        };
+        TypedClassicalExpr::Integer {
+            bits: (0..width)
+                .map(|i| {
+                    self.ids
+                        .node(ClassicalExprKind::Bool(value.value & (1_i128 << i) != 0))
+                })
+                .collect(),
+            signedness: if value.signed {
+                Signedness::Signed
+            } else {
+                Signedness::Unsigned
+            },
+            explicit_width: value.explicit_width,
+        }
+    }
     pub(super) fn charge_static_expansion<T: AstNode>(
         &mut self,
         source: &T,
@@ -85,18 +141,7 @@ impl Lowerer {
                 }
                 // Called templates may not capture constants declared after
                 // their definition, nor caller-local bindings (ScopeStack).
-                if self.scopes.global_static_ids().contains(&binding.id)
-                    && self.active_subroutines.iter().any(|index| {
-                        !self.subroutines[*index]
-                            .static_globals
-                            .contains(&binding.id)
-                    })
-                {
-                    return Err(expected!(
-                        "a constant visible at subroutine definition",
-                        &identifier
-                    ));
-                }
+                self.check_constant_visibility(binding, &identifier)?;
                 Ok(StaticInteger {
                     value,
                     width: Some(width),
@@ -128,6 +173,30 @@ impl Lowerer {
                 depth + 1,
                 work,
             ),
+            Expr::PrefixExpr(prefix) if matches!(prefix.op_kind(), Some(ast::UnaryOp::Not)) => {
+                let mut value = self.static_integer_inner(
+                    prefix
+                        .expr()
+                        .ok_or_else(|| expected!("an integer operand", &prefix))?,
+                    require_const,
+                    depth + 1,
+                    work,
+                )?;
+                let width = value.width.unwrap_or(DEFAULT_INTEGER_WIDTH);
+                if !fits(value.value, width, value.signed) {
+                    return Err(unsupported!(
+                        "static integer bitwise operand outside its type",
+                        &prefix
+                    ));
+                }
+                value.value = if value.signed {
+                    !value.value
+                } else {
+                    !value.value & ((1_i128 << width) - 1)
+                };
+                value.width = Some(width);
+                Ok(value)
+            }
             Expr::BinExpr(binary) => {
                 let left = self.static_integer_inner(
                     binary
@@ -145,6 +214,30 @@ impl Lowerer {
                     depth + 1,
                     work,
                 )?;
+                // Shift counts are independent: they do not promote the LHS.
+                if let Some(ast::BinaryOp::ArithOp(op @ (ast::ArithOp::Shl | ast::ArithOp::Shr))) =
+                    binary.op_kind()
+                {
+                    let width = left.width.unwrap_or(DEFAULT_INTEGER_WIDTH);
+                    let ty = crate::ScalarType::Int {
+                        width,
+                        signed: left.signed,
+                    };
+                    let value = ty
+                        .checked_integer_shift(op == ast::ArithOp::Shl, left.value, right.value)
+                        .map_err(|_| {
+                            unsupported!(
+                                "invalid, overflowing or negative signed integer shift",
+                                &binary
+                            )
+                        })?;
+                    return Ok(StaticInteger {
+                        value,
+                        width: Some(width),
+                        signed: left.signed,
+                        explicit_width: left.explicit_width,
+                    });
+                }
                 // Literals use the other operand's admitted type, or Irene's
                 // signed machine integer for a literal-only expression.
                 // Mixed signed/unsigned typed arithmetic needs additional
@@ -168,15 +261,33 @@ impl Lowerer {
                     .chain(right.width)
                     .max()
                     .unwrap_or(DEFAULT_INTEGER_WIDTH);
+                if let Some(ast::BinaryOp::ArithOp(
+                    op @ (ast::ArithOp::BitAnd | ast::ArithOp::BitOr | ast::ArithOp::BitXor),
+                )) = binary.op_kind()
+                {
+                    if !fits(left.value, width, signed) || !fits(right.value, width, signed) {
+                        return Err(unsupported!(
+                            "static integer bitwise operand outside its type",
+                            &binary
+                        ));
+                    }
+                    let ty = crate::ScalarType::Int { width, signed };
+                    let operation = super::scalar::arithmetic(op, ty, &binary)?;
+                    let value = ty.checked_integer_arithmetic(operation, left.value, right.value)
+                        .map_err(|_| unsupported!("invalid integer bitwise operation", &binary))?;
+                    return Ok(StaticInteger {
+                        value,
+                        width: Some(width),
+                        signed,
+                        explicit_width: left.explicit_width && right.explicit_width,
+                    });
+                }
+                let ty = crate::ScalarType::Int { width, signed };
                 let op = match binary.op_kind() {
-                    Some(ast::BinaryOp::ArithOp(ast::ArithOp::Add)) => crate::ScalarArithmetic::Add,
-                    Some(ast::BinaryOp::ArithOp(ast::ArithOp::Sub)) => crate::ScalarArithmetic::Sub,
-                    Some(ast::BinaryOp::ArithOp(ast::ArithOp::Mul)) => crate::ScalarArithmetic::Mul,
-                    Some(ast::BinaryOp::ArithOp(ast::ArithOp::Div)) => crate::ScalarArithmetic::Div,
-                    Some(ast::BinaryOp::ArithOp(ast::ArithOp::Rem)) => crate::ScalarArithmetic::Rem,
+                    Some(ast::BinaryOp::ArithOp(op)) => scalar::arithmetic(op, ty, &binary)?,
                     _ => return Err(unsupported!("static integer operator", &binary)),
                 };
-                let value = crate::ScalarType::Int { width, signed }
+                let value = ty
                     .checked_integer_arithmetic(op, left.value, right.value)
                     .map_err(|_| {
                         unsupported!(
@@ -337,7 +448,7 @@ impl Lowerer {
             .for_iterable()
             .and_then(|iterable| iterable.range_expr())
             .ok_or_else(|| unsupported!("non-range static iteration", &statement))?;
-        let (start, step, stop) = self.static_range(&range)?;
+        let (start, step, stop) = self.with_known_scalars(|this| this.static_range(&range))?;
         let count = ((stop - start) / step)
             .checked_add(1)
             .ok_or_else(|| unsupported!("static loop cardinality", &range))?;
@@ -362,6 +473,8 @@ impl Lowerer {
         self.static_loop_depth += 1;
         let result = (|| {
             for i in 0..count {
+                let before = self.known_scalars.clone();
+                let bits_before = self.known_bits.clone();
                 self.scopes.enter(ScopeKind::Block);
                 let lowered = (|| {
                     self.scopes
@@ -389,7 +502,14 @@ impl Lowerer {
                     }
                 })();
                 self.scopes.exit();
-                statements.push(self.ids.node(StatementKind::Scope(lowered?)));
+                let iteration = self.ids.node(StatementKind::Scope(lowered?));
+                self.known_scalars = before;
+                self.known_bits = bits_before;
+                self.known_scalars.statement(&iteration);
+                if let Some(bits) = &mut self.known_bits {
+                    bits.statement(&iteration);
+                }
+                statements.push(iteration);
             }
             Ok(self.sequence(statements))
         })();

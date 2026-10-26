@@ -87,6 +87,9 @@ impl Lowerer {
             self.ids = saved_ids;
         }
         let initializer = initializer?;
+        if !is_const {
+            self.known_scalars.declare(binding.id, initializer.as_ref());
+        }
         if is_const {
             let value =
                 self.require_scalar_constant(initializer.as_ref().unwrap(), &declaration)?;
@@ -306,10 +309,15 @@ impl Lowerer {
         if depth >= 128 {
             return Err(unsupported!("scalar expression depth", &source));
         }
+        if !self.resolving_known_scalars
+            && (matches!(&source, Expr::CastExpression(_))
+                || static_integer::is_bit_operation(&source))
+        {
+            return self.with_known_scalars(|this| this.scalar_expr_depth(source, ty, depth));
+        }
         // Integer-only closed subexpressions retain integer division and
         // checked width semantics even inside a floating-point expression.
-        if self.is_integer_expression(&source)? {
-            let value = self.static_integer(source.clone(), false)?;
+        if let Some(value) = self.closed_integer(&source)? {
             if depth > 0
                 && !ty.is_float()
                 && value.width.is_some_and(|width| {
@@ -427,7 +435,7 @@ impl Lowerer {
                             source_ty,
                             depth + 1,
                         )?))
-                    } else if self.is_integer_expression(&operand)? {
+                    } else if self.is_closed_integer_expression(&operand)? {
                         let value = self.static_integer(operand, false)?;
                         self.scalar_integer(value.value, target, &source)?
                     } else {
@@ -671,6 +679,19 @@ impl Lowerer {
                     || expected!("compatible comparison operands", &binary),
                 )?)));
         }
+        // Ordinary scalar reads stay executable elsewhere. A comparison can
+        // additionally specialize from current flow facts, using the SAME
+        // typed evaluator (including each IEEE rounding step), not host math.
+        if let (Some(a), Some(b)) = (
+            self.known_scalars.value(&left),
+            self.known_scalars.value(&right),
+        ) {
+            return Ok(self
+                .ids
+                .node(ClassicalExprKind::Bool(op.compare(a, b).ok_or_else(
+                    || expected!("compatible comparison operands", &binary),
+                )?)));
+        }
         Ok(self.ids.node(ClassicalExprKind::ScalarCompare {
             op,
             left: Box::new(left),
@@ -679,7 +700,7 @@ impl Lowerer {
     }
 }
 
-fn arithmetic<T: AstNode>(
+pub(super) fn arithmetic<T: AstNode>(
     op: ast::ArithOp,
     ty: ScalarType,
     source: &T,
@@ -690,6 +711,9 @@ fn arithmetic<T: AstNode>(
         ast::ArithOp::Mul => Ok(A::Mul),
         ast::ArithOp::Div => Ok(A::Div),
         ast::ArithOp::Rem if !ty.is_float() => Ok(A::Rem),
+        ast::ArithOp::BitAnd if !ty.is_float() => Ok(A::BitAnd),
+        ast::ArithOp::BitOr if !ty.is_float() => Ok(A::BitOr),
+        ast::ArithOp::BitXor if !ty.is_float() => Ok(A::BitXor),
         _ => Err(unsupported!("scalar arithmetic operator", source)),
     }
 }

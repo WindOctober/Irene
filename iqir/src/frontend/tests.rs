@@ -224,6 +224,10 @@ fn static_machine_integers_have_explicit_32_bit_bounds() {
         "const int[32] n=-2; qubit[3] q; for int[32] i in [n:0] x q[i-n];",
         "qubit[3] q; for int i in [2:-1:0] x q[i];",
         "qubit[3] q; x q[2:-1:0];",
+        // Closed integer operations use the target's default 32-bit type;
+        // they no longer need the runtime Boolean-word interface.
+        "const uint a=1; bit c=bool(a & a);",
+        "const uint a=1; bit c=bool(~a);",
     ] {
         parse_str(
             &format!("OPENQASM 3.0; include \"stdgates.inc\"; {body}"),
@@ -242,8 +246,6 @@ fn static_machine_integers_have_explicit_32_bit_bounds() {
         "const int n=-1; qubit[n] q;",
         "const int n=-1; qubit q; x q[n];",
         "const int a=-1; const uint b=2; const int c=a+b;",
-        "const uint a=1; bit c=bool(a & a);",
-        "const uint a=1; bit c=bool(~a);",
         "const uint a=1; bit[32] c=bit[32](a);",
     ] {
         assert!(

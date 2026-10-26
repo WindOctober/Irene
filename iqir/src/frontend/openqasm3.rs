@@ -91,6 +91,7 @@ mod annotations;
 mod constants;
 mod controlled_u;
 mod custom_gates;
+mod known_scalars;
 mod power;
 mod scalar;
 mod static_integer;
@@ -151,6 +152,8 @@ struct Lowerer {
     static_statements_left: usize,
     static_loop_depth: usize,
     known_bits: Option<power::KnownBits>,
+    known_scalars: known_scalars::KnownScalars,
+    resolving_known_scalars: bool,
 }
 
 /// Parsed information retained for lowering a later subroutine call.
@@ -342,6 +345,8 @@ impl Default for Lowerer {
             static_statements_left: 65536,
             static_loop_depth: 0,
             known_bits: None,
+            known_scalars: Default::default(),
+            resolving_known_scalars: false,
         }
     }
 }
@@ -693,8 +698,13 @@ impl Lowerer {
     /// Lowers the executable statement forms currently represented by Irene's IR.
     fn lower_statement(&mut self, statement: Stmt) -> Result<Statement, FrontendError> {
         let before = self.known_bits.clone();
+        let scalar_before = self.known_scalars.clone();
         let result = self.lower_statement_inner(statement);
         self.known_bits = before;
+        self.known_scalars = scalar_before;
+        if let Ok(statement) = &result {
+            self.known_scalars.statement(statement);
+        }
         if let (Some(known), Ok(statement)) = (&mut self.known_bits, &result) {
             known.statement(statement);
         }
@@ -1090,6 +1100,9 @@ impl Lowerer {
     /// Preserves the structure of an OpenQASM numeric expression while
     /// normalizing finite literals to exact rationals.
     fn lower_numeric_expr(&mut self, expression: Expr) -> Result<NumericExpr, FrontendError> {
+        if !self.resolving_known_scalars {
+            return self.with_known_scalars(|this| this.lower_numeric_expr(expression));
+        }
         if let Expr::Identifier(id) = &expression {
             let binding = self.scopes.lookup(&id.string()).map_err(scope_error)?;
             if let Some(value) = self.numeric_arguments.get(&binding.id) {
@@ -1105,11 +1118,16 @@ impl Lowerer {
                 BigRational::from_float(value).expect("finite constant"),
             )));
         }
-        if expression
-            .syntax()
-            .descendants()
-            .any(|node| ast::Identifier::cast(node).is_some())
-            && self.is_integer_expression(&expression)?
+        if expression.syntax().descendants().any(|node| {
+            ast::Identifier::cast(node.clone()).is_some()
+                || Expr::cast(node.clone()).is_some_and(|e| static_integer::is_bit_operation(&e))
+                || ast::BinExpr::cast(node).is_some_and(|b| {
+                    matches!(
+                        b.op_kind(),
+                        Some(ast::BinaryOp::PowerOp | ast::BinaryOp::ArithOp(ast::ArithOp::Rem))
+                    )
+                })
+        }) && self.is_closed_integer_expression(&expression)?
         {
             let value = self.static_integer(expression, false)?.value;
             return Ok(self
@@ -1781,13 +1799,16 @@ impl Lowerer {
                 .ok_or_else(|| expected!("an if condition", &statement))?,
         )?;
         let before = self.known_bits.clone();
+        let scalar_before = self.known_scalars.clone();
         let then_branch = self.lower_branch(statement.true_body_block_or_stmt())?;
         self.known_bits = before.clone();
+        self.known_scalars = scalar_before.clone();
         let else_branch = match statement.false_body_block_or_stmt() {
             Some(branch) => self.lower_branch(branch)?,
             None => self.ids.node(BlockData::default()),
         };
         self.known_bits = before;
+        self.known_scalars = scalar_before;
         Ok(self.ids.node(StatementKind::If {
             condition,
             then_branch,
@@ -1805,6 +1826,7 @@ impl Lowerer {
         if self.known_bits.is_some() {
             self.known_bits = Some(Default::default());
         }
+        self.forget_loop_scalar_writes(&statement);
         let condition = self.lower_scalar_bit_expression(
             statement
                 .condition()
@@ -1891,7 +1913,13 @@ impl Lowerer {
                 });
             }
         };
-        Ok(expression)
+        // Collapse the Boolean tree produced by closed integer comparisons
+        // as well as directly folded scalar comparisons. This only uses
+        // literal facts; unknown reads/undefined computations are not erased.
+        Ok(match constants::eval_constant_bit(&expression) {
+            Some(value) => self.ids.node(ClassicalExprKind::Bool(value)),
+            None => expression,
+        })
     }
 
     /// Lowers a value used in a bool/bit context, including the literals 0 and 1.
@@ -1906,6 +1934,12 @@ impl Lowerer {
         &mut self,
         expression: Expr,
     ) -> Result<TypedClassicalExpr, FrontendError> {
+        // Fold numeric subexpressions before dispatch to the Boolean-word
+        // operators. In particular a closed `1 << wire` is not a uint word
+        // shift, and a closed `step % 2` needs no runtime remainder encoder.
+        if let Some(value) = self.closed_integer(&expression)? {
+            return Ok(self.classical_integer_constant(value));
+        }
         if let Expr::BinExpr(binary) = &expression
             && matches!(binary.op_kind(), Some(ast::BinaryOp::CmpOp(_)))
             && self.has_scalar_comparison(&expression)?
@@ -1926,30 +1960,6 @@ impl Lowerer {
                 if let BindingKind::StaticBits { value, ty } = binding.kind {
                     self.check_constant_visibility(binding, &identifier)?;
                     return Ok(self.constant_bits(value, ty));
-                }
-                if matches!(
-                    self.scopes.lookup(&name).map_err(scope_error)?.kind,
-                    BindingKind::Scalar {
-                        ty: ScalarType::Int { .. },
-                        value: Some(_),
-                        ..
-                    }
-                ) {
-                    let value = self.static_integer(Expr::Identifier(identifier), false)?;
-                    return Ok(TypedClassicalExpr::Integer {
-                        bits: (0..value.width.expect("static binding is sized"))
-                            .map(|i| {
-                                self.ids
-                                    .node(ClassicalExprKind::Bool(value.value & (1_i128 << i) != 0))
-                            })
-                            .collect(),
-                        signedness: if value.signed {
-                            Signedness::Signed
-                        } else {
-                            Signedness::Unsigned
-                        },
-                        explicit_width: value.explicit_width,
-                    });
                 }
                 let operand = self.classical_cells(name)?;
                 Ok(self.bit_operand_expr(operand))
@@ -2054,18 +2064,6 @@ impl Lowerer {
                 let right_source = binary
                     .rhs()
                     .ok_or_else(|| expected!("a right operand", &binary))?;
-                // Unsigned word wraparound must not hide a checked static
-                // overflow, e.g. const uint[3] n=7; uint[3] a=n+1.
-                if matches!(
-                    binary.op_kind(),
-                    Some(ast::BinaryOp::ArithOp(
-                        ast::ArithOp::Add | ast::ArithOp::Sub
-                    ))
-                ) && self.static_integer(left_source.clone(), false).is_ok()
-                    && self.static_integer(right_source.clone(), false).is_ok()
-                {
-                    self.static_integer(Expr::BinExpr(binary.clone()), false)?;
-                }
                 if let Some(ast::BinaryOp::ArithOp(op @ (ast::ArithOp::Shl | ast::ArithOp::Shr))) =
                     binary.op_kind()
                 {
@@ -2379,6 +2377,29 @@ impl Lowerer {
         right: TypedClassicalExpr,
         source: &ast::BinExpr,
     ) -> Result<TypedClassicalExpr, FrontendError> {
+        // A representable unsized literal adopts the other integer operand's
+        // width, consistently with scalar lowering; no implicit signed cast.
+        let (left, right) = match (left, right) {
+            (TypedClassicalExpr::IntegerLiteral(value), right @ TypedClassicalExpr::Integer { .. }) => {
+                let TypedClassicalExpr::Integer { bits, signedness, .. } = &right else { unreachable!() };
+                let left = TypedClassicalExpr::Integer {
+                    bits: self.integer_literal_bits(value, bits.len(), *signedness, source)?,
+                    signedness: *signedness,
+                    explicit_width: true,
+                };
+                (left, right)
+            }
+            (left @ TypedClassicalExpr::Integer { .. }, TypedClassicalExpr::IntegerLiteral(value)) => {
+                let TypedClassicalExpr::Integer { bits, signedness, .. } = &left else { unreachable!() };
+                let right = TypedClassicalExpr::Integer {
+                    bits: self.integer_literal_bits(value, bits.len(), *signedness, source)?,
+                    signedness: *signedness,
+                    explicit_width: true,
+                };
+                (left, right)
+            }
+            pair => pair,
+        };
         if matches!(&left, TypedClassicalExpr::Integer { .. })
             || matches!(&right, TypedClassicalExpr::Integer { .. })
         {

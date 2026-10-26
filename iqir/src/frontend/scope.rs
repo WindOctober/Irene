@@ -314,6 +314,23 @@ impl ScopeStack {
         *known = Some(value);
     }
 
+    /// Temporary evaluation view only: known values do not acquire const type.
+    pub(super) fn supply_scalar_values(&mut self, values: &HashMap<SymbolId, ScalarValue>) {
+        for scope in &mut self.scopes {
+            for binding in scope.bindings.values_mut() {
+                if let BindingKind::Scalar {
+                    value,
+                    is_const: false,
+                    assignable: true,
+                    ..
+                } = &mut binding.kind
+                {
+                    *value = values.get(&binding.id).copied();
+                }
+            }
+        }
+    }
+
     /// Resolves the nearest lexically visible binding.
     ///
     /// During call-site specialization, a callee may see its own parameters

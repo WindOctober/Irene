@@ -16,6 +16,43 @@ pub enum ScalarType {
 }
 
 impl ScalarType {
+    /// Exact unsigned shifts. Signed constant shifts are restricted to
+    /// nonnegative values and representable results; negative signed shifts
+    /// are not silently treated as truncating division.
+    pub fn checked_integer_shift(
+        self,
+        left: bool,
+        value: i128,
+        count: i128,
+    ) -> Result<i128, &'static str> {
+        let Self::Int { width, signed } = self else {
+            return Err("integer shift type required");
+        };
+        if !self.contains_integer(value) || count < 0 || (signed && value < 0) {
+            return Err("invalid or unsupported integer shift operand");
+        }
+        if count >= i128::from(width) {
+            return if signed && left && value != 0 {
+                Err("signed shift overflow")
+            } else {
+                Ok(0)
+            };
+        }
+        let result = if left {
+            (value as u128) << count as u32
+        } else {
+            (value as u128) >> count as u32
+        };
+        if signed {
+            let result = result as i128;
+            self.contains_integer(result)
+                .then_some(result)
+                .ok_or("signed shift overflow")
+        } else {
+            Ok((result & ((1u128 << width) - 1)) as i128)
+        }
+    }
+
     pub fn width(self) -> u32 {
         match self {
             Self::Int { width, .. } | Self::Float { width, .. } => width,
@@ -65,6 +102,9 @@ impl ScalarType {
                 A::Mul => a.wrapping_mul(b),
                 A::Div => a.checked_div(b).ok_or("zero divisor")?,
                 A::Rem => a.checked_rem(b).ok_or("zero divisor")?,
+                A::BitAnd => a & b,
+                A::BitOr => a | b,
+                A::BitXor => a ^ b,
             };
             return Ok((value & ((1u128 << width) - 1)) as i128);
         }
@@ -81,6 +121,9 @@ impl ScalarType {
             A::Mul => a.checked_mul(b),
             A::Div => a.checked_div(b),
             A::Rem => a.checked_rem(b),
+            A::BitAnd => Some(a & b),
+            A::BitOr => Some(a | b),
+            A::BitXor => Some(a ^ b),
         }
         .filter(|v| self.contains_integer(*v));
         result.ok_or("integer overflow or zero divisor")
@@ -120,6 +163,9 @@ pub enum ScalarArithmetic {
     Mul,
     Div,
     Rem,
+    BitAnd,
+    BitOr,
+    BitXor,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -185,6 +231,29 @@ impl ScalarExpr {
     /// Nonfinite floating results follow IEEE; const declarations may reject
     /// them separately as part of the frontend's supported constant subset.
     pub fn constant_value(&self) -> Result<Option<ScalarValue>, &'static str> {
+        self.constant_value_with(&|_| None)
+    }
+
+    /// Evaluate against read-only known values without cloning/substituting
+    /// the expression tree. Unknown reads remain unknown; lookup values are
+    /// checked against the read node's type just like literal values.
+    pub fn constant_value_with(
+        &self,
+        lookup: &impl Fn(SymbolId) -> Option<ScalarValue>,
+    ) -> Result<Option<ScalarValue>, &'static str> {
+        self.constant_value_inner(lookup, 0, &mut 65536)
+    }
+
+    fn constant_value_inner(
+        &self,
+        lookup: &impl Fn(SymbolId) -> Option<ScalarValue>,
+        depth: usize,
+        work: &mut usize,
+    ) -> Result<Option<ScalarValue>, &'static str> {
+        if depth >= 128 || *work == 0 {
+            return Err("constant scalar evaluation budget");
+        }
+        *work -= 1;
         use ScalarArithmetic as A;
         use ScalarExprKind as E;
         use ScalarValue as V;
@@ -192,7 +261,10 @@ impl ScalarExpr {
             E::Integer(v) => V::Integer(*v),
             E::Float32(v) => V::Float32(*v),
             E::Float64(v) => V::Float64(*v),
-            E::Read(_) => return Ok(None),
+            E::Read(id) => match lookup(*id) {
+                Some(value) => value,
+                None => return Ok(None),
+            },
             E::FromBits(bits) => {
                 let ScalarType::Int { width, signed } = self.ty else {
                     return Err("bit conversion requires integer type");
@@ -222,13 +294,13 @@ impl ScalarExpr {
                 if !self.ty.losslessly_contains(a.ty) {
                     return Err("unsupported integer conversion");
                 }
-                let Some(value) = a.constant_value()? else {
+                let Some(value) = a.constant_value_inner(lookup, depth + 1, work)? else {
                     return Ok(None);
                 };
                 value
             }
             E::FloatCast(a) => {
-                let Some(v) = a.constant_value()? else {
+                let Some(v) = a.constant_value_inner(lookup, depth + 1, work)? else {
                     return Ok(None);
                 };
                 let v = v.as_float().ok_or("expected floating conversion operand")?;
@@ -239,7 +311,7 @@ impl ScalarExpr {
                 }
             }
             E::Neg(a) => {
-                let Some(v) = a.constant_value()? else {
+                let Some(v) = a.constant_value_inner(lookup, depth + 1, work)? else {
                     return Ok(None);
                 };
                 match v {
@@ -251,8 +323,8 @@ impl ScalarExpr {
                 }
             }
             E::Binary { op, left, right } => {
-                let left = left.constant_value()?;
-                let right = right.constant_value()?;
+                let left = left.constant_value_inner(lookup, depth + 1, work)?;
+                let right = right.constant_value_inner(lookup, depth + 1, work)?;
                 let (Some(left), Some(right)) = (left, right) else {
                     return Ok(None);
                 };
@@ -269,6 +341,9 @@ impl ScalarExpr {
                                 A::Mul => a * b,
                                 A::Div => a / b,
                                 A::Rem => return Err("floating remainder is unsupported"),
+                                A::BitAnd | A::BitOr | A::BitXor => {
+                                    return Err("bitwise operands must be integers");
+                                }
                             }
                             .to_bits(),
                         )
@@ -282,6 +357,9 @@ impl ScalarExpr {
                                 A::Mul => a * b,
                                 A::Div => a / b,
                                 A::Rem => return Err("floating remainder is unsupported"),
+                                A::BitAnd | A::BitOr | A::BitXor => {
+                                    return Err("bitwise operands must be integers");
+                                }
                             }
                             .to_bits(),
                         )

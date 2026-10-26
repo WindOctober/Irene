@@ -95,10 +95,10 @@ and classical/quantum correlations rather than create fresh unconstrained
 integers. Closed bit values can fold; runtime values remain symbolic.
 
 This remains a supported subset, not a full OpenQASM implementation: `break`,
-`continue`, runtime array indexing, variable numeric gate parameters, numeric
+`continue`, runtime array indexing, unknown numeric gate parameters, numeric
 subroutine parameters/returns, mixed signed/unsigned arithmetic, int/float
-variable conversions, narrowing/reinterpreting scalar integer casts, integer bitwise/shift operations
-in the new scalar representation, non-integer gate powers, `negctrl`, and
+variable conversions, narrowing/reinterpreting scalar integer casts, runtime scalar
+shifts, non-integer gate powers, `negctrl`, and
 non-gate bodies inside gate definitions remain explicitly unsupported.
 Unsigned `uint[n]` keeps the existing word/bit lowering, including indexed reads,
 measurement writes, bitwise operations, shifts and comparisons. Addition and
@@ -109,6 +109,35 @@ It is not rerouted through the signed/float scalar representation; runtime uint 
 other than addition/subtraction remains unsupported.
 
 ## Validation notes
+
+### Shared constant-specialization interface
+
+Classical conditions, scalar values, unsigned-word initializers and typed
+integer gate arguments share the checked static-integer evaluator also used
+by ranges and indices. Closed `&`, `|`, `^`, `~`, shifts and remainder are
+evaluated before selecting a runtime Boolean-word or scalar encoding.
+`closed_integer` distinguishes "not a closed integer" from an invalid closed
+computation. Only the former can fall through to runtime lowering; overflow,
+zero division, invalid shifts and incompatible signedness remain errors.
+Computed values retain width and signedness when passed to classical consumers.
+Signed shifts are restricted to nonnegative operands and representable results;
+unsigned shifts use the declared width and wrap. Unknown scalar shift operands
+are not lowered by this constant-specialization path.
+
+Boolean constants and known-bit flow analysis share one bounded evaluator.
+`ScalarExpr::constant_value_with` reads a typed known-value environment without
+cloning and substituting the expression tree. Comparison folding uses this
+same evaluator, preserving integer checks and each floating rounding step.
+Declarations and assignments propagate typed values; branch joins retain only
+bit-identical facts; while headers and exits forget possibly written variables
+and preserve read-only ones. This is not const qualification: mutable reads
+remain illegal in const declarations and const-required sizes. Ordinary scalar
+reads remain in executable IR. Both source branches are still lowered and
+checked; this is not an unchecked dead-source elimination pass.
+Source-level consumers temporarily overlay known scalar values on the scope
+and restore it afterwards; this adapter still copies the scope, unlike the
+read-only IR evaluator. Typed IEEE floats, exact-real gate expressions and
+Boolean-word storage retain their distinct semantics.
 
 Tests inspect actual IR and use small independent classical/state-vector
 interpreters for loop execution, scope, signedness, float promotion/rounding,

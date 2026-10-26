@@ -8,32 +8,8 @@ use super::*;
 pub(super) struct KnownBits(HashMap<ClassicalBit, bool>);
 
 impl KnownBits {
-    fn value(&self, e: &ClassicalExpr) -> Option<bool> {
-        fn eval(k: &KnownBits, e: &ClassicalExpr, work: &mut usize, depth: usize) -> Option<bool> {
-            *work = work.checked_sub(1)?;
-            if depth >= 128 {
-                return None;
-            }
-            Some(match &e.kind {
-                ClassicalExprKind::ScalarCompare { .. } => return None,
-                ClassicalExprKind::Bool(v) => *v,
-                ClassicalExprKind::Bit(b) => *k.0.get(b)?,
-                ClassicalExprKind::Not(a) => !eval(k, a, work, depth + 1)?,
-                ClassicalExprKind::And(a, b) => {
-                    eval(k, a, work, depth + 1)? & eval(k, b, work, depth + 1)?
-                }
-                ClassicalExprKind::Or(a, b) => {
-                    eval(k, a, work, depth + 1)? | eval(k, b, work, depth + 1)?
-                }
-                ClassicalExprKind::Xor(a, b) => {
-                    eval(k, a, work, depth + 1)? ^ eval(k, b, work, depth + 1)?
-                }
-                ClassicalExprKind::Eq(a, b) => {
-                    eval(k, a, work, depth + 1)? == eval(k, b, work, depth + 1)?
-                }
-            })
-        }
-        eval(self, e, &mut 65536, 0)
+    pub(super) fn value(&self, e: &ClassicalExpr) -> Option<bool> {
+        constants::eval_known_bit(e, |bit| self.0.get(bit).copied())
     }
 
     fn block(&mut self, b: &Block) {
