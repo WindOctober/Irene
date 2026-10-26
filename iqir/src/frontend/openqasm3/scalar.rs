@@ -726,6 +726,27 @@ impl Lowerer {
                     ));
                 }
             },
+            Expr::PrefixExpr(p) if matches!(p.op_kind(), Some(ast::UnaryOp::Not)) => {
+                let ScalarType::Int { width, signed } = ty else {
+                    return Err(expected!("an integer bitwise operand", &p));
+                };
+                let left = self.scalar_expr_depth(
+                    p.expr()
+                        .ok_or_else(|| expected!("complement operand", &p))?,
+                    ty,
+                    depth + 1,
+                )?;
+                // Complement is XOR with the same-width all-ones word.
+                let right = self.ids.node(ScalarExprData {
+                    ty,
+                    kind: E::Integer(if signed { -1 } else { (1i128 << width) - 1 }),
+                });
+                E::Binary {
+                    op: A::BitXor,
+                    left: Box::new(left),
+                    right: Box::new(right),
+                }
+            }
             Expr::PrefixExpr(p) if matches!(p.op_kind(), Some(ast::UnaryOp::Neg)) => {
                 let arg = p.expr().ok_or_else(|| expected!("negation operand", &p))?;
                 // Admit -2^(n-1) without first rejecting its positive magnitude.
@@ -741,6 +762,21 @@ impl Lowerer {
                 }
             }
             Expr::BinExpr(b) => {
+                if let Some(ast::BinaryOp::ArithOp(op @ (ast::ArithOp::Shl | ast::ArithOp::Shr))) =
+                    b.op_kind()
+                {
+                    let left = self.scalar_expr_depth(
+                        b.lhs().ok_or_else(|| expected!("shift operand", &b))?,
+                        ty,
+                        depth + 1,
+                    )?;
+                    return self.lower_unsigned_shift(
+                        left,
+                        b.rhs().ok_or_else(|| expected!("shift count", &b))?,
+                        op,
+                        &b,
+                    );
+                }
                 let Some(ast::BinaryOp::ArithOp(op)) = b.op_kind() else {
                     return Err(unsupported!("scalar numeric operator", &b));
                 };
@@ -771,6 +807,47 @@ impl Lowerer {
         })
     }
 
+    fn lower_unsigned_shift<T: AstNode>(
+        &mut self,
+        left: ScalarExpr,
+        count: Expr,
+        op: ast::ArithOp,
+        source: &T,
+    ) -> Result<ScalarExpr, FrontendError> {
+        let ty = left.ty;
+        if !matches!(ty, ScalarType::Int { signed: false, .. }) {
+            return Err(unsupported!(
+                "runtime signed shift (only closed nonnegative signed shifts are supported)",
+                source
+            ));
+        }
+        let count = self
+            .with_known_scalars(|this| this.static_integer(count, false))?
+            .value;
+        let factor = ty
+            .checked_integer_shift(true, 1, count)
+            .map_err(|_| expected!("a nonnegative static integer shift count", source))?;
+        // k >= width gives zero, but retain evaluation of the entire operand
+        // via multiplication, including its reads and definedness conditions.
+        let operation = if op == ast::ArithOp::Shl || factor == 0 {
+            A::Mul
+        } else {
+            A::Div
+        };
+        let right = self.ids.node(ScalarExprData {
+            ty,
+            kind: E::Integer(factor),
+        });
+        Ok(self.ids.node(ScalarExprData {
+            ty,
+            kind: E::Binary {
+                op: operation,
+                left: Box::new(left),
+                right: Box::new(right),
+            },
+        }))
+    }
+
     fn scalar_integer(
         &self,
         value: i128,
@@ -795,6 +872,21 @@ impl Lowerer {
         let Some(ast::BinaryOp::Assignment { op: Some(op) }) = assignment.op_kind() else {
             return Err(unsupported!("scalar compound operator", &assignment));
         };
+        if matches!(op, ast::ArithOp::Shl | ast::ArithOp::Shr) {
+            let left = self.ids.node(ScalarExprData {
+                ty,
+                kind: E::Read(target),
+            });
+            let value = self.lower_unsigned_shift(
+                left,
+                assignment
+                    .rhs()
+                    .ok_or_else(|| expected!("shift count", &assignment))?,
+                op,
+                &assignment,
+            )?;
+            return Ok(self.ids.node(StatementKind::ScalarAssign { target, value }));
+        }
         let op = arithmetic(op, ty, &assignment)?;
         let operation_ty = if ty.is_float() {
             let rhs_ty = self.float_expression_type(&Expr::BinExpr(assignment.clone()), ty)?;

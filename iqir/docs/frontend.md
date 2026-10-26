@@ -317,9 +317,27 @@ operations remain errors/obligations. CoqQ currently rejects these parameters
 instead of replacing IEEE computations with real arithmetic; Irene's
 equivalence backend also rejects this unsupported machine-number fragment.
 
+Unsigned scalar shifts (`<<`, `>>`, `<<=`, `>>=`) with a known nonnegative
+integer count reuse finite-width multiplication/division by a power of two.
+Counts at least the width produce zero without suppressing operand reads or
+undefined computations. Counts are not reduced modulo the width. Shifts alone
+no longer force uint storage to expand into bits. Closed nonnegative signed
+shifts (including static `for` indices such as `1 << (8-idx)`) fold with range
+checks. Negative signed operands, runtime signed shifts and unknown shift
+counts remain explicitly unsupported; signed arithmetic has not been changed
+to wrapping arithmetic. The original Boolean-word path is retained when
+bit casts or indexed uses require it.
+
+Typed scalar integers support `&`, `|`, `^`, `~` and the binary compound
+assignments. The result keeps the operand width and signedness; the target
+profile interprets signed words in two's complement. These operations do not
+overflow and do not short-circuit. Constant specialization and runtime
+evaluation share `ScalarType::checked_integer_arithmetic`; complement lowers
+to XOR with an all-ones word.
+
 This remains a supported subset, not a full OpenQASM implementation: runtime array indexing, numeric
 subroutine parameters/returns, mixed signed/unsigned arithmetic, narrowing/reinterpreting scalar integer casts, runtime scalar
-shifts, non-integer gate powers, `negctrl`, and
+shifts outside the subset above, non-integer gate powers, `negctrl`, and
 non-gate bodies inside gate definitions remain explicitly unsupported.
 Unsigned `uint[n]` keeps the existing word/bit lowering, including indexed reads,
 measurement writes, bitwise operations, shifts and comparisons. Addition and

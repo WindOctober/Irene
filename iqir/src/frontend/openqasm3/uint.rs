@@ -3,7 +3,8 @@
 use super::*;
 
 /// A conservative whole-source decision, including uncalled bodies. Bit casts,
-/// and uint indexing keep the established word representation.
+/// and uint indexing keep the established word representation. Scalar bitwise
+/// operators are supported directly and do not require Boolean-word storage.
 /// Names deliberately overapproximate shadowed bindings: a false positive only
 /// disables this optimization; it cannot change the meaning of an access.
 pub(super) fn scalar_storage_safe(source: &ast::SourceFile) -> bool {
@@ -61,7 +62,7 @@ impl Lowerer {
     ) -> Result<Vec<ClassicalExpr>, FrontendError> {
         // Static expressions and constants may initialize any representable
         // uint width; they are never silently truncated or reinterpreted.
-        if let Ok(value) = self.static_integer(rhs.clone(), false) {
+        if let Some(value) = self.closed_integer(&rhs)? {
             return self.integer_literal_bits(
                 BigInt::from(value.value),
                 width,
