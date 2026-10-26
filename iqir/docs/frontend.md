@@ -18,7 +18,12 @@ is documented separately in [Specification annotations](spec-annotations.md).
   visibility; unused bodies are not expanded. Invalid captures, arity, qubit aliasing,
   recursion, forward calls, non-unitary bodies and incompatible broadcasts
   fail with diagnostics. Expansion has statement/depth budgets.
-- `ctrl`, `inv`, and static integer `pow` on custom gates and builtin `U`.
+- Positive and negative controls, including mixed control lists and register
+  broadcasts. Modifier control counts are bounded to 64. Primitive gates without
+  a dedicated controlled IR form use the same structured unitary as custom gates.
+  `negctrl` conjugates each broadcast application with X on its negative controls.
+  `sx` lowers to H; S; H, preserving its exact phase under control.
+- `ctrl`, `negctrl`, `inv`, and static integer `pow` on custom gates and builtin `U`.
   A `Unitary { controls, power, body }` node represents the **entire** modified
   body. Negative powers reverse and adjoint the sequence; powers must never
   be distributed over noncommuting constituent gates. Positive controls are
@@ -357,7 +362,7 @@ to XOR with an all-ones word.
 
 This remains a supported subset, not a full OpenQASM implementation: runtime array indexing, numeric
 subroutine parameters/returns, mixed signed/unsigned arithmetic, narrowing/reinterpreting scalar integer casts, runtime scalar
-shifts outside the subset above, non-integer gate powers, `negctrl`, and
+shifts outside the subset above, non-integer gate powers, and
 non-gate bodies inside gate definitions remain explicitly unsupported.
 Unsigned `uint[n]` keeps the existing word/bit lowering, including indexed reads,
 measurement writes, bitwise operations, shifts and comparisons. Addition and

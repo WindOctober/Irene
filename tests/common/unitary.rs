@@ -110,9 +110,49 @@ fn wires(p: &Program) -> Vec<Qubit> {
 }
 
 fn evolve(block: &Block, wires: &[Qubit], state: &mut [Complex]) {
-    for statement in &block.statements {
+    evolve_controlled(block, wires, state, &[], false);
+}
+
+fn evolve_controlled(
+    block: &Block,
+    wires: &[Qubit],
+    state: &mut [Complex],
+    controls: &[usize],
+    inverse: bool,
+) {
+    let mask = controls.iter().fold(0usize, |m, q| m | (1 << q));
+    let statements: Box<dyn Iterator<Item = _>> = if inverse {
+        Box::new(block.statements.iter().rev())
+    } else {
+        Box::new(block.statements.iter())
+    };
+    for statement in statements {
         match &statement.kind {
-            StatementKind::Scope(b) => evolve(b, wires, state),
+            StatementKind::Scope(b) => evolve_controlled(b, wires, state, controls, inverse),
+            StatementKind::Unitary {
+                controls: local,
+                power,
+                body,
+            } => {
+                let mut combined = controls.to_vec();
+                combined.extend(
+                    local
+                        .iter()
+                        .map(|q| wires.iter().position(|w| w == q).unwrap()),
+                );
+                assert!(power.unsigned_abs() <= 1024, "dense oracle power budget");
+                for _ in 0..power.unsigned_abs() {
+                    evolve_controlled(body, wires, state, &combined, inverse ^ (*power < 0));
+                }
+            }
+            StatementKind::GlobalPhase(angle) => {
+                let phase = cis(number(angle) * if inverse { -1.0 } else { 1.0 });
+                for (index, value) in state.iter_mut().enumerate() {
+                    if index & mask == mask {
+                        *value = mul(*value, phase);
+                    }
+                }
+            }
             StatementKind::If {
                 condition,
                 then_branch,
@@ -121,7 +161,13 @@ fn evolve(block: &Block, wires: &[Qubit], state: &mut [Complex]) {
                 let irene::ir::ClassicalExprKind::Bool(value) = condition.kind else {
                     unreachable!()
                 };
-                evolve(if value { then_branch } else { else_branch }, wires, state);
+                evolve_controlled(
+                    if value { then_branch } else { else_branch },
+                    wires,
+                    state,
+                    controls,
+                    inverse,
+                );
             }
             StatementKind::Apply {
                 gate,
@@ -135,7 +181,7 @@ fn evolve(block: &Block, wires: &[Qubit], state: &mut [Complex]) {
                 if *gate == Gate::Swap {
                     let (a, b) = (1 << q[0], 1 << q[1]);
                     for i in 0..state.len() {
-                        if i & a == 0 && i & b != 0 {
+                        if i & a == 0 && i & b != 0 && i & mask == mask {
                             state.swap(i, i ^ a ^ b);
                         }
                     }
@@ -152,12 +198,24 @@ fn evolve(block: &Block, wires: &[Qubit], state: &mut [Complex]) {
                     other => *other,
                 };
                 let angle = parameters.first().map(number).unwrap_or(0.0);
-                apply(
-                    state,
-                    &q[..q.len() - 1],
-                    *q.last().unwrap(),
-                    single(base, angle),
-                );
+                let matrix = single(base, angle);
+                let matrix = if inverse {
+                    [
+                        [
+                            (matrix[0][0].0, -matrix[0][0].1),
+                            (matrix[1][0].0, -matrix[1][0].1),
+                        ],
+                        [
+                            (matrix[0][1].0, -matrix[0][1].1),
+                            (matrix[1][1].0, -matrix[1][1].1),
+                        ],
+                    ]
+                } else {
+                    matrix
+                };
+                let mut combined = controls.to_vec();
+                combined.extend_from_slice(&q[..q.len() - 1]);
+                apply(state, &combined, *q.last().unwrap(), matrix);
             }
             _ => panic!("matrix oracle only accepts unitary programs"),
         }

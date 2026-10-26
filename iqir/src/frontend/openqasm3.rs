@@ -837,9 +837,8 @@ impl Lowerer {
         }
     }
 
-    /// Positive controls supported directly by the existing exact IR gates.
-    /// Controls precede the original operands; no ancilla or global-phase
-    /// quotient is introduced. Unsupported modifiers are never discarded.
+    /// Controls precede the original operands. Dedicated controlled gates keep
+    /// their compact IR; other controls use a phase-exact unitary body.
     fn lower_modified_gate(
         &mut self,
         call: ast::ModifiedGateCallExpr,
@@ -851,6 +850,7 @@ impl Lowerer {
             return self.lower_composite_modified_gate(call);
         }
         let mut controls = 0usize;
+        let mut negative = Vec::new();
         let mut inverse = false;
         let mut has_inverse = false;
         let mut power = 1_i128;
@@ -875,11 +875,13 @@ impl Lowerer {
                     .ok_or_else(|| unsupported!("combined integer power overflow", p))?;
                 continue;
             }
-            let ast::Modifier::CtrlModifier(control) = modifier else {
-                return Err(unsupported!("gate modifier", &call));
+            let (parameter, negated) = match modifier {
+                ast::Modifier::CtrlModifier(c) => (c.paren_expr(), false),
+                ast::Modifier::NegCtrlModifier(c) => (c.paren_expr(), true),
+                _ => return Err(unsupported!("gate modifier", &call)),
             };
-            let count = if let Some(parameter) = control.paren_expr() {
-                // Restrict this entrance to small integer literals. Do not
+            let count = if let Some(parameter) = parameter {
+                // Restrict this entrance to bounded integer literals. Do not
                 // silently choose a width/overflow model for constant integer
                 // arithmetic, or round a float into a control count.
                 let Some(Expr::Literal(literal)) = parameter.expr() else {
@@ -888,16 +890,18 @@ impl Lowerer {
                 let ast::LiteralKind::IntNumber(number) = literal.kind() else {
                     return Err(unsupported!("control count", &call));
                 };
-                match exact_integer_value(number)? {
-                    value if value == BigInt::from(1) => 1,
-                    value if value == BigInt::from(2) => 2,
-                    _ => return Err(unsupported!("control count", &call)),
-                }
+                let value = exact_integer_value(number)?;
+                (1..=64)
+                    .find(|n| value == BigInt::from(*n))
+                    .ok_or_else(|| unsupported!("control count outside 1..64", &call))?
             } else {
                 1
             };
+            if negated {
+                negative.extend(controls..controls + count);
+            }
             controls += count;
-            if controls > 2 {
+            if controls > 64 {
                 return Err(unsupported!("control count", &call));
             }
         }
@@ -929,9 +933,10 @@ impl Lowerer {
             power = power.rem_euclid(2);
         }
         let scratch = self.ids.clone();
-        let lowered = self.lower_gate_with_controls(gate, controls)?;
+        let lowered = self.lower_gate_controlled(gate, controls, !negative.is_empty())?;
         self.ids = scratch;
-        Ok(self.power_statement(lowered, power))
+        let powered = self.power_statement(lowered, power);
+        Ok(self.negative_controls(powered, &negative))
     }
 
     /// Lowers a call to a gate and resolved operands. Source float arguments
@@ -946,7 +951,16 @@ impl Lowerer {
     fn lower_gate_with_controls(
         &mut self,
         call: ast::GateCallExpr,
+        controls: usize,
+    ) -> Result<Statement, FrontendError> {
+        self.lower_gate_controlled(call, controls, false)
+    }
+
+    fn lower_gate_controlled(
+        &mut self,
+        call: ast::GateCallExpr,
         mut controls: usize,
+        force_unitary: bool,
     ) -> Result<Statement, FrontendError> {
         if self.is_composite_gate(&call) {
             return self.lower_composite_gate(call, controls, 1);
@@ -996,11 +1010,12 @@ impl Lowerer {
             });
         }
         let normalized_name = source_name.to_ascii_lowercase();
+        let sx = normalized_name == "sx";
         if matches!(normalized_name.as_str(), "ch" | "cswap") {
             controls += 1;
         }
         let gate = match normalized_name.as_str() {
-            "h" | "ch" => Gate::H,
+            "h" | "ch" | "sx" => Gate::H,
             "x" => Gate::X,
             "y" => Gate::Y,
             "z" => Gate::Z,
@@ -1028,7 +1043,10 @@ impl Lowerer {
             gate,
             Gate::P | Gate::Rx | Gate::Ry | Gate::Rz | Gate::Cp | Gate::Crx | Gate::Cry | Gate::Crz
         ));
-        let gate = if controls == 1 && matches!(gate, Gate::S | Gate::Sdg | Gate::T | Gate::Tdg) {
+        let gate = if !force_unitary
+            && controls == 1
+            && matches!(gate, Gate::S | Gate::Sdg | Gate::T | Gate::Tdg)
+        {
             let (n, d) = match gate {
                 Gate::S => (1, 2),
                 Gate::Sdg => (-1, 2),
@@ -1041,7 +1059,12 @@ impl Lowerer {
         } else {
             gate
         };
+        let mut extra_controls = 0;
         let gate = match (controls, gate) {
+            (_, gate) if force_unitary || sx => {
+                extra_controls = controls;
+                gate
+            }
             (0, gate) => gate,
             (1, Gate::X) => Gate::Cx,
             (1, Gate::Y) => Gate::Cy,
@@ -1054,7 +1077,10 @@ impl Lowerer {
             (1, Gate::Cz) | (2, Gate::Z) => Gate::Ccz,
             (1, Gate::H) => Gate::H,
             (1, Gate::Swap) => Gate::Swap,
-            _ => return Err(unsupported!("controlled gate", &call)),
+            (_, gate) => {
+                extra_controls = controls;
+                gate
+            }
         };
         // Operands after the parameter list identify the quantum wires.
         let operands = call
@@ -1063,7 +1089,11 @@ impl Lowerer {
             .gate_operands()
             .map(|operand| self.lower_qubits(operand))
             .collect::<Result<Vec<_>, _>>()?;
-        let decomposed_control = controls == 1 && matches!(gate, Gate::H | Gate::Swap);
+        let decomposed_control = !force_unitary
+            && !sx
+            && extra_controls == 0
+            && controls == 1
+            && matches!(gate, Gate::H | Gate::Swap);
         let expected_arity = match gate {
             Gate::H if decomposed_control => 2,
             Gate::Swap if decomposed_control => 3,
@@ -1078,7 +1108,7 @@ impl Lowerer {
             Gate::Ccx | Gate::Ccz => 3,
             _ => 1,
         };
-        if operands.len() != expected_arity {
+        if operands.len() != expected_arity + extra_controls {
             return Err(FrontendError::Expected {
                 expected: "the gate's standard number of operands",
                 snippet: call.syntax().text().to_string(),
@@ -1117,6 +1147,51 @@ impl Lowerer {
                 expected: "distinct qubit operands for each gate application",
                 snippet: call.syntax().text().to_string(),
             });
+        }
+        if sx || extra_controls > 0 {
+            if angle_bits.is_some() {
+                // angle lowering allocated scratch expressions, just as in the direct path.
+                self.ids = angle_scratch_ids;
+            }
+            let mut statements = Vec::new();
+            for qubits in expanded_qubits {
+                let targets = qubits[extra_controls..].to_vec();
+                let statement = if sx {
+                    let gates = [Gate::H, Gate::S, Gate::H]
+                        .into_iter()
+                        .map(|gate| {
+                            self.ids.node(StatementKind::Apply {
+                                gate,
+                                parameters: vec![],
+                                qubits: targets.clone(),
+                            })
+                        })
+                        .collect();
+                    self.sequence(gates)
+                } else if let Some(bits) = &angle_bits {
+                    self.angle_gate(gate, bits, targets)
+                } else {
+                    let parameters = parameters
+                        .iter()
+                        .map(|p| self.ids.clone_numeric_expr(p))
+                        .collect();
+                    self.ids.node(StatementKind::Apply {
+                        gate,
+                        parameters,
+                        qubits: targets,
+                    })
+                };
+                let body = self.ids.node(BlockData {
+                    statements: vec![statement],
+                    ..BlockData::default()
+                });
+                statements.push(self.ids.node(StatementKind::Unitary {
+                    controls: qubits[..extra_controls].to_vec(),
+                    power: 1,
+                    body,
+                }));
+            }
+            return Ok(self.sequence(statements));
         }
         if let Some(bits) = angle_bits {
             self.ids = angle_scratch_ids;

@@ -156,6 +156,40 @@ impl Lowerer {
     /// Allocate fresh IDs after resetting the discarded lowering scratch IDs.
     pub(super) fn power_statement(&mut self, s: Statement, k: i128) -> Statement {
         match s.kind {
+            StatementKind::GlobalPhase(value) => {
+                let value = self.ids.clone_numeric_expr(&value);
+                let scale = self
+                    .ids
+                    .node(NumericExprKind::Rational(BigRational::from_integer(
+                        k.into(),
+                    )));
+                let value = self
+                    .ids
+                    .node(NumericExprKind::Mul(Box::new(value), Box::new(scale)));
+                self.ids.node(StatementKind::GlobalPhase(value))
+            }
+            StatementKind::Unitary {
+                controls,
+                power,
+                body,
+            } => {
+                // Keep powers of a whole sequence structured; never distribute over AB.
+                let statements = body
+                    .kind
+                    .statements
+                    .into_iter()
+                    .map(|s| self.power_statement(s, 1))
+                    .collect();
+                let body = self.ids.node(BlockData {
+                    statements,
+                    ..BlockData::default()
+                });
+                self.ids.node(StatementKind::Unitary {
+                    controls,
+                    power: power.checked_mul(k).expect("checked gate power"),
+                    body,
+                })
+            }
             StatementKind::Apply {
                 mut gate,
                 parameters,

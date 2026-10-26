@@ -512,16 +512,14 @@ fn positive_control_modifiers_preserve_gate_parameters_and_operand_order() {
 #[test]
 fn unsupported_control_modifiers_counts_and_invalid_operands_are_not_ignored() {
     for instruction in [
-        "negctrl @ x q[0],q[1]",
         "pow(0.5) @ x q[0]",
         "ctrl(0) @ x q[0]",
         "ctrl(-1) @ x q[0]",
         "ctrl(1.0) @ x q[0],q[1]",
         "ctrl(1+0) @ x q[0],q[1]",
-        "ctrl(3) @ x q[0],q[1],q[2],q[3]",
-        "ctrl @ ctrl @ ctrl @ x q[0],q[1],q[2],q[3]",
-        "ctrl(2) @ ry(pi/3) q[0],q[1],q[2]",
-        "ctrl(2) @ h q[0],q[1],q[2]",
+        "negctrl(0) @ x q[0]",
+        "negctrl @ x q[0],q[0]",
+        "ctrl(65) @ x q[0],q[1]",
         "ctrl @ gphase(pi/3) q[0]",
         "ctrl @ ry q[0],q[1]",
         "ctrl @ x q[0]",

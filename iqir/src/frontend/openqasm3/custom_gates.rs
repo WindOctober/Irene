@@ -167,6 +167,7 @@ impl Lowerer {
         call: ast::ModifiedGateCallExpr,
     ) -> Result<Statement, FrontendError> {
         let mut controls = 0;
+        let mut negative = Vec::new();
         let mut power = 1_i128;
         for (index, modifier) in call.modifiers().enumerate() {
             if index >= 16 {
@@ -201,13 +202,69 @@ impl Lowerer {
                     }
                     controls += count;
                 }
-                _ => return Err(unsupported!("custom gate modifier", &call)),
+                ast::Modifier::NegCtrlModifier(c) => {
+                    let count = match c.paren_expr() {
+                        Some(p) => self.static_index(
+                            p.expr().ok_or_else(|| expected!("control count", &c))?,
+                            true,
+                        )?,
+                        None => 1,
+                    };
+                    if count == 0 || count > 64 || controls > 64 - count {
+                        return Err(unsupported!("control count outside 1..64", &c));
+                    }
+                    negative.extend(controls..controls + count);
+                    controls += count;
+                }
             }
         }
         let gate = call
             .gate_call_expr()
             .ok_or_else(|| expected!("modified gate call", &call))?;
-        self.lower_composite_gate(gate, controls, power)
+        let statement = self.lower_composite_gate(gate, controls, power)?;
+        Ok(self.negative_controls(statement, &negative))
+    }
+
+    /// Conjugate each broadcast application separately, preserving operand order.
+    /// Negative controls have been lowered as positive Unitarians at this point.
+    pub(super) fn negative_controls(
+        &mut self,
+        mut statement: Statement,
+        negative: &[usize],
+    ) -> Statement {
+        if negative.is_empty() {
+            return statement;
+        }
+        match &mut statement.kind {
+            StatementKind::Scope(body) => {
+                body.statements = std::mem::take(&mut body.statements)
+                    .into_iter()
+                    .map(|s| self.negative_controls(s, negative))
+                    .collect();
+                statement
+            }
+            StatementKind::Unitary { controls, .. } => {
+                let wires: Vec<_> = negative.iter().map(|i| controls[*i].clone()).collect();
+                let mut statements = Vec::new();
+                for q in &wires {
+                    statements.push(self.ids.node(StatementKind::Apply {
+                        gate: Gate::X,
+                        parameters: vec![],
+                        qubits: vec![q.clone()],
+                    }));
+                }
+                statements.push(statement);
+                for q in wires.into_iter().rev() {
+                    statements.push(self.ids.node(StatementKind::Apply {
+                        gate: Gate::X,
+                        parameters: vec![],
+                        qubits: vec![q],
+                    }));
+                }
+                self.sequence(statements)
+            }
+            _ => unreachable!("negative control lowering requires a structured unitary"),
+        }
     }
 
     pub(super) fn lower_composite_gate(
