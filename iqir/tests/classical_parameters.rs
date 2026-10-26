@@ -19,6 +19,7 @@ fn numeric_bit_and_quantum_parameters_and_returns_have_dense_ids() {
         "def inner(int[8] value)->int[8]{return value;} def outer(int[8] value)->int[8]{return inner(value);} int[8] result=outer(2);",
         "def gcd(int[32] a,int[32] b)->int[32]{while(b!=0){int[32] rem=a%b; a=b; b=rem;} return a;} int[32] result=gcd(12,8);",
         "def f(int[32] count,qubit q){for int i in [0:count]{x q;}} qubit q; f(2,q);",
+        "def f(int[32] count,qubit q){while(count>0){for int i in [0:count]{x q;} count-=1;}} qubit q; f(2,q);",
     ] {
         let p = parse(source).unwrap();
         let mut ids = vec![];

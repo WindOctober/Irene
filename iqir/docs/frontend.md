@@ -67,6 +67,36 @@ or erase function side effects. Numeric `uint` storage follows the frontend's sc
 parameters, locals and return targets use the same choice. The default entry
 uses Boolean words; bool/bit parameters also use the bit IR.
 
+## Runtime integer for ranges
+
+Compile-time integer ranges retain static expansion. An unknown
+integer range `[start:stop]` or `[start:1:stop]` instead lowers to a scoped
+`while` using the existing scalar IR. Both endpoints are evaluated once, before
+declaring the source iterator. A hidden `limit` retains the original endpoint
+even if the body changes the variable used to compute it.
+
+The generated loop uses a private cursor and an active flag. Initially it is
+active exactly when `start <= limit`. After the body, it stops if the cursor
+equals the inclusive limit; otherwise it increments the cursor and restores
+the source iterator for the next iteration. This avoids an extra increment at
+the maximum representable endpoint, and body assignments to the source iterator
+cannot change the range being traversed. Iterator and implementation locals
+leave scope together. Entry-only constant facts are cleared for body lowering
+so loop-carried updates cannot be incorrectly constant-folded.
+
+This subset accepts integer endpoints compatible with the iterator's type and
+width and a known step of positive one. Runtime descending/general-stride or
+open-ended ranges and dynamic array/qubit indices remain
+unsupported. It does not introduce a symbolic integer-shift or gate-angle
+implementation merely because such an expression occurs inside the loop.
+
+Loop annotations on a runtime `for` bind to the generated `while`, with the
+source iterator visible in contracts. Existing loop-contract requirements still
+apply; lowering does not assume a contract or prove termination. Attached ghost
+declarations/assignments are unsupported;
+declare ghosts in the enclosing scope instead. Import success alone does not
+mean the loop or its assertions have been verified.
+
 ## Scalar types, declarations and constant evaluation
 
 `ScalarType` describes integer signedness/width or floating precision, not

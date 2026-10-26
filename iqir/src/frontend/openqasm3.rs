@@ -98,6 +98,7 @@ mod controlled_u;
 mod custom_gates;
 mod known_scalars;
 mod power;
+mod runtime_for;
 mod scalar;
 mod static_integer;
 mod subroutines;
@@ -753,7 +754,13 @@ impl Lowerer {
         self.charge_static_expansion(&statement)?;
         match statement {
             Stmt::WhileStmt(statement) => self.lower_while(statement),
-            Stmt::ForStmt(statement) => self.lower_static_for(statement),
+            Stmt::ForStmt(statement) => {
+                if self.for_range_is_static(&statement)? {
+                    self.lower_static_for(statement)
+                } else {
+                    self.lower_runtime_for(statement, Vec::new())
+                }
+            }
             // Barriers constrain scheduling, not the observable channel.
             // Keep operand validation, but emit no quantum/classical effect.
             Stmt::Barrier(barrier) => {

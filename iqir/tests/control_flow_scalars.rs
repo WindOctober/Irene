@@ -186,11 +186,8 @@ fn value(e: &ScalarExpr, store: &BTreeMap<SymbolId, Value>) -> Value {
     };
     match (e.ty, v) {
         (ScalarType::Float { width: 32, .. }, Value::Float(f)) => Value::Float((f as f32) as f64),
-        (ScalarType::Int { width, .. }, Value::Integer(n)) => {
-            assert!(
-                (-(1_i128 << (width - 1))..(1_i128 << (width - 1))).contains(&n),
-                "signed overflow"
-            );
+        (ScalarType::Int { .. }, Value::Integer(n)) => {
+            assert!(e.ty.contains_integer(n), "integer overflow");
             v
         }
         _ => v,
@@ -240,6 +237,7 @@ fn execute(
         assert!(*fuel > 0);
         *fuel -= 1;
         match &s.kind {
+            StatementKind::Scope(body) => execute(body, store, fuel, false),
             StatementKind::ScalarDeclare {
                 id, initializer, ..
             } => {
@@ -296,6 +294,42 @@ fn final_value(source: &str, name: &str) -> Value {
     let mut store = BTreeMap::new();
     execute(&p.body, &mut store, &mut 10000, true);
     store[&id]
+}
+
+#[test]
+fn runtime_for_snapshots_bounds_and_keeps_private_cursor() {
+    for (body, expected) in [
+        (
+            "int[8] limit=2; while(false){limit=0;} int[8] total=0; for int[8] index in [0:limit]{total+=index; limit=0; index=7;}",
+            3,
+        ),
+        (
+            "int[8] limit=-1; while(false){limit=0;} int[8] total=0; for int[8] index in [0:limit]{total+=1;}",
+            0,
+        ),
+        (
+            "int[8] limit=127; while(false){limit=0;} int[8] total=0; for int[8] index in [126:limit]{total+=1;}",
+            2,
+        ),
+        (
+            "int[1] limit=0; while(false){limit=-1;} int[8] total=0; for int[1] index in [-1:limit]{total+=1;}",
+            2,
+        ),
+        (
+            "int[8] limit=2; while(false){limit=0;} int[8] index=1; int[8] total=0; for int[8] index in [index:limit]{int[8] local=index; total+=local;}",
+            3,
+        ),
+        (
+            "int[8] limit=1; while(false){limit=0;} int[8] total=0; for int[8] index in [0:limit]{for int[8] j in [0:index]{total+=1;}}",
+            3,
+        ),
+    ] {
+        assert_eq!(
+            final_value(body, "total"),
+            Value::Integer(expected),
+            "{body}"
+        );
+    }
 }
 
 #[test]

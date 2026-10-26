@@ -109,6 +109,11 @@ impl Lowerer {
         annotations: Vec<Annotation>,
         statement: Stmt,
     ) -> Result<Statement, FrontendError> {
+        if let Stmt::ForStmt(for_statement) = &statement {
+            if !self.for_range_is_static(for_statement)? {
+                return self.lower_runtime_for(for_statement.clone(), annotations);
+            }
+        }
         let scoped = matches!(
             &statement,
             Stmt::WhileStmt(_) | Stmt::ForStmt(_) | Stmt::IfStmt(_)
@@ -118,18 +123,19 @@ impl Lowerer {
         if scoped {
             self.scopes.enter(ScopeKind::Block);
         }
-        let result = self.lower_annotations(annotations, statement, scoped);
+        let result = self.lower_annotations(annotations, statement, scoped, None);
         if scoped {
             self.scopes.exit();
         }
         result
     }
 
-    fn lower_annotations(
+    pub(super) fn lower_annotations(
         &mut self,
         mut annotations: Vec<Annotation>,
         statement: Stmt,
         statement_scoped: bool,
+        generated_loop: Option<Statement>,
     ) -> Result<Statement, FrontendError> {
         if !matches!(
             &statement,
@@ -212,6 +218,7 @@ impl Lowerer {
                     | AnnotationKind::Terminates
                     | AnnotationKind::ExitProbability
             ) && !matches!(&statement, Stmt::WhileStmt(_))
+                && generated_loop.is_none()
             {
                 return Err(self.annotation_error(a, "invariant/terminates/exit_probability requires a while statement (static for loops are expanded)"));
             }
@@ -245,7 +252,10 @@ impl Lowerer {
                 }
             }
         }
-        let lowered = self.lower_statement(statement)?;
+        let lowered = match generated_loop {
+            Some(lowered) => lowered,
+            None => self.lower_statement(statement)?,
+        };
         // In particular, retain a broadcast's entire Scope, not its first gate.
         self.annotations.insert(lowered.ast_id(), annotations);
         Ok(lowered)
