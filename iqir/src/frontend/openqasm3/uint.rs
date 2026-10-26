@@ -1,6 +1,48 @@
-//! Constant-width unsigned storage lowers to the existing Boolean word IR.
+//! Unsigned storage selection and Boolean-word fallback lowering.
 //! A constant width does not make the stored value a compile-time constant.
 use super::*;
+
+/// A conservative whole-source decision, including uncalled bodies. Bit casts,
+/// and uint indexing keep the established word representation.
+/// Names deliberately overapproximate shadowed bindings: a false positive only
+/// disables this optimization; it cannot change the meaning of an access.
+pub(super) fn scalar_storage_safe(source: &ast::SourceFile) -> bool {
+    let names: BTreeSet<_> = source
+        .syntax()
+        .descendants()
+        .filter_map(ast::ClassicalDeclarationStatement::cast)
+        .filter(|d| d.scalar_type().is_some_and(|t| t.uint_token().is_some()))
+        .filter_map(|d| declaration_name(&d).ok())
+        .collect();
+    for node in source.syntax().descendants() {
+        let mentions_uint = || {
+            node.descendants()
+                .filter_map(ast::Identifier::cast)
+                .any(|i| names.contains(&i.string()))
+        };
+        // pow's flow-sensitive constant analysis currently consumes bit words.
+        if ast::PowModifier::cast(node.clone()).is_some() && mentions_uint() {
+            return false;
+        }
+        if let Some(indexed) = ast::IndexedIdentifier::cast(node.clone()) {
+            if indexed
+                .identifier()
+                .is_some_and(|i| names.contains(&i.string()))
+            {
+                return false;
+            }
+        }
+        if let Some(Expr::CastExpression(c)) = Expr::cast(node.clone()) {
+            let integer_cast = c
+                .scalar_type()
+                .is_some_and(|t| t.int_token().is_some() || t.uint_token().is_some());
+            if mentions_uint() && !integer_cast {
+                return false;
+            }
+        }
+    }
+    true
+}
 
 impl Lowerer {
     pub(super) fn uint_storage_type(&self, ty: &ast::ScalarType) -> Result<BitType, FrontendError> {

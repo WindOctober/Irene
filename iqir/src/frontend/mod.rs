@@ -30,25 +30,57 @@ pub enum ImportError {
 /// The selected frontend retains its existing language and include restrictions.
 /// `source_name` is a diagnostic label, not an include-search directory.
 pub fn parse_str(source: &str, source_name: &str) -> Result<Program, ImportError> {
-    parse_versioned(source, source_name, openqasm_version(source)?)
+    parse_str_with_options(source, source_name, false)
+}
+
+/// Select typed unsigned storage when no word-level use occurs in the source.
+pub fn parse_str_with_options(
+    source: &str,
+    source_name: &str,
+    preserve_uint: bool,
+) -> Result<Program, ImportError> {
+    parse_versioned(
+        source,
+        source_name,
+        openqasm_version(source)?,
+        preserve_uint,
+    )
 }
 
 /// Reads a UTF-8 OpenQASM file and lowers it to IQIR.
 /// This does not enable additional include resolution or run verification.
 pub fn parse_file(path: impl AsRef<Path>) -> Result<Program, ImportError> {
+    parse_file_with_options(path, false)
+}
+
+/// File counterpart of [`parse_str_with_options`].
+pub fn parse_file_with_options(
+    path: impl AsRef<Path>,
+    preserve_uint: bool,
+) -> Result<Program, ImportError> {
     let path = path.as_ref();
     let source = load_openqasm_source(path)?;
-    parse_versioned(&source.text, &path.to_string_lossy(), source.version)
+    parse_versioned(
+        &source.text,
+        &path.to_string_lossy(),
+        source.version,
+        preserve_uint,
+    )
 }
 
 fn parse_versioned(
     source: &str,
     source_name: &str,
     version: OpenQasmVersion,
+    preserve_uint: bool,
 ) -> Result<Program, ImportError> {
     match version.major {
         2 => Ok(openqasm2::parse_str(source, source_name)?),
-        3 => Ok(openqasm3::parse_str(source, source_name)?),
+        3 => Ok(openqasm3::parse_str_with_options(
+            source,
+            source_name,
+            preserve_uint,
+        )?),
         _ => Err(ImportError::UnsupportedVersion(version)),
     }
 }

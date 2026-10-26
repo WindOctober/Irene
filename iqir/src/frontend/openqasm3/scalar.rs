@@ -14,7 +14,8 @@ impl Lowerer {
         declaration.scalar_type().is_some_and(|ty| {
             ty.int_token().is_some()
                 || ty.float_token().is_some()
-                || (declaration.const_token().is_some() && ty.uint_token().is_some())
+                || ((declaration.const_token().is_some() || self.preserve_uint)
+                    && ty.uint_token().is_some())
         })
     }
 
@@ -50,7 +51,7 @@ impl Lowerer {
     pub(super) fn lower_scalar_declaration(
         &mut self,
         declaration: ast::ClassicalDeclarationStatement,
-    ) -> Result<Option<Statement>, FrontendError> {
+    ) -> Result<Vec<Statement>, FrontendError> {
         self.charge_static_expansion(&declaration)?;
         let name = declaration_name(&declaration)?;
         let source_ty = declaration
@@ -73,6 +74,29 @@ impl Lowerer {
             )
             .map_err(scope_error)?;
         let source = declaration.expr();
+        if let Some(Expr::CallExpr(call)) = &source {
+            if self.is_subroutine_call(call) {
+                if is_const {
+                    return Err(unsupported!(
+                        "subroutine call in const initializer",
+                        &declaration
+                    ));
+                }
+                let storage = self.ids.node(StatementKind::ScalarDeclare {
+                    id: binding.id,
+                    name,
+                    ty,
+                    explicit_width,
+                    initializer: None,
+                });
+                self.known_scalars.declare(binding.id, None)?;
+                let invocation = self.lower_subroutine_call(
+                    call.clone(),
+                    Some(super::subroutines::CallTarget::Scalar { id: binding.id, ty }),
+                )?;
+                return Ok(vec![storage, invocation]);
+            }
+        }
         if is_const {
             let source = source
                 .as_ref()
@@ -98,15 +122,15 @@ impl Lowerer {
             self.scopes.set_scalar_value(&name, value);
         }
         Ok(if is_const {
-            None
+            Vec::new()
         } else {
-            Some(self.ids.node(StatementKind::ScalarDeclare {
+            vec![self.ids.node(StatementKind::ScalarDeclare {
                 id: binding.id,
                 name,
                 ty,
                 explicit_width,
                 initializer,
-            }))
+            })]
         })
     }
 

@@ -100,6 +100,7 @@ mod known_scalars;
 mod power;
 mod scalar;
 mod static_integer;
+mod subroutines;
 mod uint;
 mod word;
 
@@ -109,6 +110,16 @@ mod word;
 /// `stdgates.inc` are not followed, so the returned [`Program`] is always
 /// derived from this source string alone.
 pub fn parse_str(source: &str, source_name: &str) -> Result<Program, FrontendError> {
+    parse_str_with_options(source, source_name, false)
+}
+
+/// Keep unsigned arithmetic as typed scalars when the whole source is word-free.
+/// Boolean-only consumers can continue using `parse_str`.
+pub fn parse_str_with_options(
+    source: &str,
+    source_name: &str,
+    preserve_uint: bool,
+) -> Result<Program, FrontendError> {
     let parsed = parse_source_string(source, Some(source_name), None::<&[PathBuf]>);
     let syntax = parsed
         .syntax_ast()
@@ -125,6 +136,7 @@ pub fn parse_str(source: &str, source_name: &str) -> Result<Program, FrontendErr
 
     Lowerer {
         source_name: source_name.to_owned(),
+        preserve_uint,
         ..Lowerer::default()
     }
     .lower(syntax.tree())
@@ -136,6 +148,7 @@ pub fn parse_str(source: &str, source_name: &str) -> Result<Program, FrontendErr
 /// all emitted nodes. Subroutine definitions remain as syntax until a call is
 /// specialized to concrete caller-owned qubits.
 struct Lowerer {
+    preserve_uint: bool,
     source_name: String,
     annotations: std::collections::BTreeMap<crate::AstId, Vec<crate::annotation::Annotation>>,
     spec_functions: Vec<crate::annotation::SpecFunction>,
@@ -153,6 +166,7 @@ struct Lowerer {
     subroutines: Vec<SubroutineTemplate>,
     quantum_arguments: HashMap<crate::SymbolId, QuantumOperand>,
     active_subroutines: BTreeSet<usize>,
+    subroutine_calls_left: usize,
     static_iterations_left: usize,
     static_statements_left: usize,
     static_loop_depth: usize,
@@ -168,16 +182,9 @@ struct Lowerer {
 #[derive(Clone)]
 struct SubroutineTemplate {
     definition: ast::Def,
-    parameters: Vec<QuantumParameter>,
-    return_type: Option<BitType>,
+    parameters: Vec<subroutines::Parameter>,
+    return_type: Option<subroutines::ValueType>,
     static_globals: BTreeSet<SymbolId>,
-}
-
-/// Name and scalar/register shape of a quantum subroutine parameter.
-#[derive(Clone)]
-struct QuantumParameter {
-    name: String,
-    ty: QuantumType,
 }
 
 /// A resolved quantum operand before OpenQASM register broadcasting is
@@ -301,6 +308,33 @@ enum Signedness {
 }
 
 impl TypedClassicalExpr {
+    /// Storage-compatible type, including unsigned Boolean words. This does
+    /// not make integers interchangeable with untyped bit-register values.
+    fn word_type(&self) -> Option<BitType> {
+        match self {
+            Self::Integer {
+                bits,
+                signedness: Signedness::Unsigned,
+                explicit_width,
+            } => Some(BitType::Uint {
+                width: bits.len(),
+                explicit_width: *explicit_width,
+            }),
+            _ => self.bit_type(),
+        }
+    }
+
+    fn into_word_cells(self) -> Option<Vec<ClassicalExpr>> {
+        match self {
+            Self::Integer {
+                bits,
+                signedness: Signedness::Unsigned,
+                ..
+            } => Some(bits),
+            other => other.into_bit_cells(),
+        }
+    }
+
     /// Returns the source storage type when this is a bool/bit value.
     fn bit_type(&self) -> Option<BitType> {
         match self {
@@ -329,6 +363,7 @@ impl TypedClassicalExpr {
 impl Default for Lowerer {
     fn default() -> Self {
         Self {
+            preserve_uint: false,
             source_name: String::new(),
             annotations: Default::default(),
             spec_functions: Vec::new(),
@@ -346,6 +381,7 @@ impl Default for Lowerer {
             subroutines: Vec::new(),
             quantum_arguments: HashMap::new(),
             active_subroutines: BTreeSet::new(),
+            subroutine_calls_left: 4096,
             static_iterations_left: 4096,
             static_statements_left: 65536,
             static_loop_depth: 0,
@@ -359,6 +395,7 @@ impl Default for Lowerer {
 impl Lowerer {
     /// Lowers the complete source and assembles declarations plus executable body.
     fn lower(mut self, source: ast::SourceFile) -> Result<Program, FrontendError> {
+        self.preserve_uint &= uint::scalar_storage_safe(&source);
         // Only programs with pow need this flow-sensitive frontend analysis.
         // Keep the common no-pow lowering path free of environment snapshots.
         if source
@@ -456,9 +493,7 @@ impl Lowerer {
             Stmt::ClassicalDeclarationStatement(declaration) => {
                 let (register, initializer) = self.lower_classical_declaration(declaration)?;
                 self.classical_registers.extend(register);
-                if let Some(initializer) = initializer {
-                    body.statements.push(initializer);
-                }
+                body.statements.extend(initializer);
                 Ok(())
             }
             // `def f(qubit q) { ... }` registers a callable template. Calls
@@ -508,9 +543,8 @@ impl Lowerer {
     /// Registers a subroutine signature and retains its parsed body for
     /// call-site specialization.
     ///
-    /// Quantum parameters are references to caller-owned wires. The supported
-    /// return type is `bool`, `bit`, or `bit[n]`, matching the dynamic-program
-    /// benchmarks that return measurement results.
+    /// Quantum parameters reference caller-owned wires; classical parameters
+    /// use fresh by-value locals. Numeric and bool/bit return values are typed.
     fn register_subroutine(&mut self, definition: ast::Def) -> Result<(), FrontendError> {
         let name = declaration_name(&definition)?;
         let parameters = definition
@@ -525,38 +559,37 @@ impl Lowerer {
                 else {
                     return Err(unsupported!("array subroutine parameter", &parameter));
                 };
-                if ty
+                let parameter_type = if ty
                     .syntax()
                     .first_token()
-                    .is_none_or(|token| token.text() != "qubit")
+                    .is_some_and(|token| token.text() == "qubit")
                 {
-                    return Err(unsupported!("non-quantum subroutine parameter", &parameter));
-                }
-                Ok(QuantumParameter {
+                    subroutines::ParameterType::Quantum(
+                        self.static_quantum_type(ty.designator(), "a quantum parameter width")?,
+                    )
+                } else {
+                    subroutines::ParameterType::Classical(self.subroutine_value_type(&ty)?)
+                };
+                Ok(subroutines::Parameter {
                     name,
-                    ty: self.static_quantum_type(ty.designator(), "a quantum parameter width")?,
+                    ty: parameter_type,
+                    explicit_width: ty.designator().is_some(),
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
+        let mut parameter_names = BTreeSet::new();
+        for parameter in &parameters {
+            if !parameter_names.insert(parameter.name.clone()) {
+                return Err(FrontendError::DuplicateIdentifier(parameter.name.clone()));
+            }
+        }
         let return_type = definition
             .return_signature()
             .map(|signature| {
                 let ty = signature
                     .scalar_type()
                     .ok_or_else(|| expected!("a subroutine return type", &signature))?;
-                if ty.bool_token().is_some() {
-                    if ty.designator().is_some() {
-                        return Err(expected!("a scalar bool return type", &ty));
-                    }
-                    Ok(BitType::Bool)
-                } else if ty.bit_token().is_some() {
-                    self.static_bit_type(ty.designator(), "a subroutine return width")
-                } else {
-                    Err(unsupported!(
-                        "subroutine return type other than bool or bit",
-                        &ty
-                    ))
-                }
+                self.subroutine_value_type(&ty)
             })
             .transpose()?;
         let index = self.subroutines.len();
@@ -628,7 +661,7 @@ impl Lowerer {
     fn lower_classical_declaration(
         &mut self,
         declaration: ast::ClassicalDeclarationStatement,
-    ) -> Result<(Option<Register>, Option<Statement>), FrontendError> {
+    ) -> Result<(Option<Register>, Vec<Statement>), FrontendError> {
         if self.is_scalar_declaration(&declaration) {
             return Ok((None, self.lower_scalar_declaration(declaration)?));
         }
@@ -637,10 +670,10 @@ impl Lowerer {
                 .scalar_type()
                 .ok_or_else(|| expected!("a constant type", &declaration))?;
             self.lower_bit_constant(declaration, ty)?;
-            return Ok((None, None));
+            return Ok((None, Vec::new()));
         }
         let (register, initializer) = self.lower_bit_declaration(declaration)?;
-        Ok((Some(register), initializer))
+        Ok((Some(register), initializer.into_iter().collect()))
     }
 
     /// Declares Boolean word storage and lowers its optional initializer.
@@ -1348,11 +1381,7 @@ impl Lowerer {
                 let rhs = assignment
                     .rhs()
                     .ok_or_else(|| expected!("scalar assignment value", &assignment))?;
-                let value = self.lower_scalar_expr(rhs, ty)?;
-                return Ok(self.ids.node(StatementKind::ScalarAssign {
-                    target: binding.id,
-                    value,
-                }));
+                return self.lower_scalar_value_assignment(binding.id, ty, rhs);
             }
         }
         let targets = self.lower_assignment_targets(&assignment)?;
@@ -1368,33 +1397,54 @@ impl Lowerer {
         rhs: Expr,
         snippet: String,
     ) -> Result<Statement, FrontendError> {
-        if let BitType::Uint { width, .. } = targets.ty() {
-            let values = self.uint_value(rhs, width)?;
-            return Ok(self.assign_cells(targets.into_cells(), values));
-        }
-        if let BitType::Angle { width } = targets.ty() {
-            let values = self.angle_value(rhs, width, false)?;
-            return self.assign_bit_values(targets, values, snippet);
+        // Calls must be dispatched before storage-specific value lowering.
+        // A uint-returning call is an effectful statement, not a bit expression.
+        if let Expr::CallExpr(call) = &rhs {
+            if self.is_subroutine_call(call) {
+                return self.lower_subroutine_call(
+                    call.clone(),
+                    Some(subroutines::CallTarget::Bits(targets)),
+                );
+            }
         }
         match rhs {
             // `c = measure q;` produces a quantum measurement for each
             // matching scalar/register cell rather than a classical Assign.
-            Expr::MeasureExpression(measurement) => {
+            Expr::MeasureExpression(measurement)
+                if !matches!(targets.ty(), BitType::Uint { .. } | BitType::Angle { .. }) => {
                 let operand = measurement
                     .gate_operand()
                     .ok_or_else(|| expected!("a measurement operand", &measurement))?;
                 let qubits = self.lower_qubits(operand)?;
                 self.lower_measurement(qubits, targets, snippet)
             }
-            // `c = parity(q);` binds the subroutine's classical return value
-            // directly to `c` while specializing its quantum parameters.
-            Expr::CallExpr(call) => self.lower_subroutine_call(call, Some(targets)),
             // `c = a ^ b;` lowers the RHS as a typed bit value, then checks
             // that its scalar/register shape matches the assignment target.
             expression => {
-                let values = self.lower_bit_expr(expression)?;
+                let values = self.lower_word_value(expression, targets.ty())?;
                 self.assign_bit_values(targets, values, snippet)
             }
+        }
+    }
+
+    /// Shared target-directed conversion for word assignments, by-value
+    /// arguments and returns. Calls are handled by the statement layer.
+    fn lower_word_value(
+        &mut self,
+        source: Expr,
+        ty: BitType,
+    ) -> Result<TypedClassicalExpr, FrontendError> {
+        match ty {
+            BitType::Uint {
+                width,
+                explicit_width,
+            } => Ok(TypedClassicalExpr::Integer {
+                bits: self.uint_value(source, width)?,
+                signedness: Signedness::Unsigned,
+                explicit_width,
+            }),
+            BitType::Angle { width } => self.angle_value(source, width, false),
+            _ => self.lower_bit_expr(source),
         }
     }
 
@@ -1431,7 +1481,7 @@ impl Lowerer {
         snippet: String,
     ) -> Result<Statement, FrontendError> {
         if values
-            .bit_type()
+            .word_type()
             .is_none_or(|value_type| !bit_types_compatible(targets.ty(), value_type))
         {
             return Err(FrontendError::Expected {
@@ -1441,7 +1491,7 @@ impl Lowerer {
         }
         Ok(self.assign_cells(
             targets.into_cells(),
-            values.into_bit_cells().expect("checked bit value"),
+            values.into_word_cells().expect("checked word value"),
         ))
     }
 
@@ -1536,139 +1586,6 @@ impl Lowerer {
         self.classical_cells(name)
     }
 
-    /// Specializes one subroutine invocation to its concrete quantum
-    /// arguments and lowers the resulting body into a lexical core-IR scope.
-    ///
-    /// This follows OpenQASM's reference semantics: a formal `qubit[2] q`
-    /// directly denotes the two caller-owned wires passed at this call site.
-    fn lower_subroutine_call(
-        &mut self,
-        call: ast::CallExpr,
-        targets: Option<BitOperand>,
-    ) -> Result<Statement, FrontendError> {
-        // Resolve `prepare(q)` to the previously registered definition.
-        let callee = match call
-            .expr()
-            .ok_or_else(|| expected!("a subroutine name", &call))?
-        {
-            Expr::Identifier(identifier) => identifier.string(),
-            expression => return Err(unsupported!("subroutine callee", &expression)),
-        };
-        let binding = self.scopes.lookup(&callee).map_err(scope_error)?;
-        let BindingKind::Subroutine { index } = binding.kind else {
-            return Err(FrontendError::WrongIdentifierKind {
-                name: callee,
-                expected: "subroutine",
-                actual: binding.kind.description(),
-            });
-        };
-        if self.active_subroutines.contains(&index) {
-            return Err(unsupported!("recursive subroutine call", &call));
-        }
-        let template = self.subroutines[index].clone();
-        // Quantum arguments preserve scalar/register shape, so `qubit q` and
-        // `qubit[1] q` cannot be interchanged merely because both have width one.
-        let arguments = call
-            .arg_list()
-            .and_then(|arguments| arguments.expression_list())
-            .map(|arguments| {
-                arguments
-                    .exprs()
-                    .map(|argument| self.lower_quantum_argument(argument))
-                    .collect::<Result<Vec<_>, _>>()
-            })
-            .transpose()?
-            .unwrap_or_default();
-        if arguments.len() != template.parameters.len() {
-            return Err(FrontendError::Expected {
-                expected: "the subroutine's declared number of arguments",
-                snippet: call.syntax().text().to_string(),
-            });
-        }
-        for (argument, parameter) in arguments.iter().zip(&template.parameters) {
-            if argument.ty() != parameter.ty {
-                return Err(FrontendError::Expected {
-                    expected: "a subroutine argument matching its parameter type",
-                    snippet: call.syntax().text().to_string(),
-                });
-            }
-        }
-        // The same physical qubit cannot occupy two formal parameters because
-        // that would alias operands within the specialized body.
-        let unique_arguments = arguments
-            .iter()
-            .flat_map(QuantumOperand::cells)
-            .cloned()
-            .collect::<BTreeSet<_>>();
-        if unique_arguments.len()
-            != arguments
-                .iter()
-                .map(|argument| argument.cells().len())
-                .sum::<usize>()
-        {
-            return Err(FrontendError::Expected {
-                expected: "non-overlapping quantum subroutine arguments",
-                snippet: call.syntax().text().to_string(),
-            });
-        }
-        // Calls returning classical data must appear with a compatible
-        // assignment target; void calls must not have one.
-        match (template.return_type, targets.as_ref()) {
-            (None, Some(_)) => {
-                return Err(FrontendError::Expected {
-                    expected: "a value-returning subroutine",
-                    snippet: call.syntax().text().to_string(),
-                });
-            }
-            (Some(_), None) => {
-                return Err(FrontendError::Expected {
-                    expected: "an assignment target for the subroutine return value",
-                    snippet: call.syntax().text().to_string(),
-                });
-            }
-            (Some(return_type), Some(targets))
-                if !bit_types_compatible(return_type, targets.ty()) =>
-            {
-                return Err(FrontendError::Expected {
-                    expected: "a call target matching the subroutine return type",
-                    snippet: call.syntax().text().to_string(),
-                });
-            }
-            _ => {}
-        }
-
-        // Bind formal quantum names to caller wires, lower the body, and then
-        // restore the surrounding lexical environment.
-        self.active_subroutines.insert(index);
-        self.scopes.enter(ScopeKind::Subroutine);
-        let mut parameter_ids = Vec::new();
-        for (parameter, argument) in template.parameters.iter().zip(arguments) {
-            let binding = self
-                .scopes
-                .declare(
-                    parameter.name.clone(),
-                    BindingKind::QuantumParameter(parameter.ty),
-                )
-                .map_err(scope_error)?;
-            self.quantum_arguments.insert(binding.id, argument);
-            parameter_ids.push(binding.id);
-        }
-        let result = self.lower_subroutine_body(
-            template
-                .definition
-                .body()
-                .ok_or_else(|| expected!("a subroutine body", &template.definition))?,
-            template.return_type,
-            targets,
-        );
-        for id in parameter_ids {
-            self.quantum_arguments.remove(&id);
-        }
-        self.scopes.exit();
-        self.active_subroutines.remove(&index);
-        Ok(self.ids.node(StatementKind::Scope(result?)))
-    }
-
     /// Lowers a called subroutine body in its call-site parameter environment.
     ///
     /// A final `return` writes into `targets`; local classical declarations are
@@ -1677,8 +1594,8 @@ impl Lowerer {
     fn lower_subroutine_body(
         &mut self,
         body: ast::BlockExpr,
-        return_type: Option<BitType>,
-        targets: Option<BitOperand>,
+        return_type: Option<subroutines::ValueType>,
+        targets: Option<subroutines::CallTarget>,
     ) -> Result<Block, FrontendError> {
         let source_statements = body.statements().collect::<Vec<_>>();
         let mut lowered = self.ids.node(BlockData::default());
@@ -1688,9 +1605,7 @@ impl Lowerer {
                 Stmt::ClassicalDeclarationStatement(declaration) => {
                     let (register, initializer) = self.lower_classical_declaration(declaration)?;
                     lowered.classical_registers.extend(register);
-                    if let Some(initializer) = initializer {
-                        lowered.statements.push(initializer);
-                    }
+                    lowered.statements.extend(initializer);
                 }
                 Stmt::QuantumDeclarationStatement(declaration) => {
                     self.lower_quantum_declaration(declaration)?;
@@ -1737,10 +1652,41 @@ impl Lowerer {
     fn lower_return(
         &mut self,
         return_expression: ast::ReturnExpr,
-        return_type: Option<BitType>,
-        targets: Option<&BitOperand>,
+        return_type: Option<subroutines::ValueType>,
+        targets: Option<&subroutines::CallTarget>,
         body: &mut Block,
     ) -> Result<(), FrontendError> {
+        if let (
+            Some(subroutines::ValueType::Scalar(ty)),
+            Some(subroutines::CallTarget::Scalar { id, .. }),
+        ) = (return_type, targets)
+        {
+            let value = return_expression
+                .expr()
+                .ok_or_else(|| expected!("a scalar return value", &return_expression))?;
+            body.statements
+                .push(self.lower_scalar_value_assignment(*id, ty, value)?);
+            return Ok(());
+        }
+        if return_type.is_some()
+            && let Some(Expr::CallExpr(call)) = return_expression.expr()
+        {
+            if self.is_subroutine_call(&call) {
+                body.statements
+                    .push(self.lower_subroutine_call(call, targets.cloned())?);
+                return Ok(());
+            }
+        }
+        let return_type = match return_type {
+            Some(subroutines::ValueType::Bits(ty)) => Some(ty),
+            None => None,
+            _ => unreachable!(),
+        };
+        let targets = match targets {
+            Some(subroutines::CallTarget::Bits(bits)) => Some(bits),
+            None => None,
+            _ => unreachable!(),
+        };
         let value = return_expression.expr();
         match (return_type, value) {
             // `return;` is the only valid return from a void subroutine.
@@ -1783,9 +1729,9 @@ impl Lowerer {
             // caller-provided target.
             (Some(return_type), Some(value)) => {
                 let snippet = return_expression.syntax().text().to_string();
-                let values = self.lower_bit_expr(value)?;
+                let values = self.lower_word_value(value, return_type)?;
                 if values
-                    .bit_type()
+                    .word_type()
                     .is_none_or(|value_type| !bit_types_compatible(return_type, value_type))
                     || targets
                         .is_some_and(|targets| !bit_types_compatible(targets.ty(), return_type))
@@ -1809,11 +1755,21 @@ impl Lowerer {
 
     /// Lowers an `if` statement and gives each branch its own lexical scope.
     fn lower_if(&mut self, statement: ast::IfStmt) -> Result<Statement, FrontendError> {
-        let condition = self.lower_scalar_bit_expression(
-            statement
-                .condition()
-                .ok_or_else(|| expected!("an if condition", &statement))?,
-        )?;
+        let source = statement
+            .condition()
+            .ok_or_else(|| expected!("an if condition", &statement))?;
+        let mut call_prefix = None;
+        let condition = if let Expr::CallExpr(call) = &source {
+            if self.is_subroutine_call(call) {
+                let (register, call, condition) = self.lower_call_condition(call.clone())?;
+                call_prefix = Some((register, call));
+                condition
+            } else {
+                self.lower_scalar_bit_expression(source)?
+            }
+        } else {
+            self.lower_scalar_bit_expression(source)?
+        };
         let before = self.known_bits.clone();
         let scalar_before = self.known_scalars.clone();
         let then_branch = self.lower_branch(statement.true_body_block_or_stmt())?;
@@ -1825,11 +1781,20 @@ impl Lowerer {
         };
         self.known_bits = before;
         self.known_scalars = scalar_before;
-        Ok(self.ids.node(StatementKind::If {
+        let conditional = self.ids.node(StatementKind::If {
             condition,
             then_branch,
             else_branch,
-        }))
+        });
+        Ok(if let Some((register, call)) = call_prefix {
+            let body = self.ids.node(BlockData {
+                classical_registers: vec![register],
+                statements: vec![call, conditional],
+            });
+            self.ids.node(StatementKind::Scope(body))
+        } else {
+            conditional
+        })
     }
 
     /// Preserves a runtime loop without unrolling or assuming termination.
@@ -1896,9 +1861,7 @@ impl Lowerer {
                 Stmt::ClassicalDeclarationStatement(declaration) => {
                     let (register, initializer) = self.lower_classical_declaration(declaration)?;
                     lowered.classical_registers.extend(register);
-                    if let Some(initializer) = initializer {
-                        lowered.statements.push(initializer);
-                    }
+                    lowered.statements.extend(initializer);
                 }
                 // A block-local qubit declaration is forwarded to the common
                 // declaration logic, which rejects it according to the language rules.

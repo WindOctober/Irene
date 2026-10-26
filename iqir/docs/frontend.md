@@ -38,6 +38,35 @@ is documented separately in [Specification annotations](spec-annotations.md).
   little-endian register, including the `bit[1] c; while(c == 1)` spelling
   produced by Qiskit. Width/shape are not reduced to the lowest bit.
 
+## Classical subroutine parameters and results
+
+`def` supports numeric `int[n]`, `uint[n]`, `float[32/64]`, `bool`, `bit`,
+and `bit[n]` parameters, alongside scalar/register qubit parameters. Classical
+arguments are evaluated in the caller and copied into fresh mutable callee
+locals before executing the body. Assigning a formal never updates the caller;
+passing the same classical variable twice creates two independent copies.
+Quantum parameters still reference caller wires and cannot overlap.
+
+Numeric and bool/bit results can initialize a declaration or be the entire
+right-hand side of an assignment. A final `return another_call(...)` can forward a result.
+Return targets must match the declared numeric type/width or compatible bit
+shape. A direct `if (predicate(...))` executes the call once before branching,
+including its quantum effects. Nested calls through separate statements are
+supported; recursive calls and exponential expansion are bounded/rejected.
+
+Known actual values feed existing constant math and static `for` range
+evaluation without making the formal `const`. Loop-carried values and unknown
+actuals remain runtime values; `while` back edges invalidate flow facts. Lexical
+lookup uses definition-time visibility, not caller locals or mutable globals.
+
+This does not add general effectful calls inside arithmetic, call arguments,
+short-circuit expressions or `while` conditions, nor non-final/conditional
+returns, array-reference parameters, or missing scalar integer bitwise
+operators. Those constructs still fail explicitly; refactoring cannot assume termination
+or erase function side effects. Numeric `uint` storage follows the frontend's scalar-preservation option;
+parameters, locals and return targets use the same choice. The default entry
+uses Boolean words; bool/bit parameters also use the bit IR.
+
 ## Scalar types, declarations and constant evaluation
 
 `ScalarType` describes integer signedness/width or floating precision, not
