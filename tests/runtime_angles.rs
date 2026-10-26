@@ -140,7 +140,7 @@ fn initialization_quantizes_radians_and_reduces_modulo_one_turn() {
         );
     }
     assert_eq!(word("angle a=pi;", "a"), 1 << 31);
-    assert_eq!(word("angle[61] a=pi;", "a"), (1_u64 << 60) - 45);
+    assert_eq!(word("angle[61] a=pi;", "a"), 1_u64 << 60);
     assert_eq!(word("const int n=3; angle[n] a=angle[n](\"101\");", "a"), 5);
 }
 
@@ -326,7 +326,6 @@ fn unsupported_widths_values_and_operations_are_rejected() {
         "angle[3] a=0; a=a/2;",
         "angle[3] a=1.0/0.0;",
         "angle[3] a=1e309;",
-        "angle[3] a=1e308;",
         "input float f; angle[3] a=f;",
         "uint[3] v=0; angle[3] a=angle[3](v);",
         "qubit q; angle[3] a=0; h(a) q;",

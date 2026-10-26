@@ -3,10 +3,6 @@
 //! of commuting, classically guarded exact rotations. No outcome enumeration.
 use super::*;
 use crate::NumericConstant;
-use rug::{
-    Float, Integer,
-    float::{Constant, Round},
-};
 
 impl Lowerer {
     pub(super) fn angle_width(&self, ty: &ast::ScalarType) -> Result<usize, FrontendError> {
@@ -106,8 +102,8 @@ impl Lowerer {
             }
             return Ok(TypedClassicalExpr::Angle(bits));
         }
-        let (radians, _) = self.static_float(e.clone(), 0)?;
-        let value = quantize_angle(radians, n)
+        let (radians, source_width) = self.static_float(e.clone(), 0)?;
+        let value = quantize_angle(radians, source_width, n)
             .ok_or_else(|| unsupported!("uncertified float-to-angle rounding", &e))?;
         Ok(self.constant_bits(value, BitType::Angle { width: n }))
     }
@@ -298,31 +294,35 @@ impl Lowerer {
     }
 }
 
-/// Certified round-to-nearest/even, followed by reduction modulo one turn.
-/// Directed MPFR bounds bracket the mathematical pi, never a guessed epsilon.
-/// If both bounds do not round to the same integer, decline the conversion.
-fn quantize_angle(radians: f64, width: usize) -> Option<u64> {
-    if !radians.is_finite() {
+/// OpenQASM float[n] -> angle[m]: use float_n(2*pi) as one turn,
+/// round to nearest/even, then reduce modulo 2^m. IEEE inputs and the
+/// period are exact rationals here; no intermediate rounding, epsilon or
+/// transcendental approximation is needed. The OUTPUT bit weights still
+/// denote exact mathematical 2*pi / 2^m, as required for angle values.
+fn quantize_angle(radians: f64, source_width: u32, width: usize) -> Option<u64> {
+    if !radians.is_finite() || !(1..=61).contains(&width) {
         return None;
     }
-    let precision = 256;
-    let (pi_lo, _) = Float::with_val_round(precision, Constant::Pi, Round::Down);
-    let (pi_hi, _) = Float::with_val_round(precision, Constant::Pi, Round::Up);
-    let numerator =
-        Float::with_val(precision, radians) * Float::with_val(precision, 1_u64 << (width - 1));
-    let (low_den, high_den) = if radians >= 0.0 {
-        (&pi_hi, &pi_lo)
-    } else {
-        (&pi_lo, &pi_hi)
+    let period = match source_width {
+        32 => f64::from(std::f32::consts::TAU),
+        64 => std::f64::consts::TAU,
+        _ => return None,
     };
-    let (lo, _) = Float::with_val_round(precision, &numerator / low_den, Round::Down);
-    let (hi, _) = Float::with_val_round(precision, &numerator / high_den, Round::Up);
-    let lo = lo.to_integer_round(Round::Nearest)?.0;
-    let hi = hi.to_integer_round(Round::Nearest)?.0;
-    if lo != hi {
-        return None;
+    let modulus = BigInt::from(1_u64 << width);
+    let scaled = BigRational::from_float(radians.abs())?
+        * BigRational::from_integer(modulus.clone())
+        / BigRational::from_float(period)?;
+    let mut rounded = scaled.numer() / scaled.denom();
+    let twice_remainder = (scaled.numer() % scaled.denom()) * BigInt::from(2);
+    if twice_remainder > *scaled.denom()
+        || (twice_remainder == *scaled.denom()
+            && &rounded % BigInt::from(2) != BigInt::from(0))
+    {
+        rounded += 1;
     }
-    let modulus = Integer::from(1_u64 << width);
-    let residue = ((lo % &modulus) + &modulus) % &modulus;
-    residue.to_u64()
+    if radians.is_sign_negative() {
+        rounded = -rounded;
+    }
+    let residue = ((rounded % &modulus) + &modulus) % &modulus;
+    u64::try_from(residue).ok()
 }

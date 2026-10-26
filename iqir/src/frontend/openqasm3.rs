@@ -883,9 +883,11 @@ impl Lowerer {
         Ok(self.power_statement(lowered, power))
     }
 
-    /// Lowers `name(parameters) qubits;` into a gate kind, exact parameters,
-    /// and resolved qubit operands. For example, `rz(pi/4) q[0];` retains
-    /// `pi/4` as a [`NumericExpr`] rather than evaluating it as a float.
+    /// Lowers a call to a gate and resolved operands. Source float arguments
+    /// such as `pi/4` use IEEE evaluation before radian embedding; explicitly
+    /// typed angle arguments use their exact turn-based bit representation.
+    /// Mathematical constants introduced by standard-gate decompositions
+    /// are not source-level float computations.
     fn lower_gate(&mut self, call: ast::GateCallExpr) -> Result<Statement, FrontendError> {
         self.lower_gate_with_controls(call, 0)
     }

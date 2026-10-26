@@ -197,11 +197,13 @@ pub enum NumericConstant {
 
 /// Numeric expression used as a parameter to a gate.
 ///
-/// Finite integer, decimal, and scientific literals are normalized exactly:
-/// `0.1`, `0.100`, and `1e-1` all become the same rational expression. The
-/// enclosing [`AstNode`] retains source identity without affecting this
-/// semantic equality. Expressions such as `-theta / 2 + pi/4` retain their
-/// symbolic structure instead of being converted to floating point.
+/// This IR distinguishes mathematical gate algebra from machine arithmetic.
+/// The OpenQASM 3 frontend evaluates floating expressions (including source
+/// `pi`) with IEEE semantics, then embeds the finite result as an exact
+/// rational radian value, or retains a dynamic [`ScalarExpr`]. Thus `0.1`
+/// embeds the binary64 value, not the rational 1/10. Standard-gate identities
+/// and fixed-width angle bit weights can still contain mathematical pi.
+/// OpenQASM 2 retains its separate real-valued parameter lowering.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum NumericExprKind {
     Rational(BigRational),

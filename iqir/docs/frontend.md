@@ -61,6 +61,44 @@ therefore not the rational `1/10`. Closed floating subexpressions in symbolic
 angle expressions follow this rule too. Gate formals retain angle algebra;
 this does not add a finite-width angle hardware model.
 
+### Numeric boundary of gate parameters
+
+There are three distinct domains, not one interchangeable representation of pi:
+
+- Classical `float[32/64]` expressions, including source `pi` (binary64),
+  retain their typed IEEE rounding steps.
+- Explicit `angle[m]` values encode an integer `k` with mathematical value
+  `2*pi*k/2^m`. Converting `float[n]` to `angle[m]` uses the source format's
+  `float_n(2*pi)` period, nearest/even rounding, and reduction modulo one turn.
+  This conversion uses exact rational arithmetic on the finite IEEE values;
+  its output bit weights use mathematical pi, not the floating period.
+  The source precision is retained, including for binary32 expressions.
+- Standard-library gates have their specified mathematical matrices. `S`
+  remains `diag(1,i)`, and controlled-standard-gate decompositions may use
+  exact pi. They must not acquire source-level floating evaluation error.
+
+For gate parameters without an explicit fixed-width angle conversion, Irene
+currently chooses a continuous-radian verification profile: embed the final
+IEEE value exactly in the mathematical gate, without further angle quantization.
+This is an explicit modeling policy, NOT a claim that OpenQASM requires this
+unique interpretation of unspecified-size gate angles. OpenQASM permits
+arbitrary-precision gate algebra or a target-specific fixed angle precision.
+The existing default width 32 applies to an `angle` declaration/cast without
+a designator; it is not silently applied to every gate argument.
+
+Consequently, under this profile `p(pi/2)` and `s` are not exactly identical.
+`p(angle[32](pi/2))` and `s` ARE identical. The same distinction applies to
+`t` and `p(pi/4)`. An `Unknown` result is not a proof of inequivalence, and
+exact-equivalence tests must not be mass-updated to expect `Unknown`.
+Changing the unspecified-size gate profile requires a separate, consistent
+target decision across frontend and backends; it must not be approximated by
+snapping nearby floating values to special angles. In particular, reducing a
+continuous rotation argument modulo 2*pi can lose a controlled global phase.
+
+References: [gate parameters](https://openqasm.com/language/gates.html#hierarchical-gates-definitions),
+[float-to-angle casts](https://openqasm.com/language/types.html#casting-from-float),
+and [standard gate matrices](https://openqasm.com/language/standard_library.html).
+
 The target defaults are 32-bit signed integers and binary64 floats.
 Explicit versus omitted widths are retained as declaration metadata, not type
 identity: `int` and `int[32]` are compatible on this target. Integers are **not**

@@ -284,13 +284,16 @@ impl Lowerer {
         }
         let saved_ids = self.ids.clone();
         let result = (|| {
-            let value = self.lower_scalar_expr(expr.clone(), ScalarType::Float { width: 64 })?;
+            // Preserve the source format: float[n] -> angle[m] uses
+            // float_n(2*pi), not always the binary64 period.
+            let ty = self.float_expression_type(&expr, ScalarType::Float { width: 64 })?;
+            let value = self.lower_scalar_expr(expr.clone(), ty)?;
             let value = self.require_scalar_constant(&value, &expr)?;
             Ok((
                 value
                     .as_float()
                     .ok_or_else(|| expected!("a floating-point value", &expr))?,
-                64,
+                ty.width(),
             ))
         })();
         self.ids = saved_ids;

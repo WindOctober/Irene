@@ -86,6 +86,15 @@ fn compare_n(left: &str, right: &str, verdict: Verdict, width: usize) {
 
 #[test]
 fn fixed_angles_have_exact_bit_order_rounding_and_modular_arithmetic() {
+    // Explicit angle conversion agrees with the exact standard matrices,
+    // including under control (where global phases cannot be discarded).
+    compare("p(angle[32](pi/2)) q[0];", "s q[0];", Verdict::Equivalent);
+    compare("p(angle[32](pi/4)) q[0];", "t q[0];", Verdict::Equivalent);
+    compare(
+        "ctrl @ p(angle[32](pi/2)) q[0],q[1];",
+        "ctrl @ s q[0],q[1];",
+        Verdict::Equivalent,
+    );
     assert_eq!(
         word(
             "bit[3] b=\"011\"; b=bit[3](angle[3](b)+angle[3](\"001\"));",
@@ -97,9 +106,27 @@ fn fixed_angles_have_exact_bit_order_rounding_and_modular_arithmetic() {
         word("bit[3] b=\"011\"; b ^= bit[3](angle[3](b) << 1);", "b"),
         5
     );
-    // At sufficiently fine resolution IEEE pi is distinguishable from the
-    // mathematical pi. Do not restore the ideal value when folding a float.
-    assert_eq!(word("angle[61] a=pi;", "a"), (1_u64 << 60) - 45);
+    // Float-to-angle conversion uses the source format's float(2*pi).
+    // IEEE pi is exactly half that period, even at fine angle resolution.
+    assert_eq!(word("angle[61] a=pi;", "a"), 1_u64 << 60);
+    assert_eq!(word("angle[61] a=float[32](pi);", "a"), 1_u64 << 60);
+    assert_eq!(
+        word("const float[32] f=pi; angle[61] a=f;", "a"),
+        1_u64 << 60
+    );
+    // Exact halfway cases, with both signs and both parity choices.
+    for (expr, expected) in [
+        ("tau/512", 0),
+        ("3*tau/512", 2),
+        ("-tau/512", 0),
+        ("-3*tau/512", 254),
+        ("tau*(127.0/512.0)", 64),
+        ("tau*(129.0/512.0)", 64),
+        ("1e308", 233),
+        ("5e-324", 0),
+    ] {
+        assert_eq!(word(&format!("angle[8] a={expr};"), "a"), expected, "{expr}");
+    }
     for (expr, expected) in [
         ("0", 0),
         ("pi/2", 2),

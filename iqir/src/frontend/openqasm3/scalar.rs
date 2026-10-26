@@ -246,7 +246,7 @@ impl Lowerer {
         Ok(result)
     }
 
-    fn float_expression_type(
+    pub(super) fn float_expression_type(
         &self,
         source: &Expr,
         fallback: ScalarType,
