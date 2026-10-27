@@ -18,6 +18,11 @@ impl Lowerer {
         let range = statement.for_iterable().and_then(|i| i.range_expr()).unwrap();
         let (start, step, stop) = self.with_known_scalars(|this| this.static_range(&range))?;
         let count = (stop - start) / step + 1;
+        // TODO: Lower the 256-iteration unrolling threshold and extend static-range
+        // loop specification handling, allowing invariants and other loop contracts
+        // to be supplied/generated and checked without unrolling. Reuse the retained
+        // loop annotation/proof path (explicit contracts already select it in
+        // structured mode); preserve source bindings and do not treat specs as facts.
         Ok(count <= 256 && count <= self.static_iterations_left as i128)
     }
 
