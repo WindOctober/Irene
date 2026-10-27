@@ -22,7 +22,7 @@ pub use parser::{AnnotationParseError, parse_annotation, parse_expression, parse
 /// Omitted widths use the same target defaults as executable declarations.
 /// Quantum dimensions are qubit
 /// counts, not vector lengths; no exponentially sized matrix is allocated.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SpecType {
     Bool,
     Bit,
@@ -63,7 +63,7 @@ impl std::fmt::Display for SpecType {
 }
 
 /// Normalized one-qubit states in the computational, X and Y bases.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum QubitState {
     Zero,
     One,
@@ -78,7 +78,7 @@ pub enum QubitState {
 }
 
 /// One-qubit matrices in the ordered basis |0>, |1>.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Pauli {
     I,
     X,
@@ -87,10 +87,10 @@ pub enum Pauli {
     Z,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FunctionId(pub usize);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Parameter {
     pub name: String,
     pub ty: SpecType,
@@ -105,7 +105,7 @@ pub struct SpecFunction {
     pub span: SourceSpan,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BinderKind {
     Sum,
     Product,
@@ -181,14 +181,14 @@ pub struct Annotation {
     pub span: SourceSpan,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum UnaryOp {
     Neg,
     Not,
     Factorial,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BinaryOp {
     Add,
     Sub,
@@ -209,7 +209,7 @@ pub enum BinaryOp {
 }
 
 /// Closed initial vocabulary: unknown functions are errors, not opaque strings.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MathFunction {
     /// Internal state-declaration query: unnormalized joint classical-sector block.
     /// Not a source-level builtin and never normalized like AvgDensity.
@@ -256,8 +256,11 @@ pub enum MathFunction {
     Probability,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum SpecExpr {
+    /// Internal immutable sharing after specialization; no source syntax.
+    /// Consumers must treat this as the enclosed expression, not a fresh value.
+    Shared(std::sync::Arc<SpecExpr>),
     /// Preserve declared types at reads, constants and implicit conversions.
     Cast {
         ty: SpecType,
@@ -334,6 +337,7 @@ impl SpecExpr {
     /// Integer literals can be specialized to the other operand's type.
     pub fn literal(&self) -> Option<BigRational> {
         match self {
+            Self::Shared(value) => value.literal(),
             Self::Number(n) => Some(n.clone()),
             Self::Unary {
                 op: UnaryOp::Neg,
@@ -351,11 +355,25 @@ impl SpecExpr {
 
     pub fn uncast(&self) -> &Self {
         match self {
+            Self::Shared(value) => value.uncast(),
             Self::Cast { operand, .. } => operand.uncast(),
+            _ => self,
+        }
+    }
+    /// Remove sharing wrappers without removing semantic type conversions.
+    pub fn unshared(&self) -> &Self {
+        match self {
+            Self::Shared(value) => value.unshared(),
             _ => self,
         }
     }
     pub fn children(&self) -> Vec<&Self> {
         functions::children(self)
+    }
+
+    /// Capture-avoiding instantiation of one checked binder with a closed value.
+    /// Unlike helper instantiation, this does not change parameter/result types.
+    pub fn instantiate_bound(&self, id: u32, value: &Self) -> Result<Self, String> {
+        functions::instantiate_bound(self, id, value)
     }
 }

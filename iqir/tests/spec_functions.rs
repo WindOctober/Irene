@@ -17,6 +17,76 @@ fn check(text: &str, table: &[SpecFunction]) -> Result<SpecExpr, FunctionError> 
 }
 
 #[test]
+fn rechecking_an_extracted_binder_preserves_resolved_ids() {
+    let e = check(
+        r"\sum(k in 0..2, \real(k)) + \sum(j in 0..3, \real(j))",
+        &[],
+    )
+    .unwrap();
+    let SpecExpr::Binary { right, .. } = e.uncast() else {
+        panic!("sum pair")
+    };
+    let mut right = (**right).clone();
+    let SpecExpr::Binder {
+        id: Some(before), ..
+    } = right.uncast()
+    else {
+        panic!("binder")
+    };
+    let before = *before;
+    assert_ne!(before, 0);
+    assert_eq!(
+        check_expression(&mut right, &[], |n| Err(n.into())).unwrap(),
+        SpecType::Real
+    );
+    let SpecExpr::Binder {
+        id: Some(after), ..
+    } = right.uncast()
+    else {
+        panic!("binder")
+    };
+    assert_eq!(*after, before);
+}
+
+#[test]
+fn shared_typechecking_is_dag_linear_and_scope_sensitive() {
+    use std::sync::Arc;
+    let mut dag = SpecExpr::Shared(Arc::new(check(r"\real(1)", &[]).unwrap()));
+    // Exponential tree size, only a few dozen distinct nodes.
+    for _ in 0..18 {
+        dag = SpecExpr::Shared(Arc::new(SpecExpr::Binary {
+            op: BinaryOp::Add,
+            left: Box::new(dag.clone()),
+            right: Box::new(dag),
+        }));
+    }
+    assert_eq!(
+        check_expression(&mut dag, &[], |n| Err(n.into())).unwrap(),
+        SpecType::Real
+    );
+
+    let source = r"\sum(x: int[8] in 0..2, x) + \sum(x: uint[16] in 0..2, x)";
+    let mut ordinary = parse_expression(source).unwrap();
+    let expected = check_expression(&mut ordinary, &[], |n| Err(n.into())).unwrap();
+    let mut shared = parse_expression(source).unwrap();
+    let name = Arc::new(SpecExpr::Name("x".into()));
+    let SpecExpr::Binary { left, right, .. } = &mut shared else {
+        panic!("binary")
+    };
+    for e in [left, right] {
+        let SpecExpr::Binder { body, .. } = e.as_mut() else {
+            panic!("binder")
+        };
+        **body = SpecExpr::Shared(name.clone());
+    }
+    assert_eq!(
+        check_expression(&mut shared, &[], |n| Err(n.into())).unwrap(),
+        expected
+    );
+    assert_eq!(*name, SpecExpr::Name("x".into()));
+}
+
+#[test]
 fn benchmark_classical_formula_families_parse_and_typecheck() {
     let mut f = Vec::new();
     // DGS: factorial sequence, finite remainder, piecewise truncation, infinite tail.

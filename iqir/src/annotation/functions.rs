@@ -196,6 +196,14 @@ struct Checker<'a, F> {
     next_local: u32,
     work: usize,
     resolve: F,
+    shared: std::collections::HashMap<(usize, Vec<(String, u32, SpecType)>), CheckedShared>,
+}
+
+struct CheckedShared {
+    // Retain the source allocation: pointer keys must not survive its lifetime.
+    _source: std::sync::Arc<SpecExpr>,
+    value: std::sync::Arc<SpecExpr>,
+    ty: SpecType,
 }
 
 /// Resolve names/calls and check sorts and quantum dimensions. Domains, convergence,
@@ -212,6 +220,7 @@ pub fn check_expression(
         next_local: 0,
         work: 0,
         resolve,
+        shared: Default::default(),
     }
     .check(expression, 0)
 }
@@ -253,6 +262,7 @@ pub fn define_function(
                 "helper cannot capture `{name}`; declare it as a parameter"
             ))
         },
+        shared: Default::default(),
     };
     let ty = checker.check(&mut f.body, 0)?;
     if !f.result.accepts_value(ty, &f.body) {
@@ -280,6 +290,25 @@ where
         const INT: SpecType = SpecType::Int(None);
         const UINT: SpecType = SpecType::Uint(None);
         match e {
+            SpecExpr::Shared(value) => {
+                let key = (std::sync::Arc::as_ptr(value) as usize, self.locals.clone());
+                if let Some(checked) = self.shared.get(&key) {
+                    *value = checked.value.clone();
+                    return Ok(checked.ty);
+                }
+                let source = value.clone();
+                // Sharing is a representation edge, not another language node.
+                let ty = self.check(std::sync::Arc::make_mut(value), depth)?;
+                self.shared.insert(
+                    key,
+                    CheckedShared {
+                        _source: source,
+                        value: value.clone(),
+                        ty,
+                    },
+                );
+                Ok(ty)
+            }
             SpecExpr::Cast { ty, operand } => {
                 let actual = self.check(operand, depth + 1)?;
                 if !ty.accepts_value(actual, operand) {
@@ -657,8 +686,14 @@ where
                         "integer binder requires integer bounds (or +inf upper bound)",
                     ));
                 }
-                let local = self.next_local;
-                self.next_local += 1;
+                // Rechecking a shared/substituted subtree must preserve its
+                // resolved binder identity, not silently rebind its body.
+                let local = id.unwrap_or(self.next_local);
+                self.next_local = self.next_local.max(
+                    local
+                        .checked_add(1)
+                        .ok_or_else(|| fail("bound-variable ID overflow"))?,
+                );
                 *id = Some(local);
                 self.locals
                     .push((variable.name.clone(), local, variable.ty));
@@ -847,6 +882,7 @@ fn substitute(
 
 pub(super) fn children(e: &SpecExpr) -> Vec<&SpecExpr> {
     match e {
+        SpecExpr::Shared(value) => vec![value],
         SpecExpr::Unary { operand, .. } | SpecExpr::Cast { operand, .. } => vec![operand],
         SpecExpr::Binary { left, right, .. } => vec![left, right],
         SpecExpr::Index { value, index } => vec![value, index],
@@ -866,8 +902,68 @@ pub(super) fn children(e: &SpecExpr) -> Vec<&SpecExpr> {
     }
 }
 
+pub(super) fn instantiate_bound(
+    e: &SpecExpr,
+    id: u32,
+    value: &SpecExpr,
+) -> Result<SpecExpr, String> {
+    fn visit(
+        e: &mut SpecExpr,
+        id: u32,
+        value: &SpecExpr,
+        fuel: &mut usize,
+        depth: usize,
+    ) -> Result<(), String> {
+        *fuel = fuel
+            .checked_sub(1)
+            .ok_or("binder substitution budget exceeded")?;
+        if depth > 128 {
+            return Err("binder substitution depth exceeded".into());
+        }
+        match e {
+            SpecExpr::BoundVariable(found) if *found == id => *e = value.clone(),
+            SpecExpr::Binder {
+                id: local,
+                lower,
+                upper,
+                body,
+                ..
+            } => {
+                visit(lower, id, value, fuel, depth + 1)?;
+                visit(upper, id, value, fuel, depth + 1)?;
+                if *local != Some(id) {
+                    visit(body, id, value, fuel, depth + 1)?;
+                }
+            }
+            _ => {
+                for child in children_mut(e) {
+                    visit(child, id, value, fuel, depth + 1)?;
+                }
+            }
+        }
+        Ok(())
+    }
+    // Only closed substitutions are supported here; reject capture rather than
+    // silently reinterpreting an open replacement in a nested scope.
+    let mut pending = vec![value];
+    let mut fuel = 4096usize;
+    while let Some(e) = pending.pop() {
+        fuel = fuel
+            .checked_sub(1)
+            .ok_or("binder replacement budget exceeded")?;
+        if matches!(e, SpecExpr::BoundVariable(_) | SpecExpr::Parameter(_)) {
+            return Err("binder replacement must be closed".into());
+        }
+        pending.extend(children(e));
+    }
+    let mut result = e.clone();
+    visit(&mut result, id, value, &mut 16384, 0)?;
+    Ok(result)
+}
+
 fn children_mut(e: &mut SpecExpr) -> Vec<&mut SpecExpr> {
     match e {
+        SpecExpr::Shared(value) => vec![std::sync::Arc::make_mut(value)],
         SpecExpr::Unary { operand, .. } | SpecExpr::Cast { operand, .. } => vec![operand],
         SpecExpr::Binary { left, right, .. } => vec![left, right],
         SpecExpr::Index { value, index } => vec![value, index],
