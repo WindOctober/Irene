@@ -121,8 +121,14 @@ pub enum AnnotationKind {
     Requires,
     Ensures,
     Invariant,
+    /// Checked once, at the first test of a while condition.
+    InitialState,
+    ExitState,
     Terminates,
-    ExitProbability,
+    /// Integer-valued certificate for positive-probability termination.
+    RankingFunction,
+    /// Independently checked induction region for the ranking certificate.
+    RankingProof,
     GhostDeclare,
     GhostAssign,
 }
@@ -130,27 +136,21 @@ pub enum AnnotationKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TerminationKind {
     AlmostSure,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProbabilityRelation {
-    Equal,
-    AtLeast,
-    AtMost,
+    PositiveProbability,
 }
 
 /// Checked statement contracts, ghost updates and loop properties.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AnnotationPayload {
     Expression(SpecExpr),
-    Termination(TerminationKind),
-    /// Probability of normal exit during this iteration, for each admissible
-    /// active loop-head state. The bound reads values at that iteration's entry,
-    /// not after the body. Clauses on the same loop are conjunctive.
-    ExitProbability {
-        relation: ProbabilityRelation,
-        bound: SpecExpr,
+    /// Explicitly omit an exit-state description; this is not a state equality.
+    NoState,
+    /// Exact, unnormalized joint operator for each classical memory sector.
+    State {
+        targets: Vec<SpecExpr>,
+        operator: SpecExpr,
     },
+    Termination(TerminationKind),
     GhostDeclare {
         id: Option<SymbolId>,
         name: String,
@@ -211,6 +211,9 @@ pub enum BinaryOp {
 /// Closed initial vocabulary: unknown functions are errors, not opaque strings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MathFunction {
+    /// Internal state-declaration query: unnormalized joint classical-sector block.
+    /// Not a source-level builtin and never normalized like AvgDensity.
+    DensityBlock,
     /// Lift a finite classical numeric value into mathematical real arithmetic.
     Real,
     /// Exact factorial of a nonnegative integer, with a real-valued result.

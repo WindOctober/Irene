@@ -26,12 +26,13 @@ fn loops<'a>(block: &'a Block, out: &mut Vec<&'a iqir::Statement>) {
 }
 #[test]
 fn runtime_contracts_attach_to_the_generated_while_not_setup_scope() {
-    let p=parse("int[8] limit;\n@saria.invariant index >= 0\nfor int[8] index in [0:limit] { limit=0; }\n").unwrap();
+    let p=parse("int[8] limit;\n@saria.invariant index >= 0\n@saria.exit_state none\n@saria.ranking_function 127-index\nfor int[8] index in [0:limit] { limit=0; }\n").unwrap();
     let mut ls = vec![];
     loops(&p.body, &mut ls);
     assert_eq!(ls.len(), 1);
     let annotations = &p.annotations[&ls[0].ast_id()];
     assert!(annotations.iter().any(|a| a.kind == A::Invariant));
+    assert!(annotations.iter().any(|a| a.kind == A::RankingFunction));
     let mut ids = vec![];
     p.visit_ast_ids(|id| ids.push(id.index()));
     ids.sort();

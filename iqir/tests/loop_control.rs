@@ -32,15 +32,15 @@ fn loops<'a>(b: &'a Block, out: &mut Vec<&'a iqir::Statement>) {
 #[test]
 fn jumps_have_fresh_ids_and_contracts_bind_the_actual_while() {
     for body in [
-        "int[8] n=0;\n@saria.invariant n>=0\nwhile(n<3){n+=1; if(n==1){continue;} break;}",
-        "int[8] limit;\n@saria.invariant i>=0\nfor int[8] i in [0:limit]{if(i==1){continue;}break;}",
+        "int[8] n=0;\n@saria.invariant n>=0\n@saria.exit_state none\nwhile(n<3){n+=1; if(n==1){continue;} break;}",
+        "int[8] limit;\n@saria.invariant i>=0\n@saria.exit_state none\nfor int[8] i in [0:limit]{if(i==1){continue;}break;}",
     ] {
         let p = parse(body).unwrap();
         assert!(!format!("{p:?}").contains("@loop."), "no synthetic jump storage");
         let mut ls = vec![];
         loops(&p.body, &mut ls);
         assert_eq!(ls.len(), 1);
-        assert_eq!(p.annotations[&ls[0].ast_id()].len(), 1);
+        assert_eq!(p.annotations[&ls[0].ast_id()].len(), 2);
         let mut ids = Vec::new();
         p.visit_ast_ids(|id| ids.push(id.index()));
         ids.sort();

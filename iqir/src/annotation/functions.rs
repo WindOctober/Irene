@@ -466,6 +466,27 @@ where
                 arguments,
             } => {
                 use MathFunction::*;
+                if *function == DensityBlock {
+                    if arguments.is_empty() {
+                        return Err(fail("state declaration requires quantum targets"));
+                    }
+                    let mut width = 0usize;
+                    for target in arguments.iter_mut() {
+                        let n = match self.check(target, depth + 1)? {
+                            SpecType::Qubit => 1,
+                            SpecType::QubitRegister(n) => n,
+                            _ => {
+                                return Err(fail(
+                                    "state target must be a program quantum reference",
+                                ));
+                            }
+                        };
+                        width = width
+                            .checked_add(n)
+                            .ok_or_else(|| fail("state dimension overflow"))?;
+                    }
+                    return Ok(SpecType::Operator(quantum_width(width)?));
+                }
                 if matches!(function, Trace | Normalize) {
                     return Err(fail(
                         "program-state queries and general matrix specification functions are reserved",

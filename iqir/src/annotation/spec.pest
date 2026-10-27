@@ -1,15 +1,13 @@
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
 expression_file = { SOI ~ expression ~ EOI }
-annotation_file = { SOI ~ "@saria." ~ (ghost_declaration | ghost_assignment | exit_probability | annotation_kind ~ (termination | expression)) ~ EOI }
-exit_probability = { exit_probability_keyword ~ probability_relation ~ expression }
-exit_probability_keyword = @{ "exit_probability" ~ !ident_continue }
-probability_relation = { "==" | ">=" | "<=" }
+annotation_file = { SOI ~ "@saria." ~ (ghost_declaration | ghost_assignment | annotation_kind ~ (state_declaration | termination | expression)) ~ EOI }
+state_declaration = { expression ~ ":=" ~ expression }
 ghost_declaration = { ghost_keyword ~ identifier ~ ":" ~ scalar_type ~ ("=" ~ expression)? }
 ghost_assignment = { set_keyword ~ identifier ~ "=" ~ expression }
 ghost_keyword = @{ "ghost" ~ !ident_continue }
 set_keyword = @{ "set" ~ !ident_continue }
-annotation_kind = @{ ("assert" | "requires" | "ensures" | "invariant" | "terminates") ~ !ident_continue }
-termination = { "almost_sure" ~ !ident_continue }
+annotation_kind = @{ ("assert" | "requires" | "ensures" | "invariant" | "initial_state" | "exit_state" | "terminates" | "ranking_function" | "ranking_proof") ~ !ident_continue }
+termination = { ("almost_sure" | "positive_probability") ~ !ident_continue }
 function_file = { SOI ~ "pragma" ~ "saria.def" ~ identifier ~ "(" ~ parameters? ~ ")" ~ "->" ~ scalar_type ~ "=" ~ expression ~ EOI }
 parameters = { parameter ~ ("," ~ parameter)* }
 parameter = { identifier ~ ":" ~ scalar_type }

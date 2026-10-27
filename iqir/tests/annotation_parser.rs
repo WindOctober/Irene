@@ -7,6 +7,27 @@ fn number(n: i64) -> SpecExpr {
     SpecExpr::Number(num_rational::BigRational::from_integer(n.into()))
 }
 
+#[test]
+fn removed_exit_probability_is_not_a_clause_or_alias() {
+    for relation in ["==", ">=", "<="] {
+        let source = format!("@saria.exit_probability {relation} 0.5");
+        let span = SourceSpan {
+            source: "removed.qasm".into(),
+            start: 0,
+            end: source.len(),
+        };
+        assert!(parse_annotation(&source, span).is_err());
+    }
+    // Event probabilities are ordinary expressions, not the removed loop clause.
+    assert!(matches!(
+        parse_expression(r"\probability(done)").unwrap(),
+        SpecExpr::Call {
+            function: MathFunction::Probability,
+            ..
+        }
+    ));
+}
+
 fn unary(op: UnaryOp, operand: SpecExpr) -> SpecExpr {
     SpecExpr::Unary {
         op,

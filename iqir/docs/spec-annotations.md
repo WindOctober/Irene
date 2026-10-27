@@ -12,16 +12,15 @@ pragma saria.def remaining(k: int) -> float = \cosh(1) - \sum(j in 0..k, a(j))
 pragma saria.def stop_probability(k: int) -> float = k >= 5 ? 1 : a(k)/remaining(k)
 @saria.requires n == 0 && !stop
 @saria.invariant n <= 5 && stop_probability(n) > 0
-@saria.exit_probability == stop_probability(n)
 @saria.terminates almost_sure
 @saria.ensures stop
 while (!stop) { /* original loop body */ }
 ```
 
 This is a syntax example, not a proof of these properties. `Requires`,
-`Ensures`, `Assert`, `Invariant`, `Terminates`, and `ExitProbability` are
+`Ensures`, `Assert`, `Invariant`, `InitialState`, `ExitState`, `RankingFunction`, `RankingProof`, and `Terminates` are
 `AnnotationKind` variants. `AnnotationPayload` stores typed expressions,
-termination modes, probability relations, and ghost updates,
+joint operator declarations, termination modes and ghost updates,
 never opaque expression strings. Source spans record the
 original filename and exclusive UTF-8 byte range. Use
 `program.annotations.get(&statement.ast_id())` to inspect a statement's list.
@@ -34,8 +33,46 @@ as established facts. [Quantum expressions](quantum-expressions.md) include type
 state literals, Pauli matrices, symbolic linear algebra, and comparisons between
 program quantum references and same-width kets, such as `q == |0>`.
 `\avg_density` and `\trace_distance` describe ensemble output comparisons.
+
+`@saria.ranking_function R` attaches one integer (`int`/`uint`) expression to
+a `while`, not a Boolean predicate. `@saria.terminates positive_probability`
+requests strictly positive exit mass, distinct from `almost_sure`. The consumer
+must prove nonnegative active rank and positive-probability exit or strict
+descent within a valid certificate region; other outcomes may increase rank.
+Parsing these annotations does not establish any termination property.
+`@saria.ranking_proof P` supplies a Boolean auxiliary induction region for that
+ranking function (multiple clauses are conjoined). The proof consumer must check
+its establishment and preservation independently of functional invariants; it is
+not a free premise. A consumer using this certificate must require a ranking
+function on the same loop. Without this optional annotation, the functional
+invariant conjunction can serve as the ranking region. The frontend checks
+attachment and types, not these proof obligations or certificate completeness.
 `\diagonal(q)` asserts diagonality of the reduced state in each classical path.
 General matrix functions `\trace` and `\normalize` remain reserved.
+
+`initial_state Q := T`, `invariant Q := T` and `exit_state Q := T` store ordered quantum targets and
+an explicit operator separately. Whether each loop must supply an exit description
+is a proof-consumer policy, not a frontend completeness check.
+`exit_state none` explicitly omits the exit description (`NoState` payload),
+without asserting unchanged state or termination. It cannot be combined with
+another exit-state clause on the same loop.
+Targets may be a register or a nonempty list
+of references with constant indices; overlapping targets are invalid. `T` must
+have the matching dimension and define its coefficients without querying the
+program's quantum state or introducing free parameters. It is an unnormalized
+block indexed by classical memory, not an independently normalized branch state.
+
+`initial_state` is optional and must be checked by the consumer once before the
+first while-condition evaluation, against execution of the preceding program. It also accepts a
+Boolean predicate. It is not assumed at recurring loop heads; those constraints
+belong in invariants. Values refer to the first-entry boundary.
+
+For conditional loop-head structures, `invariant` also accepts guarded equalities
+`C => \avg_density(Q) == T`, optionally under finite quantifiers. This uses the
+expression payload. A consumer interpreting this conditional ensemble contract
+selects the ensemble satisfying classical `C` and compares its normalized joint
+density with `T`; it does not specify the mass
+of `C` or replace the weighted `exit_state` declaration.
 
 ## Standalone assertions
 
@@ -49,23 +86,12 @@ annotation table. This preserves source order, AST identity, and spans without
 adding an executable gate or a new statement kind. Consumers generate a proof
 goal there; the annotation is not an assumption.
 
-## Per-iteration exit probability
-
-`@saria.exit_probability R p` accepts `==`, `>=`, or `<=` and an `int`, `uint`,
-`float`, or `real` expression, using the ordinary specification name and helper resolver.
-The expression may use constants and any in-scope program or ghost variables;
-no dedicated counter declaration is needed. Multiple probability clauses are
-conjunctive, and each clause applies to its annotated `while`.
-
-For every admissible active loop-head state, `p` uses this iteration's entry
-values and bounds the probability of normal exit during the iteration: a `break`
-targeting this loop or reaching the next guard with that guard false. Divergence
-and other control transfers contribute no normal-exit probability. This is not
-cumulative or eventual termination probability. An initially false guard starts
-no iteration. Proving the bound defined, within `[0, 1]`, and satisfied is the
-consumer's task; these annotations do not imply `terminates almost_sure`.
-
 ## Expression syntax
+
+The former `exit_probability` annotation is removed and rejected. Its
+per-iteration numeric bounds are not equivalent to `terminates positive_probability`
+or a ranking certificate; migration requires an explicit replacement contract,
+not an automatic renaming. The expression function `\probability` remains available.
 
 All built-in mathematical functions, binders and constants use a backslash:
 `\sqrt(x)`, `\forall i in 0..n; p(i)`, `\pi`, `\inf`. Bare calls such as
@@ -224,7 +250,8 @@ inversion/composition changes specification boundaries.
 ## Supported scope and proof boundaries
 
 Initial scope: executable statements at top level and in control-flow blocks.
-`invariant`, `terminates`, and `exit_probability` require a
+`invariant`, `initial_state`, `exit_state`, `ranking_function`,
+`ranking_proof`, and `terminates` require a
 retained `while`, not an expanded `for`.
 Annotations on declarations/definitions and inside gate/subroutine definitions
 are explicitly rejected, including unused definitions. Other annotation namespaces

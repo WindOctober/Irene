@@ -111,11 +111,10 @@ impl Lowerer {
     ) -> Result<Statement, FrontendError> {
         if let Stmt::ForStmt(for_statement) = &statement {
             let has_loop_contract = self.structured
-                && annotations.iter().any(|a| matches!(
-                    a.kind,
-                    AnnotationKind::Invariant | AnnotationKind::Terminates
-                        | AnnotationKind::ExitProbability
-                ));
+                && annotations.iter().any(|a| matches!(a.kind,
+                    AnnotationKind::Invariant | AnnotationKind::ExitState
+                    | AnnotationKind::InitialState | AnnotationKind::Terminates
+                    | AnnotationKind::RankingFunction | AnnotationKind::RankingProof));
             if has_loop_contract || !self.should_unroll_for(for_statement)? {
                 return self.lower_runtime_for(for_statement.clone(), annotations);
             }
@@ -155,6 +154,22 @@ impl Lowerer {
                 | Stmt::Barrier(_)
         ) {
             return Err(self.annotation_error(&annotations[0], "annotations currently require an executable statement, not a declaration/definition"));
+        }
+        if let Some(absent) = annotations
+            .iter()
+            .find(|a| matches!(a.payload, AnnotationPayload::NoState))
+        {
+            if annotations
+                .iter()
+                .filter(|a| a.kind == AnnotationKind::ExitState)
+                .count()
+                != 1
+            {
+                return Err(self.annotation_error(
+                    absent,
+                    "exit_state none cannot be combined with another exit_state",
+                ));
+            }
         }
         for a in &mut annotations {
             let source_name = a.span.source.clone();
@@ -221,25 +236,133 @@ impl Lowerer {
             if matches!(
                 a.kind,
                 AnnotationKind::Invariant
+                    | AnnotationKind::InitialState
+                    | AnnotationKind::ExitState
                     | AnnotationKind::Terminates
-                    | AnnotationKind::ExitProbability
+                    | AnnotationKind::RankingFunction
+                    | AnnotationKind::RankingProof
             ) && !matches!(&statement, Stmt::WhileStmt(_))
                 && generated_loop.is_none()
             {
-                return Err(self.annotation_error(a, "invariant/terminates/exit_probability requires a while statement (static for loops are expanded)"));
+                return Err(self.annotation_error(
+                    a,
+                    "loop contracts require a while statement (static for loops are expanded)",
+                ));
             }
-            if let AnnotationPayload::ExitProbability { bound, .. } = &mut a.payload {
-                let ty = check_expression(bound, &self.spec_functions, |name| {
+            if let AnnotationPayload::State { targets, operator } = &mut a.payload {
+                let mut reference = SpecExpr::Call {
+                    function: crate::annotation::MathFunction::DensityBlock,
+                    arguments: std::mem::take(targets),
+                };
+                let expected = check_expression(&mut reference, &self.spec_functions, |name| {
                     self.resolve_spec_name(name)
                 })
                 .map_err(|e| error(e.to_string()))?;
-                if !matches!(
-                    ty,
-                    SpecType::Int(_) | SpecType::Uint(_) | SpecType::Float(_) | SpecType::Real
-                ) {
-                    return Err(error(
-                        "exit_probability requires an int/uint/float/real expression".into(),
-                    ));
+                let SpecExpr::Call { arguments, .. } = reference else {
+                    unreachable!()
+                };
+                *targets = arguments;
+                // Reject overlapping references, including a register and one of its wires.
+                let mut regions: Vec<(crate::SymbolId, Option<usize>)> = Vec::new();
+                for target in targets.iter() {
+                    let (id, index) = match target.uncast() {
+                        SpecExpr::Symbol { id, .. } => (*id, None),
+                        SpecExpr::Index { value, index } => {
+                            let SpecExpr::Symbol { id, name } = value.uncast() else {
+                                return Err(error("state target must name quantum storage".into()));
+                            };
+                            let i = index
+                                .uncast()
+                                .literal()
+                                .filter(|n| n.is_integer())
+                                .and_then(|n| n.to_integer().to_string().parse::<usize>().ok())
+                                .ok_or_else(|| {
+                                    error(
+                                        "state target index must be a constant nonnegative integer"
+                                            .into(),
+                                    )
+                                })?;
+                            let (_, SpecType::QubitRegister(width)) =
+                                self.resolve_spec_name(name).map_err(&error)?
+                            else {
+                                return Err(error(
+                                    "indexed state target must name a quantum register".into(),
+                                ));
+                            };
+                            if i >= width {
+                                return Err(error("state target index out of range".into()));
+                            }
+                            (*id, Some(i))
+                        }
+                        _ => return Err(error("state target must name quantum storage".into())),
+                    };
+                    if regions.iter().any(|(old, at)| {
+                        *old == id && (at.is_none() || index.is_none() || *at == index)
+                    }) {
+                        return Err(error("state targets overlap".into()));
+                    }
+                    regions.push((id, index));
+                }
+                let actual = check_expression(operator, &self.spec_functions, |name| {
+                    self.resolve_spec_name(name)
+                })
+                .map_err(|e| error(e.to_string()))?;
+                if actual != expected {
+                    return Err(error(format!(
+                        "state declaration expects {expected:?}, got {actual:?}"
+                    )));
+                }
+                // A declaration defines its operator from classical context, not by
+                // querying the unknown state it is supposed to characterize.
+                let mut pending = vec![operator.clone()];
+                let mut budget = 4096usize;
+                while let Some(e) = pending.pop() {
+                    budget = budget
+                        .checked_sub(1)
+                        .ok_or_else(|| error("state operator checking budget exceeded".into()))?;
+                    if let SpecExpr::Symbol { name, .. } = &e
+                        && matches!(
+                            self.resolve_spec_name(name).map_err(&error)?.1,
+                            SpecType::Qubit | SpecType::QubitRegister(_)
+                        )
+                    {
+                        return Err(error(
+                            "state operator cannot query program quantum storage".into(),
+                        ));
+                    }
+                    if let SpecExpr::Call { function, .. } = &e {
+                        use crate::annotation::MathFunction::*;
+                        if matches!(
+                            function,
+                            DensityBlock
+                                | AvgDensity
+                                | Diagonal
+                                | Probability
+                                | Expectation
+                                | Trace
+                                | Normalize
+                        ) {
+                            return Err(error(
+                                "state operator must be explicit, not a program-state query".into(),
+                            ));
+                        }
+                    }
+                    if let SpecExpr::HelperCall {
+                        function,
+                        arguments,
+                    } = &e
+                    {
+                        pending.push(
+                            crate::annotation::instantiate_function(
+                                &self.spec_functions,
+                                *function,
+                                arguments,
+                            )
+                            .map_err(|e| error(e.to_string()))?,
+                        );
+                    } else {
+                        pending.extend(e.children().into_iter().cloned());
+                    }
                 }
             }
             if let AnnotationPayload::Expression(e) = &mut a.payload {
@@ -250,10 +373,16 @@ impl Lowerer {
                             offset: a.span.start,
                             message: message.to_string(),
                         })?;
-                if !matches!(ty, SpecType::Bool | SpecType::Bit) {
+                if a.kind == AnnotationKind::RankingFunction {
+                    if !matches!(ty, SpecType::Int(_) | SpecType::Uint(_)) {
+                        return Err(
+                            self.annotation_error(a, "ranking_function must have integer type")
+                        );
+                    }
+                } else if !matches!(ty, SpecType::Bool | SpecType::Bit) {
                     return Err(self.annotation_error(
                         a,
-                        "requires/ensures/invariant must be Boolean predicates",
+                        "requires/ensures/invariant/ranking_proof must be Boolean predicates",
                     ));
                 }
             }
@@ -262,7 +391,8 @@ impl Lowerer {
             Some(lowered) => lowered,
             None => self.lower_statement(statement)?,
         };
-        // In particular, retain a broadcast's entire Scope, not its first gate.
+        // While nodes retain their source condition and identity, including
+        // jumps. Runtime-for callers pass the actual generated loop here.
         self.annotations.insert(lowered.ast_id(), annotations);
         Ok(lowered)
     }

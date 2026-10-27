@@ -108,24 +108,6 @@ pub fn parse_expression(text: &str) -> Result<SpecExpr, AnnotationParseError> {
 pub fn parse_annotation(text: &str, span: SourceSpan) -> Result<Annotation, AnnotationParseError> {
     let mut fields = parse(Rule::annotation_file, text)?.into_inner();
     let first = fields.next().unwrap();
-    if first.as_rule() == Rule::exit_probability {
-        let mut parts = first.into_inner();
-        parts.next(); // annotation keyword
-        let relation = match parts.next().unwrap().as_str() {
-            "==" => ProbabilityRelation::Equal,
-            ">=" => ProbabilityRelation::AtLeast,
-            "<=" => ProbabilityRelation::AtMost,
-            _ => unreachable!(),
-        };
-        return Ok(Annotation {
-            kind: AnnotationKind::ExitProbability,
-            payload: AnnotationPayload::ExitProbability {
-                relation,
-                bound: expression(parts.next().unwrap())?,
-            },
-            span,
-        });
-    }
     if matches!(
         first.as_rule(),
         Rule::ghost_declaration | Rule::ghost_assignment
@@ -174,16 +156,44 @@ pub fn parse_annotation(text: &str, span: SourceSpan) -> Result<Annotation, Anno
         "requires" => AnnotationKind::Requires,
         "ensures" => AnnotationKind::Ensures,
         "invariant" => AnnotationKind::Invariant,
+        "initial_state" => AnnotationKind::InitialState,
+        "exit_state" => AnnotationKind::ExitState,
         "terminates" => AnnotationKind::Terminates,
+        "ranking_function" => AnnotationKind::RankingFunction,
+        "ranking_proof" => AnnotationKind::RankingProof,
         _ => unreachable!(),
     };
     let p = fields.next().unwrap();
     let payload = match (kind, p.as_rule()) {
+        (AnnotationKind::ExitState, Rule::expression) if p.as_str().trim() == "none" => {
+            AnnotationPayload::NoState
+        }
+        (
+            AnnotationKind::Invariant | AnnotationKind::InitialState | AnnotationKind::ExitState,
+            Rule::state_declaration,
+        ) => {
+            let mut parts = p.into_inner();
+            let targets = match expression(parts.next().unwrap())? {
+                SpecExpr::List(targets) => targets,
+                target => vec![target],
+            };
+            AnnotationPayload::State {
+                targets,
+                operator: expression(parts.next().unwrap())?,
+            }
+        }
         (AnnotationKind::Terminates, Rule::termination) => {
-            AnnotationPayload::Termination(TerminationKind::AlmostSure)
+            AnnotationPayload::Termination(if p.as_str() == "positive_probability" {
+                TerminationKind::PositiveProbability
+            } else {
+                TerminationKind::AlmostSure
+            })
         }
         (AnnotationKind::Terminates, _) => {
-            return Err(error(p.as_span().start(), "expected `almost_sure`"));
+            return Err(error(
+                p.as_span().start(),
+                "expected `almost_sure` or `positive_probability`",
+            ));
         }
         (_, Rule::expression) => AnnotationPayload::Expression(expression(p)?),
         _ => {
