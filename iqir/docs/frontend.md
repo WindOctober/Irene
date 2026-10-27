@@ -80,7 +80,17 @@ uses Boolean words; bool/bit parameters also use the bit IR.
 
 ## Runtime integer for ranges
 
-Compile-time integer ranges retain static expansion. An unknown
+The expanded import APIs retain static expansion of compile-time integer ranges.
+Structured import expands at most 256 iterations, subject to the remaining
+shared iteration budget; larger ranges use the same loop lowering as runtime
+ranges. Explicit invariant/termination/exit-probability contracts also select
+loop lowering in structured import, even for a small static range.
+This fallback currently accepts only positive unit steps: large descending
+or non-unit-step ranges are explicitly rejected. It does not add dynamic
+array/qubit indexing or automatically infer invariants.
+Empty static ranges retain the existing rejection behavior.
+Both branches of static conditions are still lowered and checked.
+An unknown
 integer range `[start:stop]` or `[start:1:stop]` instead lowers to a scoped
 `while` using the existing scalar IR. Both endpoints are evaluated once, before
 declaring the source iterator. A hidden `limit` retains the original endpoint

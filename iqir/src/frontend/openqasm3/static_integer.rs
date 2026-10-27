@@ -395,7 +395,7 @@ impl Lowerer {
         }
     }
 
-    fn static_range(&self, range: &ast::RangeExpr) -> Result<(i128, i128, i128), FrontendError> {
+    pub(super) fn static_range(&self, range: &ast::RangeExpr) -> Result<(i128, i128, i128), FrontendError> {
         // Inspect delimiters too: the dependency's helper alone does not
         // distinguish omitted range operands. Refuse all open-ended ranges.
         let colon_count = range

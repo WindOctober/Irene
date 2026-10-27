@@ -8,6 +8,19 @@ use crate::{
 };
 
 impl Lowerer {
+    pub(super) fn should_unroll_for(&mut self, statement: &ast::ForStmt) -> Result<bool, FrontendError> {
+        if !self.for_range_is_static(statement)? {
+            return Ok(false);
+        }
+        if !self.structured {
+            return Ok(true);
+        }
+        let range = statement.for_iterable().and_then(|i| i.range_expr()).unwrap();
+        let (start, step, stop) = self.with_known_scalars(|this| this.static_range(&range))?;
+        let count = (stop - start) / step + 1;
+        Ok(count <= 256 && count <= self.static_iterations_left as i128)
+    }
+
     pub(super) fn for_range_is_static(
         &mut self,
         statement: &ast::ForStmt,

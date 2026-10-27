@@ -126,7 +126,7 @@ pub fn parse_str_with_options(
     parse_configured(source, source_name, preserve_uint, false)
 }
 
-/// Verification-oriented IR: retain shared custom gate definitions.
+/// Verification-oriented IR: retain shared gates and large counted loops.
 pub fn parse_structured(source: &str, source_name: &str) -> Result<Program, FrontendError> {
     parse_configured(source, source_name, true, true)
 }
@@ -785,7 +785,7 @@ impl Lowerer {
             Stmt::ContinueStmt(s) => self.lower_loop_jump(false, s.syntax().text().to_string()),
             Stmt::WhileStmt(statement) => self.lower_while(statement),
             Stmt::ForStmt(statement) => {
-                if self.for_range_is_static(&statement)? {
+                if self.should_unroll_for(&statement)? {
                     self.lower_static_for(statement)
                 } else {
                     self.lower_runtime_for(statement, Vec::new())

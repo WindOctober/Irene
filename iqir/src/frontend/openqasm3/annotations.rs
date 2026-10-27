@@ -110,7 +110,13 @@ impl Lowerer {
         statement: Stmt,
     ) -> Result<Statement, FrontendError> {
         if let Stmt::ForStmt(for_statement) = &statement {
-            if !self.for_range_is_static(for_statement)? {
+            let has_loop_contract = self.structured
+                && annotations.iter().any(|a| matches!(
+                    a.kind,
+                    AnnotationKind::Invariant | AnnotationKind::Terminates
+                        | AnnotationKind::ExitProbability
+                ));
+            if has_loop_contract || !self.should_unroll_for(for_statement)? {
                 return self.lower_runtime_for(for_statement.clone(), annotations);
             }
         }
