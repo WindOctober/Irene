@@ -1,15 +1,15 @@
 use iqir::{NumericExprKind, ScalarExprKind, StatementKind, frontend};
 
 fn parse(body: &str) -> iqir::Program {
-    let p = frontend::parse_str(
-        &format!("OPENQASM 3; include \"stdgates.inc\"; {body}"),
-        "casts.qasm",
-    )
-    .unwrap();
-    let mut ids = vec![];
-    p.visit_ast_ids(|id| ids.push(id.index()));
-    ids.sort();
-    assert_eq!(ids, (0..p.ast_id_bound()).collect::<Vec<_>>());
+    let source = format!("OPENQASM 3; include \"stdgates.inc\"; {body}");
+    let p = frontend::parse_str(&source, "casts.qasm").unwrap();
+    let scalar = frontend::parse_str_with_options(&source, "casts.qasm", true).unwrap();
+    for program in [&p, &scalar] {
+        let mut ids = vec![];
+        program.visit_ast_ids(|id| ids.push(id.index()));
+        ids.sort();
+        assert_eq!(ids, (0..program.ast_id_bound()).collect::<Vec<_>>());
+    }
     p
 }
 

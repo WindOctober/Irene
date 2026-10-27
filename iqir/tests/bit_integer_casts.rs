@@ -1,8 +1,17 @@
 use iqir::frontend;
 
 fn parse(source: &str) -> Result<iqir::Program, String> {
-    frontend::parse_str(&format!("OPENQASM 3; {source}"), "casts.qasm")
-        .map_err(|e| e.to_string())
+    let source = format!("OPENQASM 3; {source}");
+    let default = frontend::parse_str(&source, "casts.qasm");
+    let scalar = frontend::parse_str_with_options(&source, "casts.qasm", true);
+    assert_eq!(default.is_ok(), scalar.is_ok(), "{source}: default={default:?}, scalar={scalar:?}");
+    if let Ok(p) = &scalar {
+        let mut ids = vec![];
+        p.visit_ast_ids(|id| ids.push(id.index()));
+        ids.sort();
+        assert_eq!(ids, (0..p.ast_id_bound()).collect::<Vec<_>>());
+    }
+    default.map_err(|e| e.to_string())
 }
 
 #[test]
@@ -16,6 +25,7 @@ fn bit_casts_and_lossless_widening_have_dense_ids() {
         "int[8] n=-2; int[32] m=int[32](n);",
         "bit[4] b; uint[4] n=uint[4](b); int[32] m=int[32](n);",
         "int[32] n=int[32](2);",
+        "def f(bit[4] b)->int[32]{int[32] n=int[32](uint[4](b)); return n;} bit[4] b; int[32] n=f(b);",
     ] {
         let p = parse(source).unwrap_or_else(|e| panic!("{source}: {e}"));
         let mut ids = vec![];

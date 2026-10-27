@@ -153,11 +153,7 @@ fn static_uint_arithmetic_wraps_and_rejects_zero_divisors() {
                         &format!("OPENQASM 3.0; {expression}"),
                         "static-arithmetic.qasm",
                     );
-                    assert_eq!(
-                        result.is_ok(),
-                        expected.is_some(),
-                        "{expression}"
-                    );
+                    assert_eq!(result.is_ok(), expected.is_some(), "{expression}");
                 }
             }
         }
