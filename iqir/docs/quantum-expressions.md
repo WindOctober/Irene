@@ -174,5 +174,13 @@ not assert positivity or normalization. `\orthogonal(u, v)` is the Boolean
 condition `u†v = 0` for two same-dimensional kets. Neither constructor is a
 program-state query; `\diagonal(q)` remains the predicate on a quantum reference.
 
+Loop operator declarations `Q := T` name an ordered quantum system and an
+unnormalized joint operator indexed by classical memory. Coefficients must be
+defined by the existing context, rather than introduced as unconstrained weights.
+Boolean loop contracts may instead describe normalized conditional densities;
+these do not specify the corresponding probability mass. See
+[loop contracts](spec-annotations.md) for syntax and proof-consumer obligations.
+Parsing a declaration does not prove that the program produces that operator.
+
 Equivalence checking continues to ignore all
 specification annotations; this frontend does not change circuit semantics.

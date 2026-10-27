@@ -93,8 +93,8 @@ macro_rules! expected {
 mod angle;
 mod annotations;
 mod arrays;
-mod constants;
 mod constant_math;
+mod constants;
 mod controlled_u;
 mod custom_gates;
 mod known_scalars;
@@ -1722,6 +1722,8 @@ impl Lowerer {
     }
 
     /// Lowers a called subroutine body in its call-site parameter environment.
+    /// Quantum formals denote caller-owned wires; classical formals have their
+    /// own by-value storage in the call scope.
     ///
     /// A final `return` writes into `targets`; local classical declarations are
     /// retained in this block. Definitions that are never called never reach

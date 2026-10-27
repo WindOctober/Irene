@@ -22,11 +22,25 @@ Both functions select the frontend from the declared OpenQASM version and return
 `iqir::Program`. Version-specific APIs are available under
 `frontend::openqasm2` and `frontend::openqasm3`.
 
+Consumers supporting scalar storage can use `parse_str_with_options(source,
+name, true)` or `parse_file_with_options(path, true)` to preserve fixed-width
+`uint` arithmetic. A whole-source scan keeps Boolean words when unsigned values
+have indexed uses, relevant non-integer casts or value-dependent `pow` lowering.
+Scalar bitwise operations alone do not require the Boolean-word fallback. The
+default import remains compatible with Irene's Boolean-only executor.
+
 ## IR model
 
 Programs contain declarations and statement blocks. Statements represent gates,
 measurement/reset, classical assignments, `if`, `while`, and grouped operations.
 Numeric gate parameters and classical scalar expressions have distinct types.
+Subroutines accept by-value numeric/bool/bit parameters and typed results, mixed
+with reference-like quantum arguments; direct predicate calls in `if` execute
+once before branching. See [call boundaries](docs/frontend.md#classical-subroutine-parameters-and-results).
+Fixed-size numeric arrays with static indices lower to independent scalar cells;
+constant tables, element assignment and constant math reuse the scalar pipeline.
+Dynamic indexing and array-valued invariants remain unsupported; see
+[array boundaries](docs/frontend.md#fixed-size-classical-numeric-arrays).
 
 Construct nodes with `AstIdGenerator::node` and access their identities through
 `AstNode::ast_id()`:

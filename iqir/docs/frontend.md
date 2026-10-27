@@ -59,7 +59,8 @@ passing the same classical variable twice creates two independent copies.
 Quantum parameters still reference caller wires and cannot overlap.
 
 Numeric and bool/bit results can initialize a declaration or be the entire
-right-hand side of an assignment. A final `return another_call(...)` can forward a result.
+right-hand side of an assignment; numeric results also work for static array
+element assignments. A final `return another_call(...)` can forward a result.
 Return targets must match the declared numeric type/width or compatible bit
 shape. A direct `if (predicate(...))` executes the call once before branching,
 including its quantum effects. Nested calls through separate statements are
@@ -381,19 +382,22 @@ assignments. The result keeps the operand width and signedness; the target
 profile interprets signed words in two's complement. These operations do not
 overflow and do not short-circuit. Constant specialization and runtime
 evaluation share `ScalarType::checked_integer_arithmetic`; complement lowers
-to XOR with an all-ones word.
+to XOR with an all-ones word. Bitwise-only uses do not force unsigned scalar
+storage into Boolean words. Consumers must preserve evaluation and definedness
+of both operands; import does not certify a backend's bit-vector encoding.
 
-This remains a supported subset, not a full OpenQASM implementation: runtime array indexing, numeric
-subroutine parameters/returns, mixed signed/unsigned arithmetic, narrowing/reinterpreting scalar integer casts, runtime scalar
-shifts outside the subset above, non-integer gate powers, and
+This remains a supported subset, not a full OpenQASM implementation: runtime
+array indexing, mixed signed/unsigned arithmetic without an explicit conversion,
+integer casts outside the lossless subset above, scalar shifts outside the subset
+above, non-integer gate powers, and
 non-gate bodies inside gate definitions remain explicitly unsupported.
 Unsigned `uint[n]` keeps the existing word/bit lowering, including indexed reads,
 measurement writes, bitwise operations, shifts and comparisons. Addition and
 subtraction (including compound assignments) reuse the modular word adder also
 used for angles; assignments read all operands before writing destination bits.
 Integer literals must fit the word; unsigned operands must have equal widths.
-It is not rerouted through the signed/float scalar representation; runtime uint arithmetic
-other than addition/subtraction remains unsupported.
+This describes the Boolean-word path, not the optional typed scalar path.
+Word arithmetic beyond the operations listed here remains unsupported.
 
 ## Validation notes
 
@@ -402,7 +406,9 @@ other than addition/subtraction remains unsupported.
 Classical conditions, scalar values, unsigned-word initializers and typed
 integer gate arguments share the checked static-integer evaluator also used
 by ranges and indices. Closed `&`, `|`, `^`, `~`, shifts and remainder are
-evaluated before selecting a runtime Boolean-word or scalar encoding.
+evaluated before selecting a runtime Boolean-word or scalar encoding. Known
+by-value subroutine arguments use the same scoped flow-fact overlay; call-local
+facts do not escape to the caller.
 `closed_integer` distinguishes "not a closed integer" from an invalid closed
 computation. Only the former can fall through to runtime lowering; overflow,
 zero division, invalid shifts and incompatible signedness remain errors.
@@ -437,8 +443,11 @@ reads remain in executable IR. Both source branches are normally lowered and
 checked, except for the structured static-loop specialization described above.
 Source-level consumers temporarily overlay known scalar values on the scope
 and restore it afterwards; this adapter still copies the scope, unlike the
-read-only IR evaluator. Typed IEEE floats, exact-real gate expressions and
-Boolean-word storage retain their distinct semantics.
+read-only IR evaluator. Typed IEEE computation, symbolic gate-angle algebra and
+Boolean-word storage retain their distinct semantics. Embedding a computed
+machine gate parameter preserves its IEEE value, not the unrounded decimal
+expression. A known predicate-call result does not remove the call or its
+quantum effects.
 
 Tests inspect actual IR and use small independent classical/state-vector
 interpreters for loop execution, scope, signedness, float promotion/rounding,
