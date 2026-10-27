@@ -27,7 +27,7 @@ fn joint_operator_declarations_resolve_targets_and_coefficients() {
     let p = frontend::parse_str(
         r"OPENQASM 3; qubit[2] q; bool b=false;
 pragma saria.def weight() -> real = \real(1)/2
-@saria.invariant q := weight() * |00><00| + weight() * |11><11|
+@saria.invariant q := \diag(weight(), 0, 0, weight())
 @saria.exit_state [q[1], q[0]] := (b ? weight() : \real(0)) * |00><00|
 while(!b){reset q;b=true;}
 ",

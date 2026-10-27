@@ -159,5 +159,12 @@ diagonal probabilities, require purity, or imply that a larger joint state is
 diagonal. All quantum contributions in a path are considered together.
 
 General matrix functions `\trace` and `\normalize` remain reserved.
+
+`\diag(d0, d1, ...)` constructs a diagonal operator in computational-basis
+order. The number of scalar entries is a power of two, at least two; it does
+not assert positivity or normalization. `\orthogonal(u, v)` is the Boolean
+condition `u†v = 0` for two same-dimensional kets. Neither constructor is a
+program-state query; `\diagonal(q)` remains the predicate on a quantum reference.
+
 Equivalence checking continues to ignore all
 specification annotations; this frontend does not change circuit semantics.

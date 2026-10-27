@@ -490,12 +490,25 @@ where
                     }
                     return Ok(SpecType::Operator(quantum_width(width)?));
                 }
+                if *function == Diag {
+                    if arguments.len() < 2 || !arguments.len().is_power_of_two() {
+                        return Err(fail(
+                            "diag expects a power-of-two number of scalar entries (at least two)",
+                        ));
+                    }
+                    for argument in arguments.iter_mut() {
+                        if !self.check(argument, depth + 1)?.scalar() {
+                            return Err(fail("diag entries must be real or complex scalars"));
+                        }
+                    }
+                    return Ok(SpecType::Operator(arguments.len().ilog2() as usize));
+                }
                 if matches!(function, Trace | Normalize) {
                     return Err(fail(
                         "program-state queries and general matrix specification functions are reserved",
                     ));
                 }
-                let required = if matches!(function, Binomial | TraceDistance) {
+                let required = if matches!(function, Binomial | TraceDistance | Orthogonal) {
                     2
                 } else {
                     1
@@ -526,6 +539,12 @@ where
                     return match types[0] {
                         SpecType::Qubit | SpecType::QubitRegister(_) => Ok(SpecType::Bool),
                         _ => Err(fail("diagonal expects a program quantum reference")),
+                    };
+                }
+                if *function == Orthogonal {
+                    return match (types[0], types[1]) {
+                        (SpecType::Ket(a), SpecType::Ket(b)) if a == b => Ok(SpecType::Bool),
+                        _ => Err(fail("orthogonal expects two same-dimensional kets")),
                     };
                 }
                 if *function == AvgDensity {

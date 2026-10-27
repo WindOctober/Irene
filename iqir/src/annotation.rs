@@ -247,6 +247,10 @@ pub enum MathFunction {
     AvgDensity,
     /// Each classical path's reduced density operator is diagonal in the computational basis.
     Diagonal,
+    /// A diagonal operator with scalar entries in computational-basis order.
+    Diag,
+    /// Two same-dimensional kets have zero complex inner product.
+    Orthogonal,
     /// One half of the trace norm of the difference of density operators.
     TraceDistance,
     Probability,

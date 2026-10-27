@@ -1,9 +1,32 @@
 use iqir::frontend;
 
 #[test]
-fn diag_is_not_a_builtin() {
-    for expression in [r"\diag(q)", r"\diag(1,2)"] {
-        assert!(iqir::annotation::parse_expression(expression).is_err());
+fn matrix_and_orthogonality_helpers_are_typed() {
+    for expression in [
+        r"\diag(1,0) == |0><0|",
+        r"\orthogonal(|+>, |->)",
+        r"\diag(1,0,0,0) == |00><00|",
+    ] {
+        frontend::parse_str(
+            &format!("OPENQASM 3;\n@saria.assert {expression}\n"),
+            "matrix.qasm",
+        )
+        .unwrap();
+    }
+    for expression in [
+        r"\diag(q)",
+        r"\diag(1,2,3)",
+        r"\diag(|0>,|1>)",
+        r"\orthogonal(|0>,|00>)",
+        r"\orthogonal(q,q)",
+    ] {
+        assert!(
+            frontend::parse_str(
+                &format!("OPENQASM 3; qubit q;\n@saria.assert {expression}\n"),
+                "matrix.qasm"
+            )
+            .is_err()
+        );
     }
 }
 

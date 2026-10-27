@@ -547,6 +547,8 @@ fn builtin(name: &str) -> Option<(MathFunction, usize, usize)> {
         "normalize" => Normalize,
         "avg_density" => AvgDensity,
         "diagonal" => Diagonal,
+        "diag" => return Some((Diag, 2, 256)),
+        "orthogonal" => return Some((Orthogonal, 2, 2)),
         "probability" => Probability,
         "binom" => return Some((Binomial, 2, 2)),
         "trace_distance" => return Some((TraceDistance, 2, 2)),
