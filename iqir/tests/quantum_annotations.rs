@@ -82,9 +82,13 @@ fn linear_algebra_preserves_dimensions_and_complex_sorts() {
         (r"\adjoint(\Y)", Operator(1)),
         (r"\adjoint(1 + \i)", Complex),
         (r"\conj(1 + \i)", Complex),
-        (r"\abs(1 + \i)", Float(None)),
-        ("\\re(<0| * |1>)", Float(None)),
-        ("\\im(<0| * |1>)", Float(None)),
+        (r"\abs(1 + \i)", Real),
+        ("\\re(<0| * |1>)", Real),
+        ("\\im(<0| * |1>)", Real),
+        (r"\re(\real(1)+\i)", Real),
+        (r"\im(\real(1)+\i)", Real),
+        (r"\re(\real(1))", Real),
+        (r"\re(1.5)", Float(None)),
         (r"(1 + \i) / (1 - \i)", Complex),
         (r"\i^2", Complex),
         ("true ? |0> : |1>", Ket(1)),
@@ -259,7 +263,7 @@ fn compact_dirac_products_keep_literal_dimension_and_syntax_limits() {
 fn compact_dirac_products_import_in_annotations_and_helpers() {
     let source = r"OPENQASM 3;
 qubit q;
-pragma saria.def overlap(x: float) -> float = x * \re(⟨0|1⟩)
+pragma saria.def overlap(x: float) -> real = x * \re(⟨0|1⟩)
 @saria.requires overlap(1) == 0 && <0|1> == 0 || false
 @saria.ensures |0⟩⟨0| * |0> == |0>
 reset q;
@@ -357,7 +361,7 @@ int n = 2;
 float theta = 0.5;
 int X = 3;
 pragma saria.def amp(t: float) -> float = \cos(t)
-pragma saria.def overlap(t: float) -> float = \abs(<0| * (\cos(t)*|0> + \sin(t)*|1>))^2
+pragma saria.def overlap(t: float) -> real = \abs(<0| * (\cos(t)*|0> + \sin(t)*|1>))^2
 @saria.requires X == 3 && \X * |0> == |1>
 @saria.ensures (amp(theta)*|0> + \sin(theta)*|1>) == |+>
 reset q;
@@ -397,7 +401,7 @@ reset q;
 fn helper_instantiation_traverses_amplitudes_and_keeps_quantum_leaves() {
     let mut functions = Vec::new();
     let source =
-        r"pragma saria.def amplitude(n: int) -> float = \re(<0| * \sum(j in 0..n, (1/(j+1))*|0>))";
+        r"pragma saria.def amplitude(n: int) -> real = \re(<0| * \sum(j in 0..n, (1/(j+1))*|0>))";
     let id = define_function(
         &mut functions,
         parse_function(

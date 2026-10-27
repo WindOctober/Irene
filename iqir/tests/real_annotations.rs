@@ -1,6 +1,56 @@
 use iqir::{annotation::*, frontend};
 
 #[test]
+fn specification_pi_is_real_but_decimal_math_remains_machine_typed() {
+    for (source, expected) in [
+        (r"\pi", SpecType::Real),
+        (r"\sin(\pi)", SpecType::Real),
+        (r"\sin(0.5)", SpecType::Float(None)),
+    ] {
+        let mut e = parse_expression(source).unwrap();
+        assert_eq!(
+            check_expression(&mut e, &[], |_| unreachable!()).unwrap(),
+            expected
+        );
+    }
+}
+
+#[test]
+fn absolute_value_preserves_width_and_complex_magnitude_is_real() {
+    for (source, input, expected) in [
+        (r"\abs(x)", SpecType::Int(Some(8)), SpecType::Uint(Some(8))),
+        (
+            r"\abs(x)",
+            SpecType::Uint(Some(64)),
+            SpecType::Uint(Some(64)),
+        ),
+        (
+            r"\abs(x)",
+            SpecType::Float(Some(32)),
+            SpecType::Float(Some(32)),
+        ),
+        (r"\abs(3+4*\i)", SpecType::Real, SpecType::Real),
+        (
+            r"\sin(x)",
+            SpecType::Float(Some(32)),
+            SpecType::Float(Some(32)),
+        ),
+        (
+            r"\atan(x)",
+            SpecType::Float(Some(64)),
+            SpecType::Float(Some(64)),
+        ),
+    ] {
+        let mut e = parse_expression(source).unwrap();
+        assert_eq!(
+            check_expression(&mut e, &[], |_| Ok((SpecExpr::BoundVariable(0), input))).unwrap(),
+            expected,
+            "{source}"
+        );
+    }
+}
+
+#[test]
 fn mathematical_helpers_and_aggregates_have_real_results() {
     let p = frontend::parse_str(
         r"OPENQASM 3;

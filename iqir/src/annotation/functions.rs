@@ -284,7 +284,10 @@ where
             SpecExpr::Ket(factors) => Ok(SpecType::Ket(quantum_width(factors.len())?)),
             SpecExpr::Bra(factors) => Ok(SpecType::Bra(quantum_width(factors.len())?)),
             SpecExpr::Pauli(_) => Ok(SpecType::Operator(1)),
-            SpecExpr::Constant(_) | SpecExpr::Infinity => Ok(FLOAT),
+            // Specification constants such as \pi denote mathematical reals.
+            // OpenQASM pi/float expressions retain their separate IEEE lowering.
+            SpecExpr::Constant(_) => Ok(SpecType::Real),
+            SpecExpr::Infinity => Ok(FLOAT),
             SpecExpr::Name(name) => {
                 if let Some((_, id, ty)) = self.locals.iter().rev().find(|(n, ..)| n == name) {
                     let ty = *ty;
@@ -555,14 +558,14 @@ where
                     }
                     return Ok(if *function == Conjugate {
                         types[0]
-                    } else if types[0] == SpecType::Real {
+                    } else if matches!(types[0], SpecType::Real | SpecType::Complex) {
                         SpecType::Real
                     } else {
                         FLOAT
                     });
                 }
                 if *function == Abs && types[0] == SpecType::Complex {
-                    return Ok(FLOAT);
+                    return Ok(SpecType::Real);
                 }
                 if *function == Probability {
                     if !types[0].boolean() {
@@ -581,8 +584,10 @@ where
                     Abs => {
                         if types[0] == SpecType::Real {
                             SpecType::Real
-                        } else if types[0].integer() {
-                            UINT
+                        } else if let SpecType::Int(w) | SpecType::Uint(w) = types[0] {
+                            SpecType::Uint(w)
+                        } else if matches!(types[0], SpecType::Float(_)) {
+                            types[0]
                         } else {
                             FLOAT
                         }
@@ -590,6 +595,12 @@ where
                     Min | Max => types.iter().copied().skip(1).try_fold(types[0], join)?,
                     _ if *function == Expectation || types.contains(&SpecType::Real) => {
                         SpecType::Real
+                    }
+                    Sqrt | Sin | Cos | Tan | Asin | Acos | Atan | Exp | Log | Sinh | Cosh
+                    | Tanh
+                        if matches!(types[0], SpecType::Float(_)) =>
+                    {
+                        types[0]
                     }
                     _ => FLOAT,
                 })

@@ -76,8 +76,12 @@ allocate exponentially sized vectors or matrices.
 - `/` supports division by real or complex scalars, with a nonzero-denominator
   proof obligation. Complex powers currently require an integer exponent.
 - `\adjoint(expr)` conjugate-transposes a vector/operator or conjugates a scalar;
-  `\conj`, `\re`, `\im` operate on real/complex scalars. `\abs` also accepts complex
+  `\conj`, `\re`, `\im` operate on real/complex scalars. Parts of mathematical
+  complex scalars have type `real`, not an implicit machine float. Explicit
+  machine casts are not erased. `\abs` also accepts complex
   scalars and returns their real magnitude, not a vector norm.
+  Integer absolute values return `uint` of the input width; floating absolute
+  values retain the input precision.
 - Equality checks compatible scalar types or identical quantum dimensions;
   ordered comparisons require real scalars. Conditions must remain Boolean.
   Sums allow fixed-dimensional vector/operator bodies. Quantifiers still bind

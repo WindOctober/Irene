@@ -103,6 +103,9 @@ type names and annotation/pragma syntax are unchanged.
 
 - Exact decimal/scientific rational literals, Booleans, `\pi`, `\tau`, `\euler`;
   classical program identifiers, bit indexing `c[0]`, scalar list indexing.
+  The three named constants have type `real`; numeric literals still acquire
+  their contextual machine types. Analytic calls on `float[32]`/`float[64]`
+  retain that precision, while calls on `real` remain mathematical reals.
   `\inf` represents positive mathematical infinity, not IEEE floating infinity.
 - `+ - * / %`, right-associative powers `^` or `**`, comparisons, `&&`, `||`,
   prefix `!`, and postfix factorial `!`. Power binds tighter than unary minus;
