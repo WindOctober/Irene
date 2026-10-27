@@ -82,6 +82,14 @@ allocate exponentially sized vectors or matrices.
   scalars and returns their real magnitude, not a vector norm.
   Integer absolute values return `uint` of the input width; floating absolute
   values retain the input precision.
+  Real/imaginary parts of machine floats also retain their precision. Scalar
+  mathematical calls, including `\binom(n, k)` with integer `k`, preserve the
+  floating format of their scalar input. Powers of machine floats use the common
+  numeric type after literal specialization, rather than defaulting to binary64;
+  mixing float32 and float64 promotes to float64. Integer and mathematical-real
+  power rules are unchanged.
+  Decimal syntax such as `0.5` already carries the default floating type, so
+  `x ^ 0.5` promotes a float32 `x` to a float64 result; `x ^ 2` retains float32.
 - Equality checks compatible scalar types or identical quantum dimensions;
   ordered comparisons require real scalars. Conditions must remain Boolean.
   Sums allow fixed-dimensional vector/operator bodies. Quantifiers still bind

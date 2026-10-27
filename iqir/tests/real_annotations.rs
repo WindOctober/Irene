@@ -51,6 +51,59 @@ fn absolute_value_preserves_width_and_complex_magnitude_is_real() {
 }
 
 #[test]
+fn machine_math_keeps_explicit_formats_and_promotes_mixed_powers() {
+    use SpecType::{Complex, Float, Int, Real, Uint};
+    let infer = |source: &str, x: SpecType, y: SpecType| {
+        let mut e = parse_expression(source).unwrap();
+        check_expression(&mut e, &[], |name| match name {
+            "x" => Ok((SpecExpr::BoundVariable(0), x)),
+            "y" => Ok((SpecExpr::BoundVariable(1), y)),
+            _ => Err(format!("unexpected name {name}")),
+        })
+    };
+    for width in [32, 64] {
+        let t = Float(Some(width));
+        for source in [
+            "x ^ 2", "x ^ y",
+            r"\re(x)", r"\im(x)", r"\abs(x)", r"\binom(x, 2)",
+            r"\sin(x)", r"\sqrt(x)", r"\atan(x)",
+            r"\sin(\re(x))", r"\re(x) + x", r"\binom(x, 2) ^ 2",
+        ] {
+            assert_eq!(infer(source, t, t).unwrap(), t, "{source}: {t:?}");
+        }
+        // An integer exponent/count must not promote a float32 base to float64.
+        for source in ["x ^ y", r"\binom(x, y)"] {
+            assert_eq!(infer(source, t, Int(Some(64))).unwrap(), t);
+        }
+        // Decimal syntax already carries a default binary64 cast. Unlike the
+        // integer literal above, it must participate in mixed-format promotion.
+        assert_eq!(infer("x ^ 0.5", t, t).unwrap(), Float(Some(64)));
+    }
+    for (x, y, expected) in [
+        (Float(Some(32)), Float(Some(64)), Float(Some(64))),
+        (Float(Some(64)), Float(Some(32)), Float(Some(64))),
+        (Float(Some(32)), Float(None), Float(Some(64))),
+        (Int(Some(64)), Float(Some(32)), Float(Some(32))),
+        (Real, Float(Some(32)), Real),
+        (Float(Some(32)), Real, Real),
+        (Int(Some(8)), Int(Some(32)), Int(Some(8))),
+        (Uint(Some(8)), Int(Some(32)), Uint(Some(8))),
+        (Complex, Int(Some(32)), Complex),
+    ] {
+        assert_eq!(infer("x ^ y", x, y).unwrap(), expected, "{x:?}, {y:?}");
+    }
+    for source in [r"\re(x)", r"\im(x)", r"\binom(x, 2)"] {
+        assert_eq!(infer(source, Real, Int(None)).unwrap(), Real);
+    }
+    for source in [r"\re(x)", r"\im(x)", r"\abs(x)"] {
+        assert_eq!(infer(source, Complex, Int(None)).unwrap(), Real);
+    }
+    assert_eq!(infer(r"\re(x)", Float(None), Int(None)).unwrap(), Float(None));
+    assert!(infer(r"\binom(x, y)", Float(Some(32)), Float(Some(32))).is_err());
+    assert!(infer(r"\binom(x, y)", Real, Real).is_err());
+}
+
+#[test]
 fn mathematical_helpers_and_aggregates_have_real_results() {
     let p = frontend::parse_str(
         r"OPENQASM 3;

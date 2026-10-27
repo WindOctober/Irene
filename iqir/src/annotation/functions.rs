@@ -9,6 +9,17 @@ fn fail(message: impl Into<String>) -> FunctionError {
     FunctionError(message.into())
 }
 
+/// Scalar mathematical results preserve an existing floating representation.
+/// Mathematical real/complex inputs yield reals; integer/angle inputs retain
+/// the existing default-float policy unless the operation has a specific rule.
+fn scalar_math_result(ty: SpecType) -> SpecType {
+    match ty {
+        SpecType::Real | SpecType::Complex => SpecType::Real,
+        SpecType::Float(_) => ty,
+        _ => SpecType::Float(None),
+    }
+}
+
 fn preserve_type(expression: &mut SpecExpr, ty: SpecType) -> SpecType {
     if ty.numeric() {
         let value = std::mem::replace(expression, SpecExpr::Bool(false));
@@ -416,6 +427,10 @@ where
                             SpecType::Real
                         } else if a.integer() && b.integer() {
                             a
+                        } else if matches!(a, SpecType::Float(_))
+                            || matches!(b, SpecType::Float(_))
+                        {
+                            join(a, b)?
                         } else {
                             FLOAT
                         })
@@ -577,10 +592,8 @@ where
                     }
                     return Ok(if *function == Conjugate {
                         types[0]
-                    } else if matches!(types[0], SpecType::Real | SpecType::Complex) {
-                        SpecType::Real
                     } else {
-                        FLOAT
+                        scalar_math_result(types[0])
                     });
                 }
                 if *function == Abs && types[0] == SpecType::Complex {
@@ -601,27 +614,19 @@ where
                 Ok(match function {
                     Floor | Ceil => INT,
                     Abs => {
-                        if types[0] == SpecType::Real {
-                            SpecType::Real
-                        } else if let SpecType::Int(w) | SpecType::Uint(w) = types[0] {
+                        if let SpecType::Int(w) | SpecType::Uint(w) = types[0] {
                             SpecType::Uint(w)
-                        } else if matches!(types[0], SpecType::Float(_)) {
-                            types[0]
                         } else {
-                            FLOAT
+                            scalar_math_result(types[0])
                         }
                     }
                     Min | Max => types.iter().copied().skip(1).try_fold(types[0], join)?,
                     _ if *function == Expectation || types.contains(&SpecType::Real) => {
                         SpecType::Real
                     }
-                    Sqrt | Sin | Cos | Tan | Asin | Acos | Atan | Exp | Log | Sinh | Cosh
-                    | Tanh
-                        if matches!(types[0], SpecType::Float(_)) =>
-                    {
-                        types[0]
-                    }
-                    _ => FLOAT,
+                    // Includes unary analytic functions and binom(n, k):
+                    // the integer count k does not widen n's floating format.
+                    _ => scalar_math_result(types[0]),
                 })
             }
             SpecExpr::Binder {
