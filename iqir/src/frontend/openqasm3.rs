@@ -1907,11 +1907,24 @@ impl Lowerer {
         };
         let before = self.known_bits.clone();
         let scalar_before = self.known_scalars.clone();
-        let then_branch = self.lower_branch(statement.true_body_block_or_stmt())?;
+        // Static specialization may make a whole oracle branch unreachable.
+        // Do not spend the shared expansion budget lowering its nested loops.
+        let selected =
+            if self.structured && self.static_loop_depth > 0 && call_prefix.is_none() {
+                constants::eval_constant_bit(&condition)
+            } else {
+                None
+            };
+        let then_branch = if selected == Some(false) {
+            self.ids.node(BlockData::default())
+        } else {
+            self.lower_branch(statement.true_body_block_or_stmt())?
+        };
         self.known_bits = before.clone();
         self.known_scalars = scalar_before.clone();
         let else_branch = match statement.false_body_block_or_stmt() {
-            Some(branch) => self.lower_branch(branch)?,
+            Some(branch) if selected != Some(true) => self.lower_branch(branch)?,
+            Some(_) => self.ids.node(BlockData::default()),
             None => self.ids.node(BlockData::default()),
         };
         self.known_bits = before;

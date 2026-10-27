@@ -83,13 +83,20 @@ uses Boolean words; bool/bit parameters also use the bit IR.
 The expanded import APIs retain static expansion of compile-time integer ranges.
 Structured import expands at most 256 iterations, subject to the remaining
 shared iteration budget; larger ranges use the same loop lowering as runtime
-ranges. Explicit invariant/termination/exit-probability contracts also select
+ranges. Explicit invariant/state/ranking/termination contracts also select
 loop lowering in structured import, even for a small static range.
 This fallback currently accepts only positive unit steps: large descending
 or non-unit-step ranges are explicitly rejected. It does not add dynamic
 array/qubit indexing or automatically infer invariants.
 Empty static ranges retain the existing rejection behavior.
-Both branches of static conditions are still lowered and checked.
+In structured import, while expanding a static loop, a closed Boolean condition
+may select one branch before lowering. The unselected branch becomes an empty
+block, so its nested loops consume no expansion budget. Conditions with a
+subroutine-call prefix are not pruned, even if their result is known.
+Outside this path, or when the condition is unknown, both branches are lowered.
+The whole source is still syntax-parsed, but skipped branches do not undergo
+lowering-time name, type, annotation or operation checks. This is specialization
+of executable paths, not complete static validation of dead source.
 An unknown
 integer range `[start:stop]` or `[start:1:stop]` instead lowers to a scoped
 `while` using the existing scalar IR. Both endpoints are evaluated once, before
@@ -426,8 +433,8 @@ Declarations and assignments propagate typed values; branch joins retain only
 bit-identical facts; while headers and exits forget possibly written variables
 and preserve read-only ones. This is not const qualification: mutable reads
 remain illegal in const declarations and const-required sizes. Ordinary scalar
-reads remain in executable IR. Both source branches are still lowered and
-checked; this is not an unchecked dead-source elimination pass.
+reads remain in executable IR. Both source branches are normally lowered and
+checked, except for the structured static-loop specialization described above.
 Source-level consumers temporarily overlay known scalar values on the scope
 and restore it afterwards; this adapter still copies the scope, unlike the
 read-only IR evaluator. Typed IEEE floats, exact-real gate expressions and
