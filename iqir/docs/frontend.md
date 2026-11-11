@@ -82,14 +82,16 @@ uses Boolean words; bool/bit parameters also use the bit IR.
 ## Runtime integer for ranges
 
 The expanded import APIs retain static expansion of compile-time integer ranges.
-Structured import expands at most 256 iterations, subject to the remaining
-shared iteration budget; larger ranges use the same loop lowering as runtime
-ranges. Explicit invariant/state/ranking/termination contracts also select
+Structured import expands at most 10 iterations, subject to the remaining
+shared iteration budget; larger ranges require an explicit invariant and use
+the same loop lowering as runtime ranges (the verifier also requires exit_state).
+Explicit invariant/state/ranking/termination contracts also select
 loop lowering in structured import, even for a small static range.
-This fallback currently accepts only positive unit steps: large descending
-or non-unit-step ranges are explicitly rejected. It does not add dynamic
-array/qubit indexing or automatically infer invariants.
-Empty static ranges retain the existing rejection behavior.
+The runtime fallback accepts known steps +1 and -1; general strides are
+explicitly rejected. Array access follows the fixed-size array rules below;
+invariants are not automatically inferred. The translation-only profile retains
+every counted loop, including small/nested/empty ranges. The expanded and
+ordinary structured import policies above are unchanged.
 In structured import, while expanding a static loop, a closed Boolean condition
 may select one branch before lowering. The unselected branch becomes an empty
 block, so its nested loops consume no expansion budget. Conditions with a
@@ -99,7 +101,7 @@ The whole source is still syntax-parsed, but skipped branches do not undergo
 lowering-time name, type, annotation or operation checks. This is specialization
 of executable paths, not complete static validation of dead source.
 An unknown
-integer range `[start:stop]` or `[start:1:stop]` instead lowers to a scoped
+integer range `[start:stop]`, `[start:1:stop]` or `[start:-1:stop]` instead lowers to a scoped
 `while` using the existing scalar IR. Both endpoints are evaluated once, before
 declaring the source iterator. A hidden `limit` retains the original endpoint
 even if the body changes the variable used to compute it.
@@ -111,8 +113,9 @@ locals leave scope before loop annotations are resolved; the iterator remains
 visible to the annotations, but body-local names do not.
 
 The generated loop uses a private cursor and an active flag. Initially it is
-active exactly when `start <= limit`. After the body, it stops if the cursor
-equals the inclusive limit; otherwise it increments the cursor and restores
+active exactly when `start <= limit` (or `start >= limit` for descending ranges).
+After the body, it stops if the cursor
+equals the inclusive limit; otherwise it advances by the signed step and restores
 the source iterator for the next iteration. This avoids an extra increment at
 the maximum representable endpoint, and body assignments to the source iterator
 cannot change the range being traversed. Iterator and implementation locals
@@ -120,10 +123,20 @@ leave scope together. Entry-only constant facts are cleared for body lowering
 so loop-carried updates cannot be incorrectly constant-folded.
 
 This subset accepts integer endpoints compatible with the iterator's type and
-width and a known step of positive one. Runtime descending/general-stride or
-open-ended ranges and dynamic array/qubit indices remain
-unsupported. It does not introduce a symbolic integer-shift or gate-angle
-implementation merely because such an expression occurs inside the loop.
+width and a known step of +1 or -1. General-stride and open-ended ranges remain
+unsupported. Array access follows the fixed-size array rules below.
+
+Both structured profiles share runtime gate lowering. An integer quantum-wire
+index into a register of 1..64 wires is evaluated once, checked against the
+register bounds, then dispatched through ordinary IR conditionals. Aliasing
+controls/targets is an execution-domain failure, never a successful no-op.
+Dispatch may use provable non-wrapping iterator bounds only when the body never
+assigns that iterator. This expands wire choices, not source iterations.
+Runtime integer gate powers retain a private counted loop: positive powers
+apply the unitary, negative powers apply its inverse, and zero does neither.
+The cursor moves toward zero without taking the absolute value of a signed
+minimum. Only closed, total gate parameters/bodies are accepted here; dynamic
+parameters needing evaluation even at exponent zero remain unsupported.
 
 Loop annotations on a runtime `for` bind to the generated `while`, with the
 source iterator visible in contracts. Existing loop-contract requirements still

@@ -22,6 +22,10 @@ pub mod scalar;
 pub use gate_call::{GateDefinition, GateSummary};
 pub use scalar::*;
 
+/// Maximum automatic static-loop expansion in verification-oriented import.
+/// Explicit loop contracts select induction even for smaller loops.
+pub const DEFAULT_LOOP_UNROLL_LIMIT: usize = 10;
+
 /// Program-local identity shared by every owned IR node.
 ///
 /// IDs are dense, allocated monotonically, and used only for indexing side

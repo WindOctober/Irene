@@ -1,4 +1,4 @@
-//! Runtime, inclusive unit-step ranges use the existing scoped while IR.
+//! Runtime, inclusive +/-1-step ranges use the existing scoped while IR.
 //! Snapshot bounds once; a private cursor is unaffected by writes to the
 //! source iterator. Never increment the maximum representable final value.
 use super::*;
@@ -9,21 +9,18 @@ use crate::{
 
 impl Lowerer {
     pub(super) fn should_unroll_for(&mut self, statement: &ast::ForStmt) -> Result<bool, FrontendError> {
-        if !self.for_range_is_static(statement)? {
+        // Source-only translation preserves every loop, including one-iteration
+        // and nested loops. Never fall back to
+        // expansion when a runtime body contains an unsupported construct.
+        if self.translation_profile || !self.for_range_is_static(statement)? {
             return Ok(false);
         }
-        if !self.structured {
-            return Ok(true);
-        }
+        if !self.structured { return Ok(true); }
         let range = statement.for_iterable().and_then(|i| i.range_expr()).unwrap();
         let (start, step, stop) = self.with_known_scalars(|this| this.static_range(&range))?;
         let count = (stop - start) / step + 1;
-        // TODO: Lower the 256-iteration unrolling threshold and extend static-range
-        // loop specification handling, allowing invariants and other loop contracts
-        // to be supplied/generated and checked without unrolling. Reuse the retained
-        // loop annotation/proof path (explicit contracts already select it in
-        // structured mode); preserve source bindings and do not treat specs as facts.
-        Ok(count <= 256 && count <= self.static_iterations_left as i128)
+        Ok(count <= crate::DEFAULT_LOOP_UNROLL_LIMIT as i128
+            && count <= self.static_iterations_left as i128)
     }
 
     pub(super) fn for_range_is_static(
@@ -49,6 +46,17 @@ impl Lowerer {
         statement: ast::ForStmt,
         annotations: Vec<Annotation>,
     ) -> Result<Statement, FrontendError> {
+        if self.structured
+            && !self.translation_profile
+            && self.for_range_is_static(&statement)?
+            && !self.should_unroll_for(&statement)?
+            && !annotations.iter().any(|a| a.kind == AnnotationKind::Invariant)
+        {
+            return Err(unsupported!(
+                "static for exceeds the 10-iteration unrolling limit; provide invariant and exit_state contracts",
+                &statement
+            ));
+        }
         if self.loop_depth >= 64 {
             return Err(unsupported!("loop nesting budget", &statement));
         }
@@ -82,7 +90,7 @@ impl Lowerer {
     fn runtime_for_inner(
         &mut self,
         statement: ast::ForStmt,
-        annotations: Vec<Annotation>,
+        mut annotations: Vec<Annotation>,
     ) -> Result<Statement, FrontendError> {
         let source_ty = statement
             .scalar_type()
@@ -105,18 +113,13 @@ impl Lowerer {
             return Err(unsupported!("open-ended runtime for range", &range));
         }
         let (start, step, stop) = range.start_step_stop();
-        if let Some(step) = step {
-            if self
-                .with_known_scalars(|this| this.static_integer(step, false))?
-                .value
-                != 1
-            {
-                return Err(unsupported!(
-                    "runtime for step other than positive one",
-                    &range
-                ));
-            }
+        let step = if let Some(step) = step {
+            self.with_known_scalars(|this| this.static_integer(step, false))?.value
+        } else { 1 };
+        if !matches!(step, -1 | 1) {
+            return Err(unsupported!("runtime for step other than +1 or -1", &range));
         }
+        let descending = step < 0;
         // Evaluate in the enclosing source environment before declaring the
         // iterator, so an outer variable with the same name remains visible.
         let start =
@@ -127,17 +130,68 @@ impl Lowerer {
             .loop_var()
             .ok_or_else(|| expected!("loop variable", &statement))?
             .string();
+        // Restrict finite wire dispatch only for an iterator never assigned
+        // anywhere in this body (including nested branches/loops). This is a
+        // consequence of the generated cursor semantics, not a user invariant.
+        let immutable_range = if iterator_is_read_only(&statement,&name) {
+            match (self.known_scalars.value(&start)?,self.known_scalars.value(&stop)?) {
+                (Some(ScalarValue::Integer(a)),Some(ScalarValue::Integer(b))) => Some((a.min(b),a.max(b))),
+                _=>None,
+            }
+        } else {None};
         let flag_ty = ScalarType::Int {
             width: 1,
             signed: false,
         };
+        // Retained induction must remember the range's original lower bound,
+        // not re-read a source variable which the body may change. Keep this
+        // extra snapshot only when a contract selects induction.
+        let contract_span = annotations.iter().find(|a| {
+            use crate::annotation::{AnnotationPayload as P, SpecExpr as X};
+            matches!(a.kind, AnnotationKind::Invariant | AnnotationKind::RankingFunction)
+                || (a.kind == AnnotationKind::ExitState
+                    && !matches!(&a.payload, P::NoState | P::Expression(X::Bool(true))))
+        }).map(|a| a.span.clone());
+        let (first, first_decl, start) = if contract_span.is_some() {
+            let (id, declaration) = self.for_storage("@for.start".into(), ty, start, false)?;
+            (Some(id), Some(declaration), self.for_read(id, ty))
+        } else { (None, None, start) };
         let (cursor, cursor_decl) = self.for_storage("@for.cursor".into(), ty, start, false)?;
         let (limit, limit_decl) = self.for_storage("@for.limit".into(), ty, stop, false)?;
         let initial_index = self.for_read(cursor, ty);
         let (index, index_decl) = self.for_storage(name.clone(), ty, initial_index, true)?;
         let zero = self.for_literal(0, flag_ty);
         let (active, active_decl) = self.for_storage("@for.active".into(), flag_ty, zero, false)?;
-        let condition = self.for_compare(C::Le, cursor, limit, ty);
+        if let (Some(first), Some(span)) = (first, contract_span) {
+            use crate::annotation::{AnnotationPayload, BinaryOp as B, SpecExpr as X};
+            let read = |id, name: &str| X::Symbol { id, name: name.into() };
+            let binary = |op, left, right| X::Binary {
+                op, left: Box::new(left), right: Box::new(right),
+            };
+            let cursor = read(cursor, "@for.cursor");
+            let limit = read(limit, "@for.limit");
+            let enabled = binary(B::Eq, read(active, "@for.active"),
+                X::Number(num_rational::BigRational::from_integer(1.into())));
+            let disabled = binary(B::Eq, read(active, "@for.active"),
+                X::Number(num_rational::BigRational::from_integer(0.into())));
+            let clauses = [
+                binary(B::Eq, read(index, &name), cursor.clone()),
+                binary(if descending { B::Ge } else { B::Le }, read(first, "@for.start"), cursor.clone()),
+                binary(B::Implies, enabled, binary(if descending { B::Ge } else { B::Le }, cursor.clone(), limit.clone())),
+                binary(B::Implies, disabled, binary(if descending { B::Ge } else { B::Le }, limit, cursor)),
+            ];
+            // These are checked invariants, not trusted assumptions. All
+            // consumers use the ordinary entry/preservation/exit machinery.
+            // Iterator equality holds at loop heads, not inside source_body;
+            // LoopBody skips the restore step on break, as before.
+            annotations.push(Annotation {
+                kind: AnnotationKind::Invariant,
+                payload: AnnotationPayload::Expression(clauses.into_iter()
+                    .reduce(|a,b| binary(B::And,a,b)).unwrap()),
+                span, summary_hint: None, proof_group: None, selection: Default::default(),
+            });
+        }
+        let condition = self.for_compare(if descending { C::Ge } else { C::Le }, cursor, limit, ty);
         let one = self.for_literal(1, flag_ty);
         let activate = self.ids.node(StatementKind::ScalarAssign {
             target: active,
@@ -162,10 +216,12 @@ impl Lowerer {
         self.loop_depth += 1;
         let has_control = loop_control::has_control(&statement.block_or_stmt());
         self.loop_controls.push(());
+        if let Some(bounds)=immutable_range {self.immutable_loop_ranges.insert(index,bounds);}
         let body_result = match statement.block_or_stmt() {
             BlockOrStmt::BlockExpr(block) => self.lower_block_contents(block),
             BlockOrStmt::Stmt(s) => self.lower_statement(s).map(|s| self.for_block(vec![s])),
         };
+        self.immutable_loop_ranges.remove(&index);
         self.loop_controls.pop();
         self.scopes.exit();
         self.loop_depth -= 1;
@@ -188,7 +244,7 @@ impl Lowerer {
         let value = self.ids.node(ScalarExprData {
             ty,
             kind: E::Binary {
-                op: if tiny { A::Sub } else { A::Add },
+                op: if tiny != descending { A::Sub } else { A::Add },
                 left: Box::new(left),
                 right: Box::new(right),
             },
@@ -234,13 +290,14 @@ impl Lowerer {
                 Some(generated),
             )?
         };
-        let mut prefix = vec![cursor_decl, limit_decl, index_decl, active_decl, activate];
+        let mut prefix = first_decl.into_iter().collect::<Vec<_>>();
+        prefix.extend([cursor_decl, limit_decl, index_decl, active_decl, activate]);
         prefix.push(generated);
         let block = self.for_block(prefix);
         Ok(self.ids.node(StatementKind::Scope(block)))
     }
 
-    fn for_storage(
+    pub(super) fn for_storage(
         &mut self,
         name: String,
         ty: ScalarType,
@@ -269,13 +326,13 @@ impl Lowerer {
         });
         Ok((binding.id, declaration))
     }
-    fn for_read(&mut self, id: SymbolId, ty: ScalarType) -> ScalarExpr {
+    pub(super) fn for_read(&mut self, id: SymbolId, ty: ScalarType) -> ScalarExpr {
         self.ids.node(ScalarExprData {
             ty,
             kind: E::Read(id),
         })
     }
-    fn for_literal(&mut self, n: i128, ty: ScalarType) -> ScalarExpr {
+    pub(super) fn for_literal(&mut self, n: i128, ty: ScalarType) -> ScalarExpr {
         self.ids.node(ScalarExprData {
             ty,
             kind: E::Integer(n),
@@ -290,10 +347,24 @@ impl Lowerer {
             right: Box::new(right),
         })
     }
-    fn for_block(&mut self, statements: Vec<Statement>) -> Block {
+    pub(super) fn for_block(&mut self, statements: Vec<Statement>) -> Block {
         self.ids.node(BlockData {
             statements,
             ..BlockData::default()
         })
     }
+}
+
+fn iterator_is_read_only(statement:&ast::ForStmt,name:&str)->bool {
+    !statement.syntax().descendants().any(|node| {
+        // Calls cannot mutate caller scalars in the admitted language, but
+        // conservatively avoid relying on that restriction for this optimization.
+        if ast::CallExpr::cast(node.clone()).is_some() {return true;}
+        let target=if let Some(a)=ast::AssignmentStmt::cast(node.clone()) {
+            a.syntax().children().find_map(Expr::cast)
+        } else if let Some(b)=ast::BinExpr::cast(node) {
+            if matches!(b.op_kind(),Some(ast::BinaryOp::Assignment{..})) {b.lhs()}else{None}
+        } else {None};
+        target.is_some_and(|t|t.syntax().descendants().filter_map(ast::Identifier::cast).any(|id|id.string()==name))
+    })
 }

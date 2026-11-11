@@ -107,6 +107,9 @@ impl Lowerer {
     }
 
     pub(super) fn known_power(&mut self, expression: Expr) -> Result<i128, FrontendError> {
+        if let Some(k) = self.gate_power_overrides.get(&u32::from(expression.syntax().text_range().start())) {
+            return Ok(*k);
+        }
         if let Ok(v) = self.static_integer(expression.clone(), false) {
             return Ok(v.value);
         }

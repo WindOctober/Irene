@@ -40,7 +40,9 @@ fn jumps_have_fresh_ids_and_contracts_bind_the_actual_while() {
         let mut ls = vec![];
         loops(&p.body, &mut ls);
         assert_eq!(ls.len(), 1);
-        assert_eq!(p.annotations[&ls[0].ast_id()].len(), 2);
+        let contracts = &p.annotations[&ls[0].ast_id()];
+        assert!(contracts.iter().any(|a| a.kind == iqir::annotation::AnnotationKind::Invariant));
+        assert!(contracts.iter().any(|a| a.kind == iqir::annotation::AnnotationKind::ExitState));
         let mut ids = Vec::new();
         p.visit_ast_ids(|id| ids.push(id.index()));
         ids.sort();

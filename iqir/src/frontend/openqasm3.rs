@@ -98,6 +98,7 @@ mod constant_math;
 mod constants;
 mod controlled_u;
 mod custom_gates;
+mod dynamic_gate;
 mod known_scalars;
 mod loop_control;
 mod power;
@@ -132,11 +133,27 @@ pub fn parse_structured(source: &str, source_name: &str) -> Result<Program, Fron
     parse_configured(source, source_name, true, true)
 }
 
+/// Semantic translation profile: share gates and retain all counted loops
+/// without requiring proof annotations at import time.
+pub fn parse_for_translation(source: &str, source_name: &str) -> Result<Program, FrontendError> {
+    parse_configured_profile(source, source_name, true, true, true)
+}
+
 fn parse_configured(
     source: &str,
     source_name: &str,
     preserve_uint: bool,
     structured: bool,
+) -> Result<Program, FrontendError> {
+    parse_configured_profile(source, source_name, preserve_uint, structured, false)
+}
+
+fn parse_configured_profile(
+    source: &str,
+    source_name: &str,
+    preserve_uint: bool,
+    structured: bool,
+    translation_profile: bool,
 ) -> Result<Program, FrontendError> {
     let parsed = parse_source_string(source, Some(source_name), None::<&[PathBuf]>);
     let syntax = parsed
@@ -156,6 +173,9 @@ fn parse_configured(
         source_name: source_name.to_owned(),
         preserve_uint,
         structured,
+        translation_profile,
+        static_iterations_left: if translation_profile { 262144 } else { 4096 },
+        static_statements_left: if translation_profile { 2097152 } else { 65536 },
         ..Lowerer::default()
     }
     .lower(syntax.tree())
@@ -168,6 +188,7 @@ fn parse_configured(
 /// specialized to concrete caller-owned qubits.
 struct Lowerer {
     structured: bool,
+    translation_profile: bool,
     gate_definitions: HashMap<SymbolId, std::sync::Arc<crate::GateDefinition>>,
     scalar_arrays: Vec<arrays::ScalarArray>,
     preserve_uint: bool,
@@ -188,6 +209,9 @@ struct Lowerer {
     classical_registers: Vec<Register>,
     subroutines: Vec<SubroutineTemplate>,
     quantum_arguments: HashMap<crate::SymbolId, QuantumOperand>,
+    quantum_index_overrides: HashMap<u32, Qubit>,
+    gate_power_overrides: HashMap<u32, i128>,
+    immutable_loop_ranges: HashMap<SymbolId, (i128,i128)>,
     active_subroutines: BTreeSet<usize>,
     subroutine_calls_left: usize,
     static_iterations_left: usize,
@@ -409,9 +433,13 @@ impl Default for Lowerer {
             classical_registers: Vec::new(),
             subroutines: Vec::new(),
             quantum_arguments: HashMap::new(),
+            quantum_index_overrides: HashMap::new(),
+            gate_power_overrides: HashMap::new(),
+            immutable_loop_ranges: HashMap::new(),
             active_subroutines: BTreeSet::new(),
             subroutine_calls_left: 4096,
             static_iterations_left: 4096,
+            translation_profile: false,
             static_statements_left: 65536,
             static_loop_depth: 0,
             known_bits: None,
@@ -792,6 +820,9 @@ impl Lowerer {
 
     fn lower_statement_inner(&mut self, statement: Stmt) -> Result<Statement, FrontendError> {
         self.charge_static_expansion(&statement)?;
+        if self.structured {
+            if let Some(lowered) = self.lower_dynamic_gate(&statement)? { return Ok(lowered); }
+        }
         match statement {
             Stmt::BreakStmt(s) => self.lower_loop_jump(true, s.syntax().text().to_string()),
             Stmt::ContinueStmt(s) => self.lower_loop_jump(false, s.syntax().text().to_string()),
@@ -2875,6 +2906,18 @@ impl Lowerer {
                 },
                 TypedClassicalExpr::IntegerLiteral(value),
             ) => {
+                let mut bits = bits;
+                if self.translation_profile && signedness == Signedness::Signed && bits.len() < 32 {
+                    let half = BigInt::from(1u8) << (bits.len() - 1);
+                    if value < -&half || value >= half {
+                        // Promote the signed value; do not reinterpret its bits as unsigned.
+                        // Each occurrence needs a fresh AST identity before compaction.
+                        let sign = bits.last().unwrap().clone();
+                        while bits.len() < 32 {
+                            bits.push(self.ids.clone_classical_expr(&sign));
+                        }
+                    }
+                }
                 let literal = self.integer_literal_bits(value, bits.len(), signedness, source)?;
                 Ok((bits, literal, signedness))
             }
@@ -2884,6 +2927,16 @@ impl Lowerer {
                     bits, signedness, ..
                 },
             ) => {
+                let mut bits = bits;
+                if self.translation_profile && signedness == Signedness::Signed && bits.len() < 32 {
+                    let half = BigInt::from(1u8) << (bits.len() - 1);
+                    if value < -&half || value >= half {
+                        let sign = bits.last().unwrap().clone();
+                        while bits.len() < 32 {
+                            bits.push(self.ids.clone_classical_expr(&sign));
+                        }
+                    }
+                }
                 let literal = self.integer_literal_bits(value, bits.len(), signedness, source)?;
                 Ok((literal, bits, signedness))
             }
