@@ -49,6 +49,8 @@ fn collect_applies<'a>(block: &'a Block, applies: &mut Vec<(Gate, &'a [NumericEx
             | StatementKind::LoopBody { .. }
             | StatementKind::ScalarDeclare { .. }
             | StatementKind::ScalarAssign { .. }
+            | StatementKind::ArrayDeclare { .. }
+            | StatementKind::ArrayStore { .. }
             | StatementKind::GlobalPhase(_)
             | StatementKind::Unitary { .. }
             | StatementKind::GateCall { .. } => panic!("unexpected OpenQASM 3 statement"),
