@@ -93,6 +93,7 @@ macro_rules! expected {
 mod angle;
 mod annotations;
 mod arrays;
+mod array_store;
 mod constant_math;
 mod constants;
 mod controlled_u;
@@ -1484,7 +1485,15 @@ impl Lowerer {
         &mut self,
         assignment: ast::AssignmentStmt,
     ) -> Result<Statement, FrontendError> {
-        if let Some(indexed) = assignment.indexed_identifier() {
+        // The generated indexed_identifier accessor finds any direct indexed
+        // child, including the RHS of `f = table[i]`. Resolve the destination
+        // position explicitly before dispatching array stores.
+        if let Some(Expr::IndexedIdentifier(indexed)) = assignment.syntax().children().find_map(Expr::cast) {
+            let lhs = Expr::IndexedIdentifier(indexed.clone());
+            let rhs = assignment.rhs().ok_or_else(|| expected!("array assignment value", &assignment))?;
+            if let Some(statement) = self.dynamic_array_assignment(&lhs, rhs)? {
+                return Ok(statement);
+            }
             if let Some(binding) = self.array_cell(&Expr::IndexedIdentifier(indexed), false)? {
                 let BindingKind::Scalar { ty, assignable, .. } = binding.kind else {
                     unreachable!()
@@ -1630,6 +1639,7 @@ impl Lowerer {
         let lhs = assignment
             .lhs()
             .ok_or_else(|| expected!("an assignment target", &assignment))?;
+        if let Some(s)=self.array_compound_assignment(&lhs,assignment.clone())? { return Ok(s); }
         if let Some(binding) = self.array_cell(&lhs, false)? {
             let BindingKind::Scalar { ty, assignable, .. } = binding.kind else {
                 unreachable!()

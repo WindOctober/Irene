@@ -51,6 +51,7 @@ impl KnownScalars {
             return Ok(());
         }
         match &statement.kind {
+            StatementKind::ArrayDeclare { .. } | StatementKind::ArrayStore { .. } => {},
             StatementKind::Break | StatementKind::Continue => unreachable!(),
             StatementKind::UnrolledLoop { iterations } => {
                 for b in iterations { self.forget_writes(b); }

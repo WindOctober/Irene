@@ -691,6 +691,7 @@ impl Executor {
             StatementKind::While { .. }
             | StatementKind::ScalarDeclare { .. }
             | StatementKind::ScalarAssign { .. }
+            | StatementKind::ArrayDeclare { .. } | StatementKind::ArrayStore { .. }
             | StatementKind::GlobalPhase(_)
             | StatementKind::Unitary { .. }
             | StatementKind::GateCall { .. } => {
@@ -1146,6 +1147,7 @@ fn is_predicable_block(block: &Block, plan: &SlicePlan) -> bool {
                 | StatementKind::While { .. }
                 | StatementKind::ScalarDeclare { .. }
                 | StatementKind::ScalarAssign { .. }
+                | StatementKind::ArrayDeclare { .. } | StatementKind::ArrayStore { .. }
                 | StatementKind::GlobalPhase(_)
                 | StatementKind::Unitary { .. }
                 | StatementKind::GateCall { .. }

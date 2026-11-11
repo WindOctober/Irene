@@ -37,9 +37,10 @@ Numeric gate parameters and classical scalar expressions have distinct types.
 Subroutines accept by-value numeric/bool/bit parameters and typed results, mixed
 with reference-like quantum arguments; direct predicate calls in `if` execute
 once before branching. See [call boundaries](docs/frontend.md#classical-subroutine-parameters-and-results).
-Fixed-size numeric arrays with static indices lower to independent scalar cells;
-constant tables, element assignment and constant math reuse the scalar pipeline.
-Dynamic indexing and array-valued invariants remain unsupported; see
+Fixed-size numeric arrays retain typed storage or shared constant tables;
+element access, assignment and constant math reuse the scalar pipeline.
+Multidimensional constant tables retain typed symbolic reads. Fixed-size mutable
+arrays support checked symbolic reads, element assignment and compound updates. See
 [array boundaries](docs/frontend.md#fixed-size-classical-numeric-arrays).
 
 Construct nodes with `AstIdGenerator::node` and access their identities through

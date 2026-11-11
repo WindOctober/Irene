@@ -290,6 +290,7 @@ where
         const INT: SpecType = SpecType::Int(None);
         const UINT: SpecType = SpecType::Uint(None);
         match e {
+            SpecExpr::ConstantTable(table) => Ok(SpecType::ConstantTable(table.ty(), table.values().len())),
             SpecExpr::Shared(value) => {
                 let key = (std::sync::Arc::as_ptr(value) as usize, self.locals.clone());
                 if let Some(checked) = self.shared.get(&key) {
@@ -730,6 +731,11 @@ where
                     Ok(preserve_type(e, ty))
                 } else {
                     match self.check(value, depth + 1)? {
+                        SpecType::ConstantTable(ty, _) | SpecType::Array(ty,_) => Ok(preserve_type(e, match ty {
+                            crate::ScalarType::Int { width, signed: true } => SpecType::Int(Some(width as usize)),
+                            crate::ScalarType::Int { width, signed: false } => SpecType::Uint(Some(width as usize)),
+                            crate::ScalarType::Float { width } => SpecType::Float(Some(width as usize)),
+                        })),
                         SpecType::QubitRegister(_) => Ok(SpecType::Qubit),
                         t if t.integer() => Ok(SpecType::Bit),
                         _ => Err(fail(

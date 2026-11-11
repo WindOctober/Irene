@@ -450,9 +450,19 @@ impl Lowerer {
             .lookup(name)
             .map_err(|_| format!("unknown specification identifier `{name}`"))?;
         let ty = match binding.kind {
+            BindingKind::ScalarArray { index, .. } if self.scalar_arrays[index].dimensions.len() == 1
+                && self.scalar_arrays[index].table.is_some() => {
+                if !self.constant_visible(binding.id) { return Err("constant table was not visible at subroutine definition".into()); }
+                let table = self.scalar_arrays[index].table.clone().ok_or("uninitialized constant table")?;
+                return Ok((SpecExpr::ConstantTable(table.clone()), SpecType::ConstantTable(table.ty(), table.values().len())));
+            }
+            BindingKind::ScalarArray {index,..} if self.scalar_arrays[index].dimensions.len()==1 => {
+                let a=&self.scalar_arrays[index];
+                return Ok((SpecExpr::Symbol {id:a.id,name:name.into()},SpecType::Array(a.ty,a.dimensions[0])));
+            }
             BindingKind::ScalarArray { .. } => {
                 return Err(format!(
-                    "array-valued specifications/invariants are not supported (`{name}`); static program reads and writes are supported"
+                    "array-valued specifications/invariants are not supported (`{name}`); use one-dimensional element indexing"
                 ));
             }
             BindingKind::Ghost(ty) => ty,

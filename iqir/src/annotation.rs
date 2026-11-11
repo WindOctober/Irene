@@ -40,6 +40,9 @@ pub enum SpecType {
     Qubit,
     /// A program quantum register; unlike a scalar qubit, it can be indexed.
     QubitRegister(usize),
+    /// Internal type of a named immutable machine table (no array mutation).
+    ConstantTable(crate::ScalarType, usize),
+    Array(crate::ScalarType, usize),
 }
 
 impl std::fmt::Display for SpecType {
@@ -258,6 +261,7 @@ pub enum MathFunction {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum SpecExpr {
+    ConstantTable(std::sync::Arc<crate::ConstantTable>),
     /// Internal immutable sharing after specialization; no source syntax.
     /// Consumers must treat this as the enclosed expression, not a fresh value.
     Shared(std::sync::Arc<SpecExpr>),

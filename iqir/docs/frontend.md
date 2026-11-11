@@ -169,25 +169,45 @@ runtime loops and scalar storage in Irene's equivalence backend remain.
 support global declarations, shape-matching nested literal initialization, `const`
 arrays, and full element reads/writes (including numeric compound assignment).
 Shapes are positive compile-time integer dimensions: at most seven dimensions
-and 4096 cells per declaration, also subject to the static-loop expansion budget.
+and 4096 cells per declaration.
 Comma indexing (`a[i,j]`) and chained indexing (`a[i][j]`) select the same cell.
-Indices must be statically resolvable, such as constants or specialized `for`
-indices; bounds and dimension count are checked before lowering.
+Mutable reads, writes and compound assignments accept symbolic integer indices.
+The address and RHS are evaluated once; a subroutine RHS snapshots the address
+before the call. Compound updates also snapshot the old element. Every
+axis retains its bounds obligation, including when the written value is unused.
+Untouched cells remain uninitialized rather than being read or defaulted to zero.
 
-Each cell lowers to existing typed `ScalarDeclare`/`ScalarAssign`/`Read` nodes,
-with a unique symbol in global scope. This is finite scalar storage,
-not an SMT array encoding. Cells retain scalar integer/IEEE arithmetic and
+Each mutable array has one storage symbol and lowers to typed
+`ArrayDeclare`/`ArrayStore`/`ArrayRead` nodes. Writes remain functional updates,
+not per-cell control-flow dispatch. Cells retain scalar integer/IEEE arithmetic and
 per-cell uninitialized-read checks; missing initializers do **not** mean zero.
-Known element values participate in existing constant math and gate-angle
-evaluation, including nested `arccos`/`sqrt` calls. Branches merge facts and
-loops invalidate possibly written array facts; no stale pre-loop value is used.
+The consumer can fold concrete reads through known writes. The frontend does
+not freeze mutable elements into pre-loop or pre-branch constants.
 
-Runtime indexing, slicing, whole-array copying/arithmetic, array parameters,
+`const` arrays also accept symbolic integer indices on every dimension.
+Ordinary arrays use this same route when every initializer is a closed typed
+constant and a conservative whole-source use check finds no writes or bare-array
+uses that could escape through aliases/references. Writes in branches, later
+statements or loop bodies prevent promotion. Same-name shadowing may conservatively
+prevent it too. This does not grant source-level `const` qualification or new
+subroutine capture permissions; genuinely mutable arrays retain array storage.
+The IR retains `TableRead(shared_table, index)`; it does not construct an `ite`
+tree or split control flow. A concrete index folds to the typed element, while
+an unknown index retains a bounds obligation for the verifier. Negative and
+out-of-range known indices are errors. Entries retain integer widths and exact
+IEEE bit patterns, including signed zero. Named constant tables can also be
+indexed in specifications and finite aggregates; indexing does not turn
+machine arithmetic into mathematical real arithmetic.
+Multidimensional source reads reuse bounded per-axis offset tables before the
+flattened lookup; a bad column cannot silently alias another row. Specification
+table indexing retains its existing one-dimensional interface.
+
+Slicing, whole-array copying/arithmetic, array parameters,
 self-referencing initializers and nonnumeric array element types are explicitly
-unsupported. Array-valued specifications, quantified array invariants, and a
-Rocq array theory are outside this subset. Read a statically selected element
-into a scalar if a scalar assertion is needed; do not drop or weaken an existing
-array assertion to work around this boundary. A successful import alone does
+unsupported. One-dimensional mutable element reads are typed in specifications,
+including quantified invariants; whole-array equality and multidimensional
+specification indexing are not source interfaces. Do not drop or weaken an existing
+array assertion to work around a backend limitation. A successful import alone does
 not establish the program's verification goals.
 
 ## Scalar types, declarations and constant evaluation
