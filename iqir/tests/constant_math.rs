@@ -129,10 +129,9 @@ fn gate_parameters_receive_the_rounded_binary_value() {
 }
 
 #[test]
-fn rejects_runtime_calls_invalid_types_domains_and_nonfinite_results() {
+fn rejects_invalid_types_domains_and_nonfinite_results() {
+    parse("float[64] a; float[64] result=cos(a); qubit q; ry(cos(a)) q;");
     for body in [
-        "float[64] a; float[64] result=cos(a);",
-        "float[64] a; qubit q; ry(cos(a)) q;",
         "float[64] result=sin();",
         "float[64] result=sin(1.0,2.0);",
         "float[64] result=sin(true);",

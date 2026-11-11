@@ -293,9 +293,9 @@ fn integer_cast_is_truncation_not_saturation_or_floor() {
 }
 
 #[test]
-fn unsupported_runtime_transcendentals_and_invalid_constants_stay_rejected() {
+fn invalid_constants_stay_rejected() {
     for body in [
-        "float[64] x; float[64] y=cos(x);",
+        "float[32] y=exp(1000.0);",
         "float[64] y=arcsin(2.0);",
         "float[64] y=log(0.0);",
         "float[64] y=log(-1.0);",
@@ -304,4 +304,74 @@ fn unsupported_runtime_transcendentals_and_invalid_constants_stay_rejected() {
     ] {
         assert!(frontend::parse_str(&format!("OPENQASM 3; {body}"), "bad.qasm").is_err());
     }
+}
+
+#[test]
+fn math_calls_share_symbolic_and_closed_precision_semantics() {
+    for op in [
+        FloatUnary::Sin,
+        FloatUnary::Cos,
+        FloatUnary::Tan,
+        FloatUnary::Asin,
+        FloatUnary::Acos,
+        FloatUnary::Atan,
+        FloatUnary::Exp,
+        FloatUnary::Log,
+        FloatUnary::Floor,
+        FloatUnary::Ceiling,
+        FloatUnary::Sqrt,
+    ] {
+        for width in [32, 64] {
+            let name = op.name();
+            let p = parse(&format!("float[{width}] x; float[64] y={name}(x);"));
+            let StatementKind::ScalarDeclare {
+                initializer: Some(e),
+                ..
+            } = &p.body.statements[1].kind
+            else {
+                panic!()
+            };
+            assert_eq!(e.constant_value().unwrap(), None);
+            let input = ScalarValue::Float64(0.5f64.to_bits())
+                .to_float(ScalarType::Float { width })
+                .unwrap();
+            let value = e.constant_value_with(&|_| Some(input)).unwrap().unwrap();
+            let closed = parse(&format!("float[64] y={name}(float[{width}](0.5));"));
+            let StatementKind::ScalarDeclare {
+                initializer: Some(c),
+                ..
+            } = &closed.body.statements[0].kind
+            else {
+                panic!()
+            };
+            assert_eq!(Some(value), c.constant_value().unwrap(), "{name}/{width}");
+            assert_eq!(
+                value,
+                op.evaluate(input)
+                    .unwrap()
+                    .to_float(ScalarType::Float { width: 64 })
+                    .unwrap()
+            );
+        }
+    }
+    for op in [
+        FloatUnary::Cos,
+        FloatUnary::Tan,
+        FloatUnary::Atan,
+        FloatUnary::Exp,
+    ] {
+        assert!(op.requires_domain_check());
+        for x in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert!(op.evaluate(ScalarValue::Float64(x.to_bits())).is_err());
+        }
+    }
+    for op in [FloatUnary::Tan, FloatUnary::Atan] {
+        assert_eq!(
+            op.evaluate(ScalarValue::Float64((-0.0f64).to_bits()))
+                .unwrap(),
+            ScalarValue::Float64((-0.0f64).to_bits())
+        );
+    }
+    // A loop-written value must remain symbolic; it must not freeze to its initializer.
+    parse("float[64] beta=0.0; while(beta < 1.0) { beta=cos(2.0*beta); }");
 }

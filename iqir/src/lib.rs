@@ -595,7 +595,8 @@ pub(crate) fn compact_program_ids(mut program: crate::Program) -> crate::Program
     fn scalar(e: &mut ScalarExpr, next: &mut usize) {
         id(e, next);
         match &mut e.kind.kind {
-            ScalarExprKind::Neg(a)
+            ScalarExprKind::TableRead { index: a, .. } | ScalarExprKind::ArrayRead { index: a, .. }
+            | ScalarExprKind::Neg(a)
             | ScalarExprKind::FloatCast(a)
             | ScalarExprKind::IntWiden(a)
             | ScalarExprKind::IntFromFloat(a)

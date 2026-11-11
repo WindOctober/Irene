@@ -270,6 +270,13 @@ promotes the operation to binary64. The target rounding profile is nearest,
 ties-to-even with gradual underflow. Signed zero, subnormals and float encoding
 are retained. Arithmetic/conversion can produce infinities or NaNs; comparisons
 must follow IEEE behavior (`NaN != value`, other comparisons false).
+The deterministic target profile canonicalizes NaNs produced by arithmetic,
+sqrt/floor/ceiling, powers, and cross-width float conversions to negative quiet
+NaN (`0xffc00000` / `0xfff8000000000000`). Raw values and same-width copies
+retain their payloads; negation and absolute value only change the sign bit.
+This is an explicit target-profile choice, not a guarantee about every host
+libm/SDK's NaN payload propagation. Backend implementations must use the same
+profile wherever storage-bit identity is observable.
 Nonfinite source literals are rejected.
 
 Classical scalar `base ** exponent` is a typed `ScalarArithmetic::Pow` node
@@ -310,21 +317,23 @@ bit-identical facts; while headers and exits forget possibly written variables
 and preserve read-only ones. This is not const qualification: mutable reads
 remain illegal in const declarations and const-required sizes. Ordinary scalar
 reads remain in executable IR. Unknown arguments to `floor`, `ceiling`,
-`sqrt`, `arccos`, `sin`, `arcsin`, and `log` remain as `ScalarExprKind::FloatUnary` nodes; explicit floating-to-integer
+`sqrt`, `sin`, `cos`, `tan`, `arcsin`, `arccos`, `arctan`, `exp`, and `log`
+remain as `ScalarExprKind::FloatUnary` nodes; explicit floating-to-integer
 casts remain as `IntFromFloat`. The shared constant evaluator and symbolic
 consumer use the same precision and truncation semantics. Unary IEEE operations
 preserve signed zero and special values; integer conversions require a finite,
 representable truncated integer. Consumers must prove these conditions even for
 unused or overwritten conversions. `arccos` and `arcsin` denote principal branches on
-[-1,1]; `sin` takes finite radians; `log` is natural logarithm on finite positive
-arguments. All round to operand precision, rather than
+[-1,1]; direct trigonometric functions take finite radians; `log` is natural
+logarithm on finite positive arguments. Transcendentals require finite inputs
+in their domains and finite results. All round to operand precision, rather than
 denoting exact-real functions. Their shared closed evaluator uses directed MPFR
 rounding bounds. Saria preserves symbolic calls
 but both SMT and Rocq currently reject dependent goals; a future checked model
 must establish domain and rounding semantics. Pending transcendental evaluation is not
-erased when its result is overwritten. Unknown arguments to other math functions
-(including measurement-driven statistics and loop-carried values) are still
-rejected rather than approximated or replaced by a first-iteration value.
+erased when its result is overwritten. Unknown arguments, including
+measurement-driven statistics and loop-carried values, are not approximated
+or replaced by a first-iteration value.
 Typed arithmetic and integer-to-float casts can remain dynamic, including
 inside gate parameters as described below.
 
@@ -366,16 +375,19 @@ operations remain errors/obligations. CoqQ currently rejects these parameters
 instead of replacing IEEE computations with real arithmetic; Irene's
 equivalence backend also rejects this unsupported machine-number fragment.
 
-Unsigned scalar shifts (`<<`, `>>`, `<<=`, `>>=`) with a known nonnegative
-integer count reuse finite-width multiplication/division by a power of two.
-Counts at least the width produce zero without suppressing operand reads or
-undefined computations. Counts are not reduced modulo the width. Shifts alone
-no longer force uint storage to expand into bits. Closed nonnegative signed
-shifts (including static `for` indices such as `1 << (8-idx)`) fold with range
-checks. Negative signed operands, runtime signed shifts and unknown shift
-counts remain explicitly unsupported; signed arithmetic has not been changed
-to wrapping arithmetic. The original Boolean-word path is retained when
-bit casts or indexed uses require it.
+Scalar shifts (`<<`, `>>`, `<<=`, `>>=`) use explicit shared integer-shift IR,
+including runtime operands and counts. The result type is the left operand's
+type; the count keeps its own integer width/signedness and must be nonnegative.
+Counts are never truncated to the left width or reduced modulo it. The IQIR
+machine profile defines signed right shift as arithmetic shift (floor division,
+not division truncated toward zero): `-3 >> 1 = -2`. This is an explicit profile
+extension, not a claim that every OpenQASM implementation defines negative
+signed shifts identically. At counts at least the width, right shift produces
+-1 for negative signed operands, otherwise zero. Unsigned left shift wraps;
+signed left shift requires a nonnegative input and a representable result.
+Operand reads and undefined computations remain checked even for a huge count
+or a zero result. Shifts alone do not force uint storage into Boolean words;
+the original word path remains available for bit casts/indexed uses.
 
 Typed scalar integers support `&`, `|`, `^`, `~` and the binary compound
 assignments. The result keeps the operand width and signedness; the target
@@ -413,9 +425,10 @@ facts do not escape to the caller.
 computation. Only the former can fall through to runtime lowering; overflow,
 zero division, invalid shifts and incompatible signedness remain errors.
 Computed values retain width and signedness when passed to classical consumers.
-Signed shifts are restricted to nonnegative operands and representable results;
-unsigned shifts use the declared width and wrap. Unknown scalar shift operands
-are not lowered by this constant-specialization path.
+Signed left shifts require nonnegative operands and representable results;
+signed right shifts use the arithmetic semantics above. Unsigned left shifts
+use the declared width and wrap. Unknown scalar shift operands fall through to
+explicit runtime shift IR rather than being treated as constant computations.
 
 Boolean constants and known-bit flow analysis share one bounded evaluator.
 `ScalarExpr::constant_value_with` reads a typed known-value environment without

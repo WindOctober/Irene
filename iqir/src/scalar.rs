@@ -16,9 +16,9 @@ pub enum ScalarType {
 }
 
 impl ScalarType {
-    /// Exact unsigned shifts. Signed constant shifts are restricted to
-    /// nonnegative values and representable results; negative signed shifts
-    /// are not silently treated as truncating division.
+    /// IQIR machine profile: unsigned logical shifts and signed arithmetic
+    /// right shift (floor division, not truncation toward zero). Signed left
+    /// shift requires a nonnegative operand and a representable result.
     pub fn checked_integer_shift(
         self,
         left: bool,
@@ -28,15 +28,18 @@ impl ScalarType {
         let Self::Int { width, signed } = self else {
             return Err("integer shift type required");
         };
-        if !self.contains_integer(value) || count < 0 || (signed && value < 0) {
+        if !self.contains_integer(value) || count < 0 || (signed && left && value < 0) {
             return Err("invalid or unsupported integer shift operand");
         }
         if count >= i128::from(width) {
             return if signed && left && value != 0 {
                 Err("signed shift overflow")
             } else {
-                Ok(0)
+                Ok(if signed && !left && value < 0 { -1 } else { 0 })
             };
+        }
+        if signed && !left {
+            return Ok(value >> count as u32);
         }
         let result = if left {
             (value as u128) << count as u32
@@ -87,6 +90,9 @@ impl ScalarType {
         b: i128,
     ) -> Result<i128, &'static str> {
         use ScalarArithmetic as A;
+        if matches!(op, A::ShiftLeft | A::ShiftRight) {
+            return self.checked_integer_shift(op == A::ShiftLeft, a, b);
+        }
         if !self.contains_integer(a) || !self.contains_integer(b) {
             return Err("integer operand outside its type");
         }
@@ -127,7 +133,7 @@ impl ScalarType {
                 A::BitAnd => a & b,
                 A::BitOr => a | b,
                 A::BitXor => a ^ b,
-                A::Pow => unreachable!(),
+                A::Pow | A::ShiftLeft | A::ShiftRight => unreachable!(),
             };
             return Ok((value & ((1u128 << width) - 1)) as i128);
         }
@@ -147,7 +153,7 @@ impl ScalarType {
             A::BitAnd => Some(a & b),
             A::BitOr => Some(a | b),
             A::BitXor => Some(a ^ b),
-            A::Pow => unreachable!(),
+            A::Pow | A::ShiftLeft | A::ShiftRight => unreachable!(),
         }
         .filter(|v| self.contains_integer(*v));
         result.ok_or("integer overflow or zero divisor")
@@ -155,7 +161,8 @@ impl ScalarType {
 }
 
 /// A known value is independent of whether its source binding is const.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Derived ordering/hashing is structural (IEEE bits), not numeric FP ordering.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ScalarValue {
     Integer(i128),
     Float32(u32),
@@ -163,6 +170,24 @@ pub enum ScalarValue {
 }
 
 impl ScalarValue {
+    /// Canonical result of a NaN-producing computation in the target profile.
+    /// Raw literals, storage copies and sign operations do not canonicalize.
+    pub fn canonicalize_nan(self) -> Self {
+        match self {
+            Self::Float32(v) if f32::from_bits(v).is_nan() => Self::Float32(0xffc0_0000),
+            Self::Float64(v) if f64::from_bits(v).is_nan() => Self::Float64(0xfff8_0000_0000_0000),
+            _ => self,
+        }
+    }
+
+    /// Stable NaN result, also used by the correctly-rounded power profile.
+    pub fn power_nan(ty: ScalarType) -> Result<Self, &'static str> {
+        match ty {
+            ScalarType::Float { width: 32 } => Ok(Self::Float32(0xffc0_0000)),
+            ScalarType::Float { width: 64 } => Ok(Self::Float64(0xfff8_0000_0000_0000)),
+            _ => Err("power NaN requires an IEEE floating type"),
+        }
+    }
     /// Explicit float -> machine integer conversion, truncating toward zero.
     /// Check the rounded integer before conversion; never use saturating casts.
     pub fn to_integer(self, target: ScalarType) -> Result<Self, &'static str> {
@@ -190,10 +215,10 @@ impl ScalarValue {
             (ScalarType::Float { width: 32 }, Self::Float32(v)) => Self::Float32(v),
             (ScalarType::Float { width: 64 }, Self::Float64(v)) => Self::Float64(v),
             (ScalarType::Float { width: 32 }, Self::Float64(v)) => {
-                Self::Float32((f64::from_bits(v) as f32).to_bits())
+                Self::Float32((f64::from_bits(v) as f32).to_bits()).canonicalize_nan()
             }
             (ScalarType::Float { width: 64 }, Self::Float32(v)) => {
-                Self::Float64(f64::from(f32::from_bits(v)).to_bits())
+                Self::Float64(f64::from(f32::from_bits(v)).to_bits()).canonicalize_nan()
             }
             _ => return Err("unsupported float precision"),
         })
@@ -229,6 +254,10 @@ pub enum ScalarArithmetic {
     BitAnd,
     BitOr,
     BitXor,
+    /// The RHS is an independently typed integer count; it does not promote
+    /// the LHS or get truncated to its width. Negative counts are undefined.
+    ShiftLeft,
+    ShiftRight,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -259,6 +288,52 @@ impl ScalarComparison {
     }
 }
 
+/// Immutable typed machine values. Reads share this object rather than copying
+/// a table or expanding it into conditionals during symbolic execution.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ConstantTable {
+    ty: ScalarType,
+    values: Vec<ScalarValue>,
+}
+
+impl ConstantTable {
+    pub fn new(ty: ScalarType, values: Vec<ScalarValue>) -> Result<Self, &'static str> {
+        if values.is_empty() || values.len() > 4096 {
+            return Err("constant table size must be in 1..=4096");
+        }
+        for value in &values {
+            validate_value_type(ty, *value)?;
+        }
+        Ok(Self { ty, values })
+    }
+    pub fn ty(&self) -> ScalarType {
+        self.ty
+    }
+    pub fn values(&self) -> &[ScalarValue] {
+        &self.values
+    }
+    pub fn get(&self, index: i128) -> Result<ScalarValue, &'static str> {
+        usize::try_from(index)
+            .ok()
+            .and_then(|i| self.values.get(i))
+            .copied()
+            .ok_or("constant table index out of bounds")
+    }
+}
+
+fn validate_value_type(ty: ScalarType, value: ScalarValue) -> Result<(), &'static str> {
+    match (ty, value) {
+        (ScalarType::Int { width: 1..=64, .. }, ScalarValue::Integer(v))
+            if ty.contains_integer(v) =>
+        {
+            Ok(())
+        }
+        (ScalarType::Float { width: 32 }, ScalarValue::Float32(_)) => Ok(()),
+        (ScalarType::Float { width: 64 }, ScalarValue::Float64(_)) => Ok(()),
+        _ => Err("scalar value outside its type"),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ScalarExprKind {
     /// Range-checked at import, with signedness and width supplied by `ty`.
@@ -267,6 +342,11 @@ pub enum ScalarExprKind {
     Float32(u32),
     Float64(u64),
     Read(SymbolId),
+    ArrayRead { array: SymbolId, length: usize, index: Box<ScalarExpr> },
+    TableRead {
+        table: std::sync::Arc<ConstantTable>,
+        index: Box<ScalarExpr>,
+    },
     /// Little-endian bit string interpreted at exactly the destination width.
     /// Signed destinations use two's complement, not unsigned zero extension.
     FromBits(Vec<crate::ClassicalExpr>),
@@ -300,6 +380,14 @@ pub enum FloatUnary {
     Acos,
     /// Sine of a finite argument in radians, rounded at operand precision (RNE).
     Sin,
+    /// Cosine of a finite argument in radians, rounded with RNE.
+    Cos,
+    /// Tangent, requiring a finite input and finite rounded result.
+    Tan,
+    /// Principal arctangent, rounded with RNE.
+    Atan,
+    /// Exponential, requiring a finite input and finite rounded result.
+    Exp,
     /// Principal arcsine on [-1, 1], rounded at operand precision (RNE).
     Asin,
     /// Natural logarithm of a finite positive argument, rounded with RNE.
@@ -310,7 +398,22 @@ impl FloatUnary {
     /// These functions use a finite-input/domain-checked target profile, unlike
     /// total IEEE basic operations. Evaluating them must not be silently erased.
     pub fn requires_domain_check(self) -> bool {
-        matches!(self, Self::Acos | Self::Sin | Self::Asin | Self::Log)
+        !matches!(self, Self::Floor | Self::Ceiling | Self::Sqrt)
+    }
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Floor => "floor",
+            Self::Ceiling => "ceiling",
+            Self::Sqrt => "sqrt",
+            Self::Acos => "arccos",
+            Self::Sin => "sin",
+            Self::Cos => "cos",
+            Self::Tan => "tan",
+            Self::Atan => "arctan",
+            Self::Exp => "exp",
+            Self::Asin => "arcsin",
+            Self::Log => "log",
+        }
     }
     /// Evaluate at the operand's precision. Basic IEEE operations preserve
     /// signed zero/special values; transcendentals require finite inputs in their domains
@@ -323,6 +426,18 @@ impl FloatUnary {
                 }
                 Self::Sin => {
                     v.sin_round(round);
+                }
+                Self::Cos => {
+                    v.cos_round(round);
+                }
+                Self::Tan => {
+                    v.tan_round(round);
+                }
+                Self::Atan => {
+                    v.atan_round(round);
+                }
+                Self::Exp => {
+                    v.exp_round(round);
                 }
                 Self::Asin => {
                     v.asin_round(round);
@@ -341,7 +456,7 @@ impl FloatUnary {
                         Self::Floor => x.floor(),
                         Self::Ceiling => x.ceil(),
                         Self::Sqrt => x.sqrt(),
-                        Self::Acos | Self::Sin | Self::Asin | Self::Log => unreachable!(),
+                        _ => unreachable!(),
                     }
                     .to_bits(),
                 )
@@ -353,13 +468,13 @@ impl FloatUnary {
                         Self::Floor => x.floor(),
                         Self::Ceiling => x.ceil(),
                         Self::Sqrt => x.sqrt(),
-                        Self::Acos | Self::Sin | Self::Asin | Self::Log => unreachable!(),
+                        _ => unreachable!(),
                     }
                     .to_bits(),
                 )
             }
             _ => return Err("floating operand required"),
-        })
+        }.canonicalize_nan())
     }
 }
 
@@ -416,24 +531,37 @@ impl ScalarExpr {
     fn validate_operation(&self) -> Result<(), &'static str> {
         use ScalarExprKind as E;
         let valid_type = |ty| {
-            matches!(ty,
-                ScalarType::Int { width: 1..=64, .. }
-                    | ScalarType::Float { width: 32 | 64 })
+            matches!(
+                ty,
+                ScalarType::Int { width: 1..=64, .. } | ScalarType::Float { width: 32 | 64 }
+            )
         };
         if !valid_type(self.ty) {
             return Err("invalid scalar IR type");
         }
         match &self.kind.kind {
+            E::ArrayRead { length, index, .. } if *length == 0 || index.ty.is_float() => {
+                return Err("array read type/shape mismatch");
+            }
+            E::TableRead { table, index }
+                if table.ty() != self.ty
+                    || !matches!(index.ty, ScalarType::Int { width: 1..=64, .. }) =>
+            {
+                return Err("constant table read type mismatch");
+            }
             E::Neg(a) if a.ty != self.ty => return Err("scalar negation type mismatch"),
             E::Binary { op, left, right } => {
-                if left.ty != self.ty || right.ty != self.ty {
+                let shift = matches!(op, ScalarArithmetic::ShiftLeft | ScalarArithmetic::ShiftRight);
+                if left.ty != self.ty || (!shift && right.ty != self.ty)
+                    || (shift && (!valid_type(right.ty) || right.ty.is_float())) {
                     return Err("scalar binary type mismatch");
                 }
                 if self.ty.is_float() {
                     match op {
                         ScalarArithmetic::BitAnd
                         | ScalarArithmetic::BitOr
-                        | ScalarArithmetic::BitXor => {
+                        | ScalarArithmetic::BitXor
+                        | ScalarArithmetic::ShiftLeft | ScalarArithmetic::ShiftRight => {
                             return Err("bitwise operands must be integers");
                         }
                         ScalarArithmetic::Rem => {
@@ -489,9 +617,22 @@ impl ScalarExpr {
         use ScalarExprKind as E;
         use ScalarValue as V;
         let value = match &self.kind.kind {
+            E::ArrayRead { length, index, .. } => {
+                if let Some(V::Integer(i)) = index.constant_value_inner(lookup, depth + 1, work)? {
+                    if i < 0 || i as u128 >= *length as u128 { return Err("array index out of bounds"); }
+                }
+                return Ok(None);
+            }
             E::Integer(v) => V::Integer(*v),
             E::Float32(v) => V::Float32(*v),
             E::Float64(v) => V::Float64(*v),
+            E::TableRead { table, index } => {
+                let Some(V::Integer(i)) = index.constant_value_inner(lookup, depth + 1, work)?
+                else {
+                    return Ok(None);
+                };
+                table.get(i)?
+            }
             E::Read(id) => match lookup(*id) {
                 Some(value) => value,
                 None => return Ok(None),
@@ -559,8 +700,8 @@ impl ScalarExpr {
                     V::Integer(v) => {
                         V::Integer(self.ty.checked_integer_arithmetic(A::Sub, 0, v)?)
                     }
-                    V::Float32(v) => V::Float32((-f32::from_bits(v)).to_bits()),
-                    V::Float64(v) => V::Float64((-f64::from_bits(v)).to_bits()),
+                    V::Float32(v) => V::Float32(v ^ (1u32 << 31)),
+                    V::Float64(v) => V::Float64(v ^ (1u64 << 63)),
                 }
             }
             E::Binary { op, left, right } => {
@@ -572,6 +713,10 @@ impl ScalarExpr {
                     }
                     if *op == A::Pow && matches!(right, Some(V::Integer(b)) if b < 0) {
                         return Err("negative integer exponent");
+                    }
+                    if matches!(op, A::ShiftLeft | A::ShiftRight)
+                        && matches!(right, Some(V::Integer(b)) if b < 0) {
+                        return Err("negative integer shift count");
                     }
                 }
                 let (Some(left), Some(right)) = (left, right) else {
@@ -598,13 +743,13 @@ impl ScalarExpr {
                                 A::Mul => a * b,
                                 A::Div => a / b,
                                 A::Rem => unreachable!("validated scalar operation"),
-                                A::BitAnd | A::BitOr | A::BitXor => {
+                                A::BitAnd | A::BitOr | A::BitXor | A::ShiftLeft | A::ShiftRight => {
                                     return Err("bitwise operands must be integers");
                                 }
                                 A::Pow => unreachable!(),
                             }
                             .to_bits(),
-                        )
+                        ).canonicalize_nan()
                     }
                     (V::Float64(a), V::Float64(b)) => {
                         if *op == A::Pow {
@@ -619,31 +764,27 @@ impl ScalarExpr {
                                 A::Mul => a * b,
                                 A::Div => a / b,
                                 A::Rem => unreachable!("validated scalar operation"),
-                                A::BitAnd | A::BitOr | A::BitXor => {
+                                A::BitAnd | A::BitOr | A::BitXor | A::ShiftLeft | A::ShiftRight => {
                                     return Err("bitwise operands must be integers");
                                 }
                                 A::Pow => unreachable!(),
                             }
                             .to_bits(),
-                        )
+                        ).canonicalize_nan()
                     }
                     _ => return Err("incompatible scalar operands"),
                 }
             }
         };
-        match (self.ty, value) {
-            (ScalarType::Int { .. }, V::Integer(v)) if self.ty.contains_integer(v) => {}
-            (ScalarType::Float { width: 32 }, V::Float32(_)) => {}
-            (ScalarType::Float { width: 64 }, V::Float64(_)) => {}
-            _ => return Err("scalar value outside its type"),
-        }
+        validate_value_type(self.ty, value)?;
         Ok(Some(value))
     }
 
     pub fn visit_ids(&self, visit: &mut impl FnMut(AstId)) {
         visit(self.ast_id());
         match &self.kind.kind {
-            ScalarExprKind::Neg(a)
+            ScalarExprKind::TableRead { index: a, .. } | ScalarExprKind::ArrayRead { index: a, .. }
+            | ScalarExprKind::Neg(a)
             | ScalarExprKind::FloatCast(a)
             | ScalarExprKind::IntWiden(a)
             | ScalarExprKind::IntFromFloat(a)
@@ -673,7 +814,9 @@ fn float_power(a: f64, b: f64, ty: ScalarType) -> Result<ScalarValue, &'static s
         let exponent = Float::with_val(precision, b);
         lo.pow_assign_round(&exponent, Round::Down);
         hi.pow_assign_round(&exponent, Round::Up);
-        let round = |v: &Float| match ty {
+        let round = |v: &Float| if v.is_nan() {
+            ScalarValue::power_nan(ty).expect("validated floating power type")
+        } else { match ty {
             ScalarType::Float { width: 32 } => {
                 ScalarValue::Float32(v.to_f32_round(Round::Nearest).to_bits())
             }
@@ -681,7 +824,7 @@ fn float_power(a: f64, b: f64, ty: ScalarType) -> Result<ScalarValue, &'static s
                 ScalarValue::Float64(v.to_f64_round(Round::Nearest).to_bits())
             }
             _ => unreachable!("float power type"),
-        };
+        }};
         let lower = round(&lo);
         if lower == round(&hi) {
             return Ok(lower);
@@ -693,6 +836,13 @@ fn float_power(a: f64, b: f64, ty: ScalarType) -> Result<ScalarValue, &'static s
 impl AstIdGenerator {
     pub fn clone_scalar_expr(&mut self, value: &ScalarExpr) -> ScalarExpr {
         let kind = match &value.kind.kind {
+            ScalarExprKind::ArrayRead { array, length, index } => ScalarExprKind::ArrayRead {
+                array: *array, length: *length, index: Box::new(self.clone_scalar_expr(index)),
+            },
+            ScalarExprKind::TableRead { table, index } => ScalarExprKind::TableRead {
+                table: table.clone(),
+                index: Box::new(self.clone_scalar_expr(index)),
+            },
             ScalarExprKind::Neg(a) => ScalarExprKind::Neg(Box::new(self.clone_scalar_expr(a))),
             ScalarExprKind::FloatCast(a) => {
                 ScalarExprKind::FloatCast(Box::new(self.clone_scalar_expr(a)))

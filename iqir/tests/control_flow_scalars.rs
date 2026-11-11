@@ -141,6 +141,17 @@ fn value(e: &ScalarExpr, store: &BTreeMap<SymbolId, Value>) -> Value {
         E::Float32(n) => Value::Float(f32::from_bits(*n) as f64),
         E::Float64(n) => Value::Float(f64::from_bits(*n)),
         E::Read(id) => store[id],
+        E::ArrayRead {..} => panic!("arrays are outside this scalar-only test interpreter"),
+        E::TableRead { table, index } => {
+            let Value::Integer(index) = value(index, store) else {
+                panic!("integer table index")
+            };
+            match table.get(index).unwrap() {
+                iqir::ScalarValue::Integer(n) => Value::Integer(n),
+                iqir::ScalarValue::Float32(n) => Value::Float(f32::from_bits(n) as f64),
+                iqir::ScalarValue::Float64(n) => Value::Float(f64::from_bits(n)),
+            }
+        }
         E::FloatCast(a) | E::IntWiden(a) => value(a, store),
         E::IntFromFloat(a) => match value(a, store) {
             Value::Float(x) => Value::Integer(x.trunc() as i128),
@@ -153,6 +164,10 @@ fn value(e: &ScalarExpr, store: &BTreeMap<SymbolId, Value>) -> Value {
                 FloatUnary::Sqrt => x.sqrt(),
                 FloatUnary::Acos => x.acos(),
                 FloatUnary::Sin => x.sin(),
+                FloatUnary::Cos => x.cos(),
+                FloatUnary::Tan => x.tan(),
+                FloatUnary::Atan => x.atan(),
+                FloatUnary::Exp => x.exp(),
                 FloatUnary::Asin => x.asin(),
                 FloatUnary::Log => x.ln(),
             }),
@@ -174,6 +189,7 @@ fn value(e: &ScalarExpr, store: &BTreeMap<SymbolId, Value>) -> Value {
                 A::BitAnd => a & b,
                 A::BitOr => a | b,
                 A::BitXor => a ^ b,
+                A::ShiftLeft | A::ShiftRight => e.ty.checked_integer_arithmetic(*op,a,b).unwrap(),
             }),
             (Value::Float(a), Value::Float(b)) => Value::Float(match op {
                 A::Add => a + b,

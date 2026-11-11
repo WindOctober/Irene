@@ -114,7 +114,8 @@ impl Lowerer {
         if !is_const {
             // Declaration lowering can bypass lower_statement (top level and
             // block declarations), so establish its fact here as well.
-            self.known_scalars.declare(binding.id, initializer.as_ref())?;
+            self.known_scalars
+                .declare(binding.id, initializer.as_ref())?;
         }
         if is_const {
             let value =
@@ -158,6 +159,10 @@ impl Lowerer {
             return Err(unsupported!("scalar expression depth", expression));
         }
         match expression {
+            Expr::BinExpr(b) if matches!(b.op_kind(),
+                Some(ast::BinaryOp::ArithOp(ast::ArithOp::Shl | ast::ArithOp::Shr))) => {
+                self.scalar_hint_depth(&b.lhs().ok_or_else(|| expected!("shift operand", b))?, depth + 1)
+            }
             Expr::CallExpr(call) => {
                 self.builtin_math_call(call)?;
                 Ok(Some(self.float_expression_type_depth(
@@ -451,44 +456,32 @@ impl Lowerer {
                 if !ty.is_float() {
                     return Err(expected!("an explicit float-to-integer cast", &call));
                 }
-                let (function, argument) = self.builtin_math_call(&call)?;
-                if let Some(op) = function.symbolic() {
-                    let argument = self.scalar_expr_depth(argument, ty, depth + 1)?;
-                    let expression = self.ids.node(ScalarExprData {
-                        ty,
-                        kind: E::FloatUnary {
-                            op,
-                            argument: Box::new(argument),
-                        },
-                    });
-                    // Known and unknown operands share the same typed operation.
-                    if let Some(value) = expression
-                        .constant_value()
-                        .map_err(|r| unsupported!(r, &call))?
-                    {
-                        if !value.as_float().unwrap().is_finite() {
-                            return Err(unsupported!("non-finite constant math result", &call));
-                        }
-                        return Ok(self.ids.node(ScalarExprData {
-                            ty: requested,
-                            kind: value
-                                .to_float(requested)
-                                .map_err(|r| unsupported!(r, &call))?
-                                .expression(),
-                        }));
+                let (op, argument) = self.builtin_math_call(&call)?;
+                let argument = self.scalar_expr_depth(argument, ty, depth + 1)?;
+                let expression = self.ids.node(ScalarExprData {
+                    ty,
+                    kind: E::FloatUnary {
+                        op,
+                        argument: Box::new(argument),
+                    },
+                });
+                // Known and unknown operands share the same typed operation.
+                if let Some(value) = expression
+                    .constant_value()
+                    .map_err(|r| unsupported!(r, &call))?
+                {
+                    if !value.as_float().unwrap().is_finite() {
+                        return Err(unsupported!("non-finite constant math result", &call));
                     }
-                    return Ok(self.float_convert(expression, requested));
+                    return Ok(self.ids.node(ScalarExprData {
+                        ty: requested,
+                        kind: value
+                            .to_float(requested)
+                            .map_err(|r| unsupported!(r, &call))?
+                            .expression(),
+                    }));
                 }
-                let saved_ids = self.ids.clone();
-                let result = (|| {
-                    let argument = self.scalar_expr_depth(argument, ty, depth + 1)?;
-                    let value = self.require_scalar_constant(&argument, &source)?;
-                    function
-                        .evaluate(value.as_float().unwrap(), ty)
-                        .map_err(|reason| unsupported!(reason, &call))
-                })();
-                self.ids = saved_ids;
-                result?.expression()
+                return Ok(self.float_convert(expression, requested));
             }
             Expr::ParenExpr(p) => {
                 return self.scalar_expr_depth(
@@ -770,7 +763,7 @@ impl Lowerer {
                         ty,
                         depth + 1,
                     )?;
-                    return self.lower_unsigned_shift(
+                    return self.lower_integer_shift(
                         left,
                         b.rhs().ok_or_else(|| expected!("shift count", &b))?,
                         op,
@@ -808,7 +801,7 @@ impl Lowerer {
         })
     }
 
-    fn lower_unsigned_shift<T: AstNode>(
+    fn lower_integer_shift<T: AstNode>(
         &mut self,
         left: ScalarExpr,
         count: Expr,
@@ -816,33 +809,22 @@ impl Lowerer {
         source: &T,
     ) -> Result<ScalarExpr, FrontendError> {
         let ty = left.ty;
-        if !matches!(ty, ScalarType::Int { signed: false, .. }) {
-            return Err(unsupported!(
-                "runtime signed shift (only closed nonnegative signed shifts are supported)",
-                source
-            ));
+        if ty.is_float() {
+            return Err(unsupported!("integer shift requires integer operands", source));
         }
-        let count = self
-            .with_known_scalars(|this| this.static_integer(count, false))?
-            .value;
-        let factor = ty
-            .checked_integer_shift(true, 1, count)
-            .map_err(|_| expected!("a nonnegative static integer shift count", source))?;
-        // k >= width gives zero, but retain evaluation of the entire operand
-        // via multiplication, including its reads and definedness conditions.
-        let operation = if op == ast::ArithOp::Shl || factor == 0 {
-            A::Mul
-        } else {
-            A::Div
-        };
-        let right = self.ids.node(ScalarExprData {
-            ty,
-            kind: E::Integer(factor),
-        });
+        let count_ty = self.scalar_hint(&count)?.unwrap_or(ScalarType::Int { width: 64, signed: true });
+        if count_ty.is_float() {
+            return Err(unsupported!("integer shift count required", source));
+        }
+        let right = self.lower_scalar_expr(count, count_ty)?;
+        if matches!(right.constant_value().map_err(|_| expected!("valid shift count", source))?,
+            Some(crate::ScalarValue::Integer(k)) if k < 0) {
+            return Err(expected!("nonnegative shift count", source));
+        }
         Ok(self.ids.node(ScalarExprData {
             ty,
             kind: E::Binary {
-                op: operation,
+                op: if op == ast::ArithOp::Shl { A::ShiftLeft } else { A::ShiftRight },
                 left: Box::new(left),
                 right: Box::new(right),
             },
@@ -878,7 +860,7 @@ impl Lowerer {
                 ty,
                 kind: E::Read(target),
             });
-            let value = self.lower_unsigned_shift(
+            let value = self.lower_integer_shift(
                 left,
                 assignment
                     .rhs()

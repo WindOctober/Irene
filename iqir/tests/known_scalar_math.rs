@@ -160,11 +160,26 @@ fn does_not_invent_constants_at_joins_back_edges_or_in_const_contexts() {
         "float[64] a=1.0; const float[64] result=arccos(a);",
         "float[64] a=2.0; float[64] result=arccos(a);",
         "float[64] a=128.0; int[8] result=int[8](a);",
-        "bool b; float[64] a=0.0; if(b){a=-0.0;} float[64] result=cos(a);",
     ] {
         assert!(
             frontend::parse_str(&format!("OPENQASM 3; {body}"), "bad.qasm").is_err(),
             "{body}"
         );
     }
+    let p = parse("bool b; float[64] a=0.0; if(b){a=-0.0;} float[64] result=cos(a);");
+    let StatementKind::ScalarDeclare {
+        initializer: Some(e),
+        ..
+    } = &p.body.statements.last().unwrap().kind
+    else {
+        panic!()
+    };
+    assert_eq!(e.constant_value().unwrap(), None);
+    assert!(matches!(
+        e.kind.kind,
+        iqir::ScalarExprKind::FloatUnary {
+            op: iqir::FloatUnary::Cos,
+            ..
+        }
+    ));
 }
