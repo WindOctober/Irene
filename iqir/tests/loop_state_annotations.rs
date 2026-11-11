@@ -4,6 +4,33 @@ use iqir::{
 };
 
 #[test]
+fn linear_exit_reuses_summary_signature_without_changing_density_exits() {
+    let prefix = r"OPENQASM 3; qubit[2] q;
+pragma saria.def flip(b: bool) -> ket[1] = b ? |0> : |1>
+pragma saria.def signed_flip(sign: real, b: bool) -> ket[1] = sign*flip(b)
+";
+    let parse = |clause: &str| frontend::openqasm3::parse_structured(
+        &format!("{prefix}\n{clause}\nwhile (false) {{}}"), "linear-exit.qasm");
+    for rhs in ["flip", "signed_flip(-1)"] {
+        let p = parse(&format!("@saria.exit_state q[0] := {rhs}")).unwrap();
+        assert!(matches!(p.annotations.values().flatten().next().unwrap().payload,
+            AnnotationPayload::LinearState { .. }));
+    }
+    let p = parse("@saria.exit_state q[0] := |0><0|").unwrap();
+    assert!(matches!(p.annotations.values().flatten().next().unwrap().payload,
+        AnnotationPayload::State { .. }));
+    for clause in [
+        "@saria.exit_state q := flip",
+        "@saria.exit_state [q[0],q[0]] := flip",
+        "@saria.exit_state q[0] := signed_flip",
+        "@saria.exit_state q[0] := flip(true)",
+        "@saria.exit_state q[0] := flip\n@saria.exit_state q := |00><00|",
+    ] {
+        assert!(parse(clause).is_err(), "{clause}");
+    }
+}
+
+#[test]
 fn absent_exit_state_is_explicit_and_only_applies_to_a_loop() {
     let p = frontend::parse_str(
         "OPENQASM 3;\n@saria.exit_state none\nwhile(false) {}",

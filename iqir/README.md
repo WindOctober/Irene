@@ -80,11 +80,23 @@ The OpenQASM 3 frontend recognizes `@saria.requires`, `@saria.ensures`,
 `@saria.invariant` and `@saria.terminates`, plus pure auxiliary functions defined
 with `pragma saria.def`. Annotations attach
 to statements and use a separate, typed mathematical expression AST.
+`requires/ensures` may also annotate an ordinary `def`. At each call the
+frontend resolves them in the definition scope with fresh by-value classical
+parameters and mapped quantum references, retaining a contract boundary around
+the body after argument initialization and before parameter restoration. A
+contracted body is not specialized using the caller's known-value facts.
+This does not verify unused definitions or prove any contract; the verifier
+must discharge both the body contract and the actual call precondition.
 
 Import checks syntax, names and types—not whether a specification holds.
 Annotations do not change executable semantics or equivalence checking.
 See [Specification annotations](docs/spec-annotations.md) for syntax, examples,
 helper functions and checking boundaries.
+
+Structured import additionally accepts `@saria.summary helper` on custom gate
+definitions. A helper returning `ket[n]` describes a proposed linear action on
+arbitrary basis inputs; it is retained beside the original body, not trusted or
+proved by the frontend. See the summary section in the same specification guide.
 
 ## Verification boundary
 

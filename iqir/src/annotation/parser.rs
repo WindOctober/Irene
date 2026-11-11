@@ -36,6 +36,7 @@ static PRATT: LazyLock<PrattParser<Rule>> = LazyLock::new(|| {
         .op(Op::infix(or, Left))
         .op(Op::infix(and, Left))
         .op(Op::infix(eq, Left)
+            | Op::infix(approx, Left)
             | Op::infix(ne, Left)
             | Op::infix(lt, Left)
             | Op::infix(le, Left)
@@ -108,6 +109,45 @@ pub fn parse_expression(text: &str) -> Result<SpecExpr, AnnotationParseError> {
 pub fn parse_annotation(text: &str, span: SourceSpan) -> Result<Annotation, AnnotationParseError> {
     let mut fields = parse(Rule::annotation_file, text)?.into_inner();
     let first = fields.next().unwrap();
+    if matches!(first.as_rule(), Rule::summary_annotation | Rule::assertion_annotation) {
+        let kind = if first.as_rule() == Rule::summary_annotation { AnnotationKind::Summary }
+            else { AnnotationKind::Assert };
+        let mut parts = first.into_inner();
+        parts.next(); // summary keyword
+        let mut value = parts.next().unwrap();
+        let mut proof_group = None;
+        let mut selection = super::GoalSelection::default();
+        let mut summary_hint = None;
+        while matches!(value.as_rule(), Rule::selection_tag | Rule::summary_hint) {
+            if value.as_rule() == Rule::selection_tag {
+                selection_tag(value, &mut selection)?;
+                value = parts.next().unwrap();
+                continue;
+            }
+            if summary_hint.is_some() { return Err(error(value.as_span().start(), "duplicate proof hint")); }
+            let mut hints = value.into_inner();
+            let hint = hints.next().unwrap();
+            if hint.as_str() != "rocq" {
+                return Err(error(hint.as_span().start(), "unknown proof hint; expected [rocq]"));
+            }
+            if let Some(group) = hints.next() {
+                if kind != AnnotationKind::Assert {
+                    return Err(error(group.as_span().start(), "named proof groups apply to assertions; group gate summaries by gate name"));
+                }
+                proof_group = Some(group.as_str().to_owned());
+            }
+            value = parts.next().unwrap();
+            summary_hint = Some(super::SummaryHint::Rocq);
+        }
+        return Ok(Annotation {
+            kind,
+            payload: AnnotationPayload::Expression(expression(value)?),
+            span,
+            summary_hint,
+            proof_group,
+            selection,
+        });
+    }
     if matches!(
         first.as_rule(),
         Rule::ghost_declaration | Rule::ghost_assignment
@@ -149,6 +189,9 @@ pub fn parse_annotation(text: &str, span: SourceSpan) -> Result<Annotation, Anno
             kind,
             payload,
             span,
+            summary_hint: None,
+            proof_group: None,
+            selection: Default::default(),
         });
     }
     let kind = match first.as_str() {
@@ -163,7 +206,12 @@ pub fn parse_annotation(text: &str, span: SourceSpan) -> Result<Annotation, Anno
         "ranking_proof" => AnnotationKind::RankingProof,
         _ => unreachable!(),
     };
-    let p = fields.next().unwrap();
+    let mut selection = super::GoalSelection::default();
+    let mut p = fields.next().unwrap();
+    while p.as_rule() == Rule::selection_tag {
+        selection_tag(p, &mut selection)?;
+        p = fields.next().unwrap();
+    }
     let payload = match (kind, p.as_rule()) {
         (AnnotationKind::ExitState, Rule::expression) if p.as_str().trim() == "none" => {
             AnnotationPayload::NoState
@@ -207,6 +255,52 @@ pub fn parse_annotation(text: &str, span: SourceSpan) -> Result<Annotation, Anno
         kind,
         payload,
         span,
+        summary_hint: None,
+        proof_group: None,
+        selection,
+    })
+}
+
+fn selection_tag(p: Pair<'_, Rule>, selection: &mut super::GoalSelection) -> Result<(), AnnotationParseError> {
+    let offset = p.as_span().start();
+    let mut fields = p.into_inner();
+    let slot = match fields.next().unwrap().as_str() {
+        "name" => &mut selection.name,
+        "group" => &mut selection.group,
+        _ => unreachable!(),
+    };
+    if slot.is_some() { return Err(error(offset, "duplicate selection metadata")); }
+    *slot = Some(fields.next().unwrap().as_str().to_owned());
+    Ok(())
+}
+
+/// A source-ordered, immutable default bound. Unlike program literals, the
+/// configuration decimal denotes an exact nonnegative rational real.
+pub fn parse_approx_config(
+    text: &str,
+    span: SourceSpan,
+) -> Result<SpecFunction, AnnotationParseError> {
+    let number = parse(Rule::approx_config_file, text)?
+        .into_inner()
+        .find(|p| p.as_rule() == Rule::number)
+        .unwrap();
+    // Reuse literal size/exponent admission and decimal parsing, but deliberately
+    // discard the syntactic machine-float cast for this configuration literal.
+    let parsed = primary(number)?;
+    let value = match parsed {
+        SpecExpr::Number(n) => n,
+        SpecExpr::Cast { operand, .. } => match *operand {
+            SpecExpr::Number(n) => n,
+            _ => unreachable!(),
+        },
+        _ => unreachable!(),
+    };
+    Ok(SpecFunction {
+        name: APPROX_TOLERANCE.into(),
+        parameters: vec![],
+        result: SpecType::Real,
+        body: SpecExpr::Number(value).cast(SpecType::Real),
+        span,
     })
 }
 
@@ -225,7 +319,21 @@ pub fn parse_function(text: &str, span: SourceSpan) -> Result<SpecFunction, Anno
         }
         next = fields.next().unwrap();
     }
-    let result = scalar_type(next)?;
+    let result = match next.as_rule() {
+        Rule::complex_type => SpecType::Complex,
+        Rule::quantum_result_type => {
+            let offset = next.as_span().start();
+            let text = next.as_str().replace(char::is_whitespace, "");
+            let width = text[4..text.len() - 1]
+                .parse::<usize>()
+                .map_err(|_| error(offset, "invalid ket dimension"))?;
+            if !(1..=MAX_QUANTUM_QUBITS).contains(&width) {
+                return Err(error(offset, "ket dimension must be between 1 and 64 qubits"));
+            }
+            SpecType::Ket(width)
+        }
+        _ => scalar_type(next)?,
+    };
     let body = expression(fields.next().unwrap())?;
     Ok(SpecFunction {
         name,
@@ -275,7 +383,7 @@ fn expression(p: Pair<'_, Rule>) -> Result<SpecExpr, AnnotationParseError> {
     let mut compared = false;
     for op in first.clone().into_inner() {
         match op.as_rule() {
-            Rule::eq | Rule::ne | Rule::lt | Rule::le | Rule::gt | Rule::ge => {
+            Rule::approx | Rule::eq | Rule::ne | Rule::lt | Rule::le | Rule::gt | Rule::ge => {
                 if compared {
                     return Err(error(
                         op.as_span().start(),
@@ -318,6 +426,12 @@ fn expression(p: Pair<'_, Rule>) -> Result<SpecExpr, AnnotationParseError> {
             })
         })
         .map_infix(|l, op, r| {
+            if op.as_rule() == Rule::approx {
+                return Ok(SpecExpr::NamedCall {
+                    name: APPROX.into(),
+                    arguments: vec![l?, r?],
+                });
+            }
             Ok(SpecExpr::Binary {
                 op: binary(op.as_rule()),
                 left: Box::new(l?),

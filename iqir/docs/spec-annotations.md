@@ -88,6 +88,39 @@ goal there; the annotation is not an assumption.
 
 ## Expression syntax
 
+### Explicit approximate comparisons
+
+```qasm
+pragma saria.approx 1e-15
+@saria.assert measured_probability \approx ideal_probability
+@saria.assert \avg_density(q) \approx |0><0|
+```
+
+`\approx` requires a preceding, top-level `pragma saria.approx` declaration.
+There is no implicit tolerance; the default is declared once per program and
+cannot be redeclared. Its nonnegative finite decimal literal is an **exact real
+rational bound**, not a rounded machine-float literal. Zero is allowed. The
+declaration also supplies the default for subsequent specification helpers.
+
+For numeric scalars this means `abs(a-b) <= epsilon`, with complex modulus for
+complex operands. Each machine operand is evaluated in its original type before
+embedding its value into mathematical reals; subtraction and the tolerance
+comparison then use real arithmetic. This does not reassociate floating-point
+calculations or bypass undefinedness checks. For equal-size operators it means
+`trace_distance(A,B) <= epsilon` (half the trace norm of the difference).
+Kets and program qubit references do not implicitly acquire a distance metric:
+write their density operators explicitly. Booleans and angles are not accepted.
+Syntax support does not guarantee that every matrix norm can be discharged;
+existing backend capability limits still apply and fail closed.
+
+The frontend expands this notation to existing typed expressions, so backends
+receive the same goals as explicit error bounds. `==` retains exact equality.
+Approximation has comparison precedence, cannot be chained, and is not a
+transitive equality/substitution rule. `1e-15` is a user-selected contract, not
+a guaranteed cumulative binary64 error bound. Saria's agent input protection
+keeps the tolerance pragma immutable, just like executable source, so an agent
+cannot loosen a protected target by changing its default tolerance.
+
 The former `exit_probability` annotation is removed and rejected. Its
 per-iteration numeric bounds are not equivalent to `terminates positive_probability`
 or a ranking certificate; migration requires an explicit replacement contract,
@@ -189,7 +222,7 @@ earlier helpers. Duplicate names/parameters, reserved Boolean names, forward cal
 recursion and implicit capture of program state are rejected, even for unused
 helpers. To use program state, pass it explicitly: `stop_probability(n)`.
 
-Parameter/return types are classical scalar categories `bool`, `bit`, `int`,
+Parameter types include classical scalar categories `bool`, `bit`, `int`,
 `uint`, `float`, `angle`, with optional numeric widths such as `int[32]` and
 `float[64]`. These are OpenQASM types: helpers and ghosts use the same finite-width
 arithmetic, IEEE rounding, conversions and default widths as program variables.
@@ -203,10 +236,11 @@ nonnegative integer domain; postfix `n!` retains its machine result type.
 Analytic builtins on real arguments return real results. Probability, real
 expectation and trace distance are also real-valued quantities.
 `bool`/`bit` are compatible but not implicitly numeric arithmetic operands;
-bit-versus-integer equality is admitted. Source helper signatures cannot take or return
-qubits, quantum vectors/operators, complex scalars or arrays. Their bodies may
-contain quantum expressions whose final result has a classical signature type,
-such as `\abs(<0| * (\cos(t)*|0> + \sin(t)*|1>))^2` returning `float`.
+bit-versus-integer equality is admitted. Helper results additionally support
+`complex` and `ket[n]`; parameters remain classical scalar types. Program qubits,
+operator/bra results and array signatures are not admitted. Bodies may contain
+quantum expressions whose final result has a classical signature type, such as
+`\abs(<0| * (\cos(t)*|0> + \sin(t)*|1>))^2` returning `float`.
 
 `ProgramData::spec_functions` stores bodies/signatures indexed by `FunctionId`.
 `Parameter(index)` differs from program `SymbolId` and quantified `BoundVariable`.
@@ -240,6 +274,94 @@ limit expression bytes, nodes, nesting and numeric exponent size.
 
 ## Statement attachment and transformations
 
+### Proposed linear gate summaries (structured import)
+
+`@saria.summary helper` immediately before a top-level custom `gate` attaches a
+proposed linear action to its shared `GateDefinition`. The helper must already
+be defined. Its parameters are, in order, one `real` per gate angle parameter,
+then one `bool` per formal quantum wire; its result is `ket[n]`, where `n` is the
+number of formal wires. The real parameters denote the actual gate arguments
+in radians, **after** any source-language machine arithmetic and rounding.
+The ordered ket factors follow the formal wire order, independent of the
+integer endianness of a caller's register.
+
+```qasm
+pragma saria.def phase(a: real) -> complex = \cos(a) + \i * \sin(a)
+pragma saria.def diagonal_map(a: real, b: bool) -> ket[1] = b ? phase(a) * |1> : |0>
+@saria.summary diagonal_map
+gate diagonal(a) q { p(a) q; }
+```
+
+`@saria.summary helper(c0, c1)` binds leading helper parameters; the remaining
+parameters must still match the gate's real arguments and Boolean wire inputs.
+For example, `@saria.summary signed_flip(1)` specializes
+`signed_flip(sign: real, b: bool) -> ket[1]` without a user-written wrapper.
+Allowed bindings are Boolean literals, mathematical constants, and signed
+32-bit integer literals, optionally embedded with `\real`. Finite decimal literals
+are accepted inside `\real`, retaining their binary64 cast before real embedding.
+General expressions, bare decimal bindings and captured names are rejected. This keeps
+fixed arguments total even if unused. The importer constructs a private checked
+helper with the ordinary signature; the stored `GateSummary` and backend proof
+interface are unchanged. Finite `\sum` and shared coefficient/basis helpers
+should be preferred to enumerated terms and repetitive specialization wrappers.
+
+Helpers retain the existing pure, non-recursive, no-capture rules. In addition
+to scalar results, helper results may be `complex` or `ket[n]` (1–64 qubits).
+Conditional kets, tensor products, complex scaling and finite sums express the
+single canonical linear-map form `sum(z, a(x,z) * |g(x,z)>)`; separate phase or
+amplitude metadata is unnecessary. The summation index is a coherent amplitude
+index, not a measurement outcome. Terms producing the same basis value must
+interfere, not be added as probabilities.
+
+**The frontend does not prove a summary or replace the original gate body.**
+The body remains available for independent verification. A backend may use a
+summary conditionally only while retaining its proof obligation and downstream
+dependencies. Verification must compare full complex amplitudes on every
+allowed basis input, including global phase, before concluding equality of
+linear maps; density-matrix equality on each basis input is insufficient for
+controlled gates and superpositions. There is no implicit zero-ancilla premise:
+this interface claims the map for every Boolean input tuple. Nested summaries
+have the same obligation and may not justify themselves cyclically.
+
+A backend can also reuse this forward equality for controlled and inverse
+calls. Control-off must act as one identity contribution, including when the
+summary contains several coherent summands. The inverse is the adjoint of the
+linear map: `sum(x,z, conjugate(a(x,z)) * [g(x,z) = y] * |x>)` on input `|y>`.
+This reuse still depends on the forward summary proof; it is not an assumption
+that an arbitrary proposed summary is unitary.
+
+Structured import profiles accept summary attachments; eager import
+rejects them rather than silently dropping proof metadata. Summary annotations
+on executable statements, mixed/duplicate gate annotations, mismatched helper
+signatures, and annotations inside a gate body are rejected.
+
+`@saria.summary [rocq] helper(...)` applies the same signature checks and
+fixed-prefix binding, recording a proof-routing hint on `GateSummary`.
+The optional `[rocq]` metadata is separate from the helper name/call.
+It is not a mathematical function, trusted contract, or
+permission to erase the body. Backends must still prove the exact map and retain
+all child-summary dependencies. Without the hint the existing SMT-first
+route is unchanged. Unknown hints are rejected.
+
+Assertions additionally accept `@saria.assert [rocq:family_name] predicate`.
+The routing family uses specification identifier syntax and is preserved in
+`Annotation.proof_group`; the predicate and its binding point are unchanged.
+A backend may schedule assertions with equal routing families in one proof
+workspace, while retaining separate goals, contexts and dependencies. These are
+program-wide scheduling labels, not variables, assumptions or evidence of proof.
+Plain `[rocq]` remains valid without a family. Named routing hints on gate
+summaries are rejected; group those by their gate names instead.
+
+Diagnostic selection can use optional `[name:identifier]` and
+`[group:identifier]` tags, for example
+`@saria.assert [name:result] [group:outputs] predicate`. The parser also accepts
+these tags on loop contracts; Saria currently supports selection for assertions,
+invariants and ranking regions (`ranking_proof`). Tags do not change typing or
+mathematical meaning and do not select Rocq. They may coexist with assertion
+routing hints. Each tag can occur at most once. The backend validates source-name
+uniqueness and resolves groups to generated obligations; it must not infer a
+proof from selection metadata or silently discharge unselected obligations.
+
 Annotations bind to the whole lowered source operation: a broadcast keeps one
 annotation on its grouping `Scope`, not a copy on each gate. Static-loop body
 annotations get separate attachments and specialized indices for each instance.
@@ -256,8 +378,13 @@ Initial scope: executable statements at top level and in control-flow blocks.
 `invariant`, `initial_state`, `exit_state`, `ranking_function`,
 `ranking_proof`, and `terminates` require a
 retained `while`, not an expanded `for`.
-Annotations on declarations/definitions and inside gate/subroutine definitions
-are explicitly rejected, including unused definitions. Other annotation namespaces
+Structured import also supports the same summary on eligible void quantum
+`def` definitions. Ordinary `def` bodies may contain loop contracts and
+assertions, bound at each call to its actual arguments. `requires` and `ensures`
+on ordinary `def` definitions are instantiated at call boundaries. Helpers remain top-level.
+The legacy eager importer still rejects annotations inside definitions.
+Gate bodies themselves still reject annotations; use `def` for loop contracts.
+Other annotations on declarations/definitions and other annotation namespaces
 and pragmas other than top-level `saria.def` are unsupported. Each annotation occupies
 one line; a trailing `//` is part of its payload and is not a supported comment.
 

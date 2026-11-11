@@ -15,8 +15,13 @@ const MAX_QUANTUM_QUBITS: usize = 64;
 
 mod functions;
 mod parser;
+// Reserved internal names, impossible to spell as ordinary helper identifiers.
+const APPROX: &str = "\\approx";
+const APPROX_TOLERANCE: &str = "\\approx_tolerance";
 pub use functions::{FunctionError, check_expression, define_function, instantiate_function};
-pub use parser::{AnnotationParseError, parse_annotation, parse_expression, parse_function};
+pub use parser::{
+    AnnotationParseError, parse_annotation, parse_approx_config, parse_expression, parse_function,
+};
 
 /// OpenQASM classical types and quantum specification types.
 /// Omitted widths use the same target defaults as executable declarations.
@@ -132,6 +137,9 @@ pub enum AnnotationKind {
     RankingFunction,
     /// Independently checked induction region for the ranking certificate.
     RankingProof,
+    /// A checked helper signature for a gate's proposed linear action.
+    /// The frontend checks syntax/types only; the backend must prove the map.
+    Summary,
     GhostDeclare,
     GhostAssign,
 }
@@ -152,6 +160,13 @@ pub enum AnnotationPayload {
     State {
         targets: Vec<SpecExpr>,
         operator: SpecExpr,
+    },
+    /// A phase-exact exit map on the ordered targets. The helper's trailing
+    /// Boolean parameters denote the loop's entry basis, not current storage.
+    /// Unlike State this is never interpreted as a ket outer product.
+    LinearState {
+        targets: Vec<SpecExpr>,
+        action: crate::GateSummary,
     },
     Termination(TerminationKind),
     GhostDeclare {
@@ -182,6 +197,23 @@ pub struct Annotation {
     pub kind: AnnotationKind,
     pub payload: AnnotationPayload,
     pub span: SourceSpan,
+    /// Proof routing metadata, separate from the mathematical expression.
+    pub summary_hint: Option<SummaryHint>,
+    /// Source-level assertion proof family; scheduling metadata, not a premise.
+    pub proof_group: Option<String>,
+    /// Optional diagnostic selection metadata, independent of proof routing.
+    pub selection: GoalSelection,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GoalSelection {
+    pub name: Option<String>,
+    pub group: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SummaryHint {
+    Rocq,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

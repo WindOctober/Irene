@@ -202,6 +202,14 @@ Multidimensional source reads reuse bounded per-axis offset tables before the
 flattened lookup; a bad column cannot silently alias another row. Specification
 table indexing retains its existing one-dimensional interface.
 
+Loop `exit_state Q := helper` declarations can reference a ket-returning
+specification helper. They use the same checked signature/partial application
+as callable summaries, with one remaining Boolean per target wire. The IR
+distinguishes `LinearState` from the existing density-operator `State`;
+consumers must certify the full phase-exact map on arbitrary entry basis
+coordinates, not just compare outer products. This frontend typing does not
+establish termination or authorize ignoring unsupported loop semantics.
+
 Slicing, whole-array copying/arithmetic, array parameters,
 self-referencing initializers and nonnumeric array element types are explicitly
 unsupported. One-dimensional mutable element reads are typed in specifications,

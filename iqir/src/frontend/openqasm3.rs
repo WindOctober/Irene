@@ -208,6 +208,8 @@ struct SubroutineTemplate {
     parameters: Vec<subroutines::Parameter>,
     return_type: Option<subroutines::ValueType>,
     static_globals: BTreeSet<SymbolId>,
+    summary: Option<crate::GateSummary>,
+    contracts: Vec<crate::annotation::Annotation>,
 }
 
 /// A resolved quantum operand before OpenQASM register broadcasting is
@@ -438,7 +440,13 @@ impl Lowerer {
                 body.statements.push(self.lower_assertion(annotations)?);
                 continue;
             };
-            if annotations.is_empty() {
+            if !annotations.is_empty() && matches!(&statement, Stmt::Gate(_)) {
+                let Stmt::Gate(gate) = statement else { unreachable!() };
+                self.declare_annotated_gate(gate, annotations)?;
+            } else if !annotations.is_empty() && matches!(&statement, Stmt::Def(_)) {
+                let Stmt::Def(definition) = statement else { unreachable!() };
+                self.declare_annotated_subroutine(definition, annotations)?;
+            } else if annotations.is_empty() {
                 self.lower_top_level(statement, &mut body)?;
             } else {
                 body.statements
@@ -475,14 +483,15 @@ impl Lowerer {
     fn lower_top_level(&mut self, statement: Stmt, body: &mut Block) -> Result<(), FrontendError> {
         // Templates are specialized later; do not silently lose specifications
         // in unused definitions, or attach formal symbols to caller-owned IR.
-        if matches!(&statement, Stmt::Gate(_) | Stmt::Def(_))
+        // Gate definitions share their admission check with annotated gates.
+        if matches!(&statement, Stmt::Def(_))
             && statement.syntax().descendants().any(|n| {
-                ast::AnnotationStatement::cast(n.clone()).is_some()
+                (!self.structured && ast::AnnotationStatement::cast(n.clone()).is_some())
                     || ast::PragmaStatement::cast(n).is_some()
             })
         {
             return Err(unsupported!(
-                "annotations/pragmas inside gate/subroutine definitions",
+                "subroutine contracts require structured import; declare specification helpers at top level",
                 &statement
             ));
         }
@@ -628,6 +637,8 @@ impl Lowerer {
             parameters,
             return_type,
             static_globals: self.scopes.global_static_ids(),
+            summary: None,
+            contracts: Vec::new(),
         });
         // Irene lowers and checks a body only when the subroutine is called;
         // unreachable definitions are outside the equivalence task.
@@ -1744,10 +1755,18 @@ impl Lowerer {
         return_type: Option<subroutines::ValueType>,
         targets: Option<subroutines::CallTarget>,
     ) -> Result<Block, FrontendError> {
-        let source_statements = body.statements().collect::<Vec<_>>();
+        let source_statements = self.annotated_statements(body.statements())?;
         let mut lowered = self.ids.node(BlockData::default());
         let mut saw_return = false;
-        for (index, statement) in source_statements.iter().cloned().enumerate() {
+        for (index, (annotations, statement)) in source_statements.iter().cloned().enumerate() {
+            let Some(statement) = statement else {
+                lowered.statements.push(self.lower_assertion(annotations)?);
+                continue;
+            };
+            if !annotations.is_empty() {
+                lowered.statements.push(self.lower_annotated_statement(annotations, statement)?);
+                continue;
+            }
             match statement {
                 Stmt::ClassicalDeclarationStatement(declaration) => {
                     let (register, initializer) = self.lower_classical_declaration(declaration)?;

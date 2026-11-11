@@ -457,8 +457,7 @@ where
                             SpecType::Real
                         } else if a.integer() && b.integer() {
                             a
-                        } else if matches!(a, SpecType::Float(_))
-                            || matches!(b, SpecType::Float(_))
+                        } else if matches!(a, SpecType::Float(_)) || matches!(b, SpecType::Float(_))
                         {
                             join(a, b)?
                         } else {
@@ -482,6 +481,77 @@ where
                 Ok(preserve_type(e, join(a, b)?))
             }
             SpecExpr::NamedCall { name, arguments } => {
+                if name == APPROX {
+                    if arguments.len() != 2 {
+                        return Err(fail("approx expects two operands"));
+                    }
+                    let config = self.functions.iter().find(|f| f.name == APPROX_TOLERANCE)
+                        .ok_or_else(|| fail("\\approx requires a preceding pragma saria.approx <nonnegative decimal tolerance>"))?;
+                    let SpecExpr::Cast { ty: SpecType::Real, operand } = &config.body else {
+                        return Err(fail("invalid approximate-comparison tolerance"));
+                    };
+                    let SpecExpr::Number(bound) = operand.as_ref() else {
+                        return Err(fail("invalid approximate-comparison tolerance"));
+                    };
+                    if config.result != SpecType::Real
+                        || !config.parameters.is_empty()
+                        || bound < &num_rational::BigRational::from_integer(0.into())
+                    {
+                        return Err(fail("invalid approximate-comparison tolerance"));
+                    }
+                    let tolerance = SpecExpr::Number(bound.clone()).cast(SpecType::Real);
+                    let a = self.check(&mut arguments[0], depth + 1)?;
+                    let b = self.check(&mut arguments[1], depth + 1)?;
+                    let scalar = |ty| {
+                        matches!(
+                            ty,
+                            SpecType::Int(_)
+                                | SpecType::Uint(_)
+                                | SpecType::Float(_)
+                                | SpecType::Real
+                                | SpecType::Complex
+                        )
+                    };
+                    let distance = if let (SpecType::Operator(n), SpecType::Operator(m)) = (a, b) {
+                        if n != m {
+                            return Err(fail("approx operator dimensions must agree"));
+                        }
+                        SpecExpr::Call {
+                            function: MathFunction::TraceDistance,
+                            arguments: std::mem::take(arguments),
+                        }
+                    } else if scalar(a) && scalar(b) {
+                        let embed = |value: SpecExpr, ty| {
+                            if ty == SpecType::Complex {
+                                value
+                            } else {
+                                value.cast(ty).cast(SpecType::Real)
+                            }
+                        };
+                        let mut operands = std::mem::take(arguments).into_iter();
+                        // Evaluate each machine operand in its original format
+                        // before embedding. Never move subtraction inside its
+                        // machine arithmetic (overflow/rounding would differ).
+                        SpecExpr::Call {
+                            function: MathFunction::Abs,
+                            arguments: vec![SpecExpr::Binary {
+                                op: BinaryOp::Sub,
+                                left: Box::new(embed(operands.next().unwrap(), a)),
+                                right: Box::new(embed(operands.next().unwrap(), b)),
+                            }],
+                        }
+                    } else {
+                        return Err(fail(
+                            "approx expects numeric scalars or equal-size operators; use avg_density for quantum states",
+                        ));
+                    };
+                    *e = SpecExpr::Binary {
+                        op: BinaryOp::Le,
+                        left: Box::new(distance),
+                        right: Box::new(tolerance),
+                    };
+                    return Ok(SpecType::Bool);
+                }
                 let (index, f) = self
                     .functions
                     .iter()

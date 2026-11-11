@@ -19,7 +19,7 @@ pub mod annotation;
 pub mod frontend;
 mod gate_call;
 pub mod scalar;
-pub use gate_call::GateDefinition;
+pub use gate_call::{GateDefinition, GateSummary};
 pub use scalar::*;
 
 /// Program-local identity shared by every owned IR node.
