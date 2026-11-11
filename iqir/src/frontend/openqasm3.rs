@@ -93,10 +93,12 @@ macro_rules! expected {
 mod angle;
 mod annotations;
 mod arrays;
+mod array_store;
 mod constant_math;
 mod constants;
 mod controlled_u;
 mod custom_gates;
+mod dynamic_gate;
 mod known_scalars;
 mod loop_control;
 mod power;
@@ -131,11 +133,27 @@ pub fn parse_structured(source: &str, source_name: &str) -> Result<Program, Fron
     parse_configured(source, source_name, true, true)
 }
 
+/// Semantic translation profile: share gates and retain all counted loops
+/// without requiring proof annotations at import time.
+pub fn parse_for_translation(source: &str, source_name: &str) -> Result<Program, FrontendError> {
+    parse_configured_profile(source, source_name, true, true, true)
+}
+
 fn parse_configured(
     source: &str,
     source_name: &str,
     preserve_uint: bool,
     structured: bool,
+) -> Result<Program, FrontendError> {
+    parse_configured_profile(source, source_name, preserve_uint, structured, false)
+}
+
+fn parse_configured_profile(
+    source: &str,
+    source_name: &str,
+    preserve_uint: bool,
+    structured: bool,
+    translation_profile: bool,
 ) -> Result<Program, FrontendError> {
     let parsed = parse_source_string(source, Some(source_name), None::<&[PathBuf]>);
     let syntax = parsed
@@ -155,6 +173,9 @@ fn parse_configured(
         source_name: source_name.to_owned(),
         preserve_uint,
         structured,
+        translation_profile,
+        static_iterations_left: if translation_profile { 262144 } else { 4096 },
+        static_statements_left: if translation_profile { 2097152 } else { 65536 },
         ..Lowerer::default()
     }
     .lower(syntax.tree())
@@ -167,6 +188,7 @@ fn parse_configured(
 /// specialized to concrete caller-owned qubits.
 struct Lowerer {
     structured: bool,
+    translation_profile: bool,
     gate_definitions: HashMap<SymbolId, std::sync::Arc<crate::GateDefinition>>,
     scalar_arrays: Vec<arrays::ScalarArray>,
     preserve_uint: bool,
@@ -187,6 +209,9 @@ struct Lowerer {
     classical_registers: Vec<Register>,
     subroutines: Vec<SubroutineTemplate>,
     quantum_arguments: HashMap<crate::SymbolId, QuantumOperand>,
+    quantum_index_overrides: HashMap<u32, Qubit>,
+    gate_power_overrides: HashMap<u32, i128>,
+    immutable_loop_ranges: HashMap<SymbolId, (i128,i128)>,
     active_subroutines: BTreeSet<usize>,
     subroutine_calls_left: usize,
     static_iterations_left: usize,
@@ -207,6 +232,8 @@ struct SubroutineTemplate {
     parameters: Vec<subroutines::Parameter>,
     return_type: Option<subroutines::ValueType>,
     static_globals: BTreeSet<SymbolId>,
+    summary: Option<crate::GateSummary>,
+    contracts: Vec<crate::annotation::Annotation>,
 }
 
 /// A resolved quantum operand before OpenQASM register broadcasting is
@@ -406,9 +433,13 @@ impl Default for Lowerer {
             classical_registers: Vec::new(),
             subroutines: Vec::new(),
             quantum_arguments: HashMap::new(),
+            quantum_index_overrides: HashMap::new(),
+            gate_power_overrides: HashMap::new(),
+            immutable_loop_ranges: HashMap::new(),
             active_subroutines: BTreeSet::new(),
             subroutine_calls_left: 4096,
             static_iterations_left: 4096,
+            translation_profile: false,
             static_statements_left: 65536,
             static_loop_depth: 0,
             known_bits: None,
@@ -437,7 +468,13 @@ impl Lowerer {
                 body.statements.push(self.lower_assertion(annotations)?);
                 continue;
             };
-            if annotations.is_empty() {
+            if !annotations.is_empty() && matches!(&statement, Stmt::Gate(_)) {
+                let Stmt::Gate(gate) = statement else { unreachable!() };
+                self.declare_annotated_gate(gate, annotations)?;
+            } else if !annotations.is_empty() && matches!(&statement, Stmt::Def(_)) {
+                let Stmt::Def(definition) = statement else { unreachable!() };
+                self.declare_annotated_subroutine(definition, annotations)?;
+            } else if annotations.is_empty() {
                 self.lower_top_level(statement, &mut body)?;
             } else {
                 body.statements
@@ -474,14 +511,15 @@ impl Lowerer {
     fn lower_top_level(&mut self, statement: Stmt, body: &mut Block) -> Result<(), FrontendError> {
         // Templates are specialized later; do not silently lose specifications
         // in unused definitions, or attach formal symbols to caller-owned IR.
-        if matches!(&statement, Stmt::Gate(_) | Stmt::Def(_))
+        // Gate definitions share their admission check with annotated gates.
+        if matches!(&statement, Stmt::Def(_))
             && statement.syntax().descendants().any(|n| {
-                ast::AnnotationStatement::cast(n.clone()).is_some()
+                (!self.structured && ast::AnnotationStatement::cast(n.clone()).is_some())
                     || ast::PragmaStatement::cast(n).is_some()
             })
         {
             return Err(unsupported!(
-                "annotations/pragmas inside gate/subroutine definitions",
+                "subroutine contracts require structured import; declare specification helpers at top level",
                 &statement
             ));
         }
@@ -627,6 +665,8 @@ impl Lowerer {
             parameters,
             return_type,
             static_globals: self.scopes.global_static_ids(),
+            summary: None,
+            contracts: Vec::new(),
         });
         // Irene lowers and checks a body only when the subroutine is called;
         // unreachable definitions are outside the equivalence task.
@@ -780,6 +820,9 @@ impl Lowerer {
 
     fn lower_statement_inner(&mut self, statement: Stmt) -> Result<Statement, FrontendError> {
         self.charge_static_expansion(&statement)?;
+        if self.structured {
+            if let Some(lowered) = self.lower_dynamic_gate(&statement)? { return Ok(lowered); }
+        }
         match statement {
             Stmt::BreakStmt(s) => self.lower_loop_jump(true, s.syntax().text().to_string()),
             Stmt::ContinueStmt(s) => self.lower_loop_jump(false, s.syntax().text().to_string()),
@@ -1484,7 +1527,15 @@ impl Lowerer {
         &mut self,
         assignment: ast::AssignmentStmt,
     ) -> Result<Statement, FrontendError> {
-        if let Some(indexed) = assignment.indexed_identifier() {
+        // The generated indexed_identifier accessor finds any direct indexed
+        // child, including the RHS of `f = table[i]`. Resolve the destination
+        // position explicitly before dispatching array stores.
+        if let Some(Expr::IndexedIdentifier(indexed)) = assignment.syntax().children().find_map(Expr::cast) {
+            let lhs = Expr::IndexedIdentifier(indexed.clone());
+            let rhs = assignment.rhs().ok_or_else(|| expected!("array assignment value", &assignment))?;
+            if let Some(statement) = self.dynamic_array_assignment(&lhs, rhs)? {
+                return Ok(statement);
+            }
             if let Some(binding) = self.array_cell(&Expr::IndexedIdentifier(indexed), false)? {
                 let BindingKind::Scalar { ty, assignable, .. } = binding.kind else {
                     unreachable!()
@@ -1630,6 +1681,7 @@ impl Lowerer {
         let lhs = assignment
             .lhs()
             .ok_or_else(|| expected!("an assignment target", &assignment))?;
+        if let Some(s)=self.array_compound_assignment(&lhs,assignment.clone())? { return Ok(s); }
         if let Some(binding) = self.array_cell(&lhs, false)? {
             let BindingKind::Scalar { ty, assignable, .. } = binding.kind else {
                 unreachable!()
@@ -1734,10 +1786,18 @@ impl Lowerer {
         return_type: Option<subroutines::ValueType>,
         targets: Option<subroutines::CallTarget>,
     ) -> Result<Block, FrontendError> {
-        let source_statements = body.statements().collect::<Vec<_>>();
+        let source_statements = self.annotated_statements(body.statements())?;
         let mut lowered = self.ids.node(BlockData::default());
         let mut saw_return = false;
-        for (index, statement) in source_statements.iter().cloned().enumerate() {
+        for (index, (annotations, statement)) in source_statements.iter().cloned().enumerate() {
+            let Some(statement) = statement else {
+                lowered.statements.push(self.lower_assertion(annotations)?);
+                continue;
+            };
+            if !annotations.is_empty() {
+                lowered.statements.push(self.lower_annotated_statement(annotations, statement)?);
+                continue;
+            }
             match statement {
                 Stmt::ClassicalDeclarationStatement(declaration) => {
                     let (register, initializer) = self.lower_classical_declaration(declaration)?;
@@ -2846,6 +2906,18 @@ impl Lowerer {
                 },
                 TypedClassicalExpr::IntegerLiteral(value),
             ) => {
+                let mut bits = bits;
+                if self.translation_profile && signedness == Signedness::Signed && bits.len() < 32 {
+                    let half = BigInt::from(1u8) << (bits.len() - 1);
+                    if value < -&half || value >= half {
+                        // Promote the signed value; do not reinterpret its bits as unsigned.
+                        // Each occurrence needs a fresh AST identity before compaction.
+                        let sign = bits.last().unwrap().clone();
+                        while bits.len() < 32 {
+                            bits.push(self.ids.clone_classical_expr(&sign));
+                        }
+                    }
+                }
                 let literal = self.integer_literal_bits(value, bits.len(), signedness, source)?;
                 Ok((bits, literal, signedness))
             }
@@ -2855,6 +2927,16 @@ impl Lowerer {
                     bits, signedness, ..
                 },
             ) => {
+                let mut bits = bits;
+                if self.translation_profile && signedness == Signedness::Signed && bits.len() < 32 {
+                    let half = BigInt::from(1u8) << (bits.len() - 1);
+                    if value < -&half || value >= half {
+                        let sign = bits.last().unwrap().clone();
+                        while bits.len() < 32 {
+                            bits.push(self.ids.clone_classical_expr(&sign));
+                        }
+                    }
+                }
                 let literal = self.integer_literal_bits(value, bits.len(), signedness, source)?;
                 Ok((literal, bits, signedness))
             }

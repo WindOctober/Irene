@@ -59,6 +59,7 @@ fn validate_block(
             StatementKind::While { .. }
             | StatementKind::ScalarDeclare { .. }
             | StatementKind::ScalarAssign { .. }
+            | StatementKind::ArrayDeclare { .. } | StatementKind::ArrayStore { .. }
             | StatementKind::GlobalPhase(_)
             | StatementKind::Unitary { .. }
             | StatementKind::GateCall { .. } => {

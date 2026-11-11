@@ -4,12 +4,25 @@
 use crate::*;
 use std::collections::BTreeMap;
 
+/// Proposed linear action on every computational basis input, expressed by a
+/// pure specification helper. This is a proof obligation, never a trusted axiom.
+/// Parameters are real gate arguments followed by one Boolean per formal wire;
+/// the result is a ket whose ordered factors follow `GateDefinition::qubits`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GateSummary {
+    pub function: annotation::FunctionId,
+    pub span: annotation::SourceSpan,
+    /// Scheduling hint only; never changes the proposed map or its proof duty.
+    pub prefer_rocq: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GateDefinition {
     pub name: String,
     pub parameters: Vec<SymbolId>,
     pub qubits: Vec<Qubit>,
     pub body: Block,
+    pub summary: Option<GateSummary>,
 }
 
 impl GateDefinition {

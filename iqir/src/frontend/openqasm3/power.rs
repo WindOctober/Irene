@@ -29,6 +29,7 @@ impl KnownBits {
     pub(super) fn statement(&mut self, s: &Statement) {
         if s.kind.transfers_control() { self.0.clear(); return; }
         match &s.kind {
+            StatementKind::ArrayDeclare { .. } | StatementKind::ArrayStore { .. } => {},
             StatementKind::Break | StatementKind::Continue => unreachable!(),
             StatementKind::UnrolledLoop { .. } => self.0.clear(),
             StatementKind::LoopBody { body, step } => { self.block(body); self.block(step); }
@@ -106,6 +107,9 @@ impl Lowerer {
     }
 
     pub(super) fn known_power(&mut self, expression: Expr) -> Result<i128, FrontendError> {
+        if let Some(k) = self.gate_power_overrides.get(&u32::from(expression.syntax().text_range().start())) {
+            return Ok(*k);
+        }
         if let Ok(v) = self.static_integer(expression.clone(), false) {
             return Ok(v.value);
         }

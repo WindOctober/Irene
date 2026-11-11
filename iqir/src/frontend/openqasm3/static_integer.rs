@@ -431,6 +431,9 @@ impl Lowerer {
         &self,
         indexed: ast::IndexedIdentifier,
     ) -> Result<QuantumOperand, FrontendError> {
+        if let Some(qubit) = self.quantum_index_overrides.get(&u32::from(indexed.syntax().text_range().start())) {
+            return Ok(QuantumOperand::Scalar(qubit.clone()));
+        }
         let (name, expression) = single_index(indexed)?;
         if let Expr::RangeExpr(range) = expression {
             let (start, step, stop) = self.static_range(&range)?;

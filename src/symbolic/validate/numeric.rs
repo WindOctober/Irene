@@ -160,7 +160,8 @@ fn block(source: &Block, work: &mut usize, depth: usize) -> Result<(), SymbolicE
             StatementKind::While { .. } => {
                 return Err(SymbolicError::UnsupportedConstruct("while loops"));
             }
-            StatementKind::ScalarDeclare { .. } | StatementKind::ScalarAssign { .. } => {
+            StatementKind::ScalarDeclare { .. } | StatementKind::ScalarAssign { .. }
+            | StatementKind::ArrayDeclare { .. } | StatementKind::ArrayStore { .. } => {
                 return Err(SymbolicError::UnsupportedConstruct("scalar storage"));
             }
             StatementKind::GlobalPhase(_) => {

@@ -8,10 +8,7 @@ impl Lowerer {
         if matches!(expr, Expr::Literal(l) if matches!(l.kind(), ast::LiteralKind::FloatNumber(_))) {
             return Ok(true);
         }
-        if let Some(Binding {
-            kind: BindingKind::Scalar { ty, .. },
-            ..
-        }) = self.array_cell(expr, false)?
+        if let Some(ty) = self.scalar_array_type(expr)?
         {
             return Ok(ty.is_float());
         }
@@ -136,19 +133,18 @@ impl Lowerer {
         binding: Binding,
         source: &T,
     ) -> Result<(), FrontendError> {
-        if self.scopes.global_static_ids().contains(&binding.id)
-            && self.active_subroutines.iter().any(|index| {
-                !self.subroutines[*index]
-                    .static_globals
-                    .contains(&binding.id)
-            })
-        {
+        if !self.constant_visible(binding.id) {
             return Err(expected!(
                 "a constant visible at subroutine definition",
                 source
             ));
         }
         Ok(())
+    }
+
+    pub(super) fn constant_visible(&self, id: SymbolId) -> bool {
+        !self.scopes.global_static_ids().contains(&id)
+            || self.active_subroutines.iter().all(|index| self.subroutines[*index].static_globals.contains(&id))
     }
 
     /// Check const-typedness before evaluating: even `false && scalar_bit`

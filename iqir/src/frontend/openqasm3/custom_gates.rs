@@ -8,6 +8,7 @@ pub(super) struct CustomGate {
     parameters: Vec<String>,
     qubits: Vec<String>,
     body: ast::BlockExpr,
+    summary: Option<crate::GateSummary>,
 }
 
 fn names(list: Option<ast::ParamList>) -> Vec<String> {
@@ -88,6 +89,7 @@ impl Lowerer {
                 parameters: parameter_ids,
                 qubits,
                 body,
+                summary: gate.summary.clone(),
             }))
         })();
         self.scopes.exit();
@@ -101,6 +103,138 @@ impl Lowerer {
     }
 
     pub(super) fn declare_custom_gate(&mut self, gate: ast::Gate) -> Result<(), FrontendError> {
+        self.declare_custom_gate_with_summary(gate, None)
+    }
+
+    pub(super) fn declare_annotated_gate(
+        &mut self,
+        gate: ast::Gate,
+        annotations: Vec<crate::annotation::Annotation>,
+    ) -> Result<(), FrontendError> {
+        let summary = self.callable_summary(annotations,
+            names(gate.angle_params()).len(), names(gate.qubit_params()).len())?;
+        self.declare_custom_gate_with_summary(gate, Some(summary))
+    }
+
+    /// One checked specification interface for gates and quantum subroutines.
+    pub(super) fn callable_summary(
+        &mut self,
+        annotations: Vec<crate::annotation::Annotation>,
+        parameter_count: usize,
+        qubit_count: usize,
+    ) -> Result<crate::GateSummary, FrontendError> {
+        use crate::annotation::{
+            AnnotationKind, AnnotationPayload, FunctionId, MathFunction, SpecExpr,
+            SpecFunction, SpecType, UnaryOp, define_function,
+        };
+        let a = &annotations[0];
+        let error = |message: &str| FrontendError::Annotation {
+            source_name: a.span.source.clone(),
+            offset: a.span.start,
+            message: message.into(),
+        };
+        if annotations.len() != 1 || a.kind != AnnotationKind::Summary {
+            return Err(error("callable definitions accept exactly one summary annotation"));
+        }
+        if !self.structured {
+            return Err(error("gate summaries require structured frontend import"));
+        }
+        let AnnotationPayload::Expression(expression) = &a.payload else {
+            return Err(error("summary requires a helper expression"));
+        };
+        let prefer_rocq = a.summary_hint == Some(crate::annotation::SummaryHint::Rocq);
+        let (helper, fixed) = match expression {
+            SpecExpr::Name(helper) => (helper, &[][..]),
+            SpecExpr::NamedCall { name, arguments } => {
+                (name, arguments.as_slice())
+            }
+            _ => return Err(error("summary requires a helper name with optional fixed leading arguments")),
+        };
+        let (index, function) = self.spec_functions.iter().enumerate()
+            .find(|(_, f)| &f.name == helper)
+            .ok_or_else(|| error("summary must name an earlier specification helper"))?;
+        let remaining = function.parameters.get(fixed.len()..)
+            .ok_or_else(|| error("too many fixed summary arguments"))?;
+        if remaining.len() != parameter_count + qubit_count
+            || remaining[..parameter_count].iter().any(|p| p.ty != SpecType::Real)
+            || remaining[parameter_count..].iter().any(|p| p.ty != SpecType::Bool)
+            || function.result != SpecType::Ket(qubit_count)
+        {
+            return Err(error("remaining summary signature must be real gate parameters, then one bool per qubit, returning ket[qubit_count]"));
+        }
+        // Restrict shorthand bindings to total literals. Arbitrary closed
+        // expressions could hide a partial operation when a helper ignores an
+        // argument. Keep those in an explicit helper with its normal domains.
+        // Reuse the existing literal recognizer; never resolve caller storage
+        // or gate-wire names as constants at this definition boundary.
+        let total_literal = |e: &SpecExpr| {
+            use bigdecimal::ToPrimitive;
+            let embedded = matches!(e, SpecExpr::Call { function: MathFunction::Real, arguments } if arguments.len() == 1);
+            let value = match e {
+                SpecExpr::Call { function: MathFunction::Real, arguments }
+                    if arguments.len() == 1 => &arguments[0],
+                _ => e,
+            };
+            let unsigned = match value {
+                SpecExpr::Unary { op: UnaryOp::Neg, operand } => operand.as_ref(),
+                _ => value,
+            };
+            // Decimal syntax already carries its binary64 cast. Retain it:
+            // this check accepts a total literal, not an exact-real rewrite.
+            if embedded {
+                if let SpecExpr::Cast { ty: SpecType::Float(None), operand } = unsigned {
+                    if let SpecExpr::Number(n) = operand.as_ref() {
+                        return n.to_f64().is_some_and(f64::is_finite);
+                    }
+                }
+            }
+            let integer_literal = matches!(value, SpecExpr::Number(_))
+                || matches!(value, SpecExpr::Unary { op: UnaryOp::Neg, operand }
+                    if matches!(operand.as_ref(), SpecExpr::Number(_)));
+            matches!(value, SpecExpr::Bool(_) | SpecExpr::Constant(_))
+                || (integer_literal && value.literal().is_some_and(|n| {
+                    n.is_integer()
+                        && n.to_integer() >= i32::MIN.into()
+                        && n.to_integer() <= i32::MAX.into()
+                }))
+        };
+        let function = if fixed.is_empty() {
+            FunctionId(index)
+        } else {
+            if !fixed.iter().all(total_literal) {
+                return Err(error("fixed summary arguments require total literals: bool, mathematical constants, signed 32-bit integers, or finite decimals embedded with real; use a helper for general expressions"));
+            }
+            let parameters = remaining.to_vec();
+            let mut arguments = fixed.to_vec();
+            arguments.extend((0..parameters.len()).map(SpecExpr::Parameter));
+            // Desugar once into the existing checked helper IR. Backends need
+            // no second summary representation or partial-application rules.
+            let wrapper = SpecFunction {
+                name: format!("\\summary_{}", self.spec_functions.len()),
+                parameters,
+                result: function.result,
+                body: SpecExpr::NamedCall { name: helper.clone(), arguments },
+                span: a.span.clone(),
+            };
+            define_function(&mut self.spec_functions, wrapper)
+                .map_err(|e| error(&e.to_string()))?
+        };
+        Ok(crate::GateSummary { function, span: a.span.clone(), prefer_rocq })
+    }
+
+    fn declare_custom_gate_with_summary(
+        &mut self,
+        gate: ast::Gate,
+        summary: Option<crate::GateSummary>,
+    ) -> Result<(), FrontendError> {
+        // The summary lives on the definition; source annotations inside its
+        // body must not vanish when a template is specialized or unused.
+        if gate.syntax().descendants().any(|n| {
+            ast::AnnotationStatement::cast(n.clone()).is_some()
+                || ast::PragmaStatement::cast(n).is_some()
+        }) {
+            return Err(unsupported!("annotations/pragmas inside gate definitions", &gate));
+        }
         let name = declaration_name(&gate)?;
         let parameters = names(gate.angle_params());
         let qubits = names(gate.qubit_params());
@@ -123,6 +257,7 @@ impl Lowerer {
             parameters,
             qubits,
             body,
+            summary,
         };
         // Like def, register the signature now and check/lower the body only
         // at a call site. Keep definition-time name visibility in its scope.

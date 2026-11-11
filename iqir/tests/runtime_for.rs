@@ -1,5 +1,36 @@
 use iqir::{Block, StatementKind as S, annotation::AnnotationKind as A, frontend};
 
+#[test]
+fn structured_loop_threshold_and_explicit_contracts_share_induction_path() {
+    let parse = |body: &str| frontend::openqasm3::parse_structured(
+        &format!("OPENQASM 3; include \"stdgates.inc\"; {body}"), "threshold.qasm");
+    let p = parse("qubit q; for int i in [0:9] { x q; }").unwrap();
+    let mut ls = Vec::new(); loops(&p.body, &mut ls); assert!(ls.is_empty());
+    for end in [10, 25, 255] {
+        let e = parse(&format!("qubit q; for int i in [0:{end}] {{x q;}}" )).unwrap_err();
+        assert!(e.to_string().contains("provide invariant and exit_state"), "{e}");
+        let p = parse(&format!("qubit q;\n@saria.invariant true\n@saria.exit_state none\nfor int i in [0:{end}] {{x q;}}" )).unwrap();
+        let mut ls = Vec::new(); loops(&p.body, &mut ls); assert_eq!(ls.len(), 1);
+    }
+    let p = parse("qubit q;\n@saria.invariant true\n@saria.exit_state none\nfor int i in [0:1] {x q;}").unwrap();
+    let mut ls = Vec::new(); loops(&p.body, &mut ls); assert_eq!(ls.len(), 1);
+}
+
+#[test]
+fn def_loop_contracts_bind_each_calls_formals_and_generated_while() {
+    let text = "OPENQASM 3; include \"stdgates.inc\";\ndef iterate(qubit q) {\n@saria.invariant q == |0>\n@saria.exit_state none\nfor int i in [0:25] { z q; }\n}\nqubit[2] data; iterate(data[0]); iterate(data[1]);";
+    let p = frontend::openqasm3::parse_structured(text, "def-loop.qasm").unwrap();
+    let mut ls = Vec::new(); loops(&p.body, &mut ls); assert_eq!(ls.len(), 2);
+    assert_ne!(ls[0].ast_id(), ls[1].ast_id());
+    for s in ls {
+        let contracts = &p.annotations[&s.ast_id()];
+        assert!(contracts.iter().any(|a| a.kind == A::Invariant));
+        assert!(contracts.iter().any(|a| a.kind == A::ExitState));
+    }
+    let clauses: Vec<_> = p.annotations.values().map(|a|format!("{:?}", a[0].payload)).collect();
+    assert_ne!(clauses[0], clauses[1], "callee wire bindings must not leak between calls");
+}
+
 fn parse(body: &str) -> Result<iqir::Program, String> {
     frontend::parse_str_with_options(&format!("OPENQASM 3; {body}"), "for.qasm", true)
         .map_err(|e| e.to_string())
@@ -49,7 +80,6 @@ fn unsupported_runtime_ranges_scopes_and_backedge_constants_fail_closed() {
         "for int[8] i in [0:1] {const int[8] i=0;}",
         "int[8] limit; for int[8] i in [0:limit] {int[8] local=0;} int[8] n=local;",
         "int[8] limit; for int[8] i in [0:2:limit] {}",
-        "int[8] limit; for int[8] i in [limit:-1:0] {}",
         "int[8] limit; for int[8] i in [0:limit] {} int[8] n=i;",
         "int[8] limit;\n@saria.invariant local == 0\nfor int[8] i in [0:limit] {int[8] local=0;}",
         "int[8] limit; float[64] angle=0.0; qubit q; for int[8] i in [0:limit]{rx(angle) q; angle+=1.0;}",

@@ -2,7 +2,7 @@
 use super::*;
 use crate::annotation::{
     Annotation, AnnotationKind, AnnotationPayload, SourceSpan, SpecExpr, SpecType,
-    check_expression, define_function, parse_annotation, parse_function,
+    check_expression, define_function, parse_annotation, parse_approx_config, parse_function,
 };
 
 /// `None` denotes a standalone assertion rather than an attached source statement.
@@ -19,13 +19,21 @@ impl Lowerer {
             start: u32::from(range.start()) as usize,
             end: u32::from(range.end()) as usize,
         };
-        let f = parse_function(&format!("pragma{}", pragma.pragma_text()), span.clone()).map_err(
-            |e| FrontendError::Annotation {
-                source_name: span.source.clone(),
-                offset: span.start + e.offset,
-                message: e.message,
-            },
-        )?;
+        let text = format!("pragma{}", pragma.pragma_text());
+        let parser = if pragma
+            .pragma_text()
+            .trim_start()
+            .starts_with("saria.approx")
+        {
+            parse_approx_config
+        } else {
+            parse_function
+        };
+        let f = parser(&text, span.clone()).map_err(|e| FrontendError::Annotation {
+            source_name: span.source.clone(),
+            offset: span.start + e.offset,
+            message: e.message,
+        })?;
         define_function(&mut self.spec_functions, f).map_err(|e| FrontendError::Annotation {
             source_name: span.source,
             offset: span.start,
@@ -109,6 +117,9 @@ impl Lowerer {
         annotations: Vec<Annotation>,
         statement: Stmt,
     ) -> Result<Statement, FrontendError> {
+        if let Some(a) = annotations.iter().find(|a| a.kind == AnnotationKind::Summary) {
+            return Err(self.annotation_error(a, "summary requires a top-level gate or def definition"));
+        }
         if let Stmt::ForStmt(for_statement) = &statement {
             let has_loop_contract = self.structured
                 && annotations.iter().any(|a| matches!(a.kind,
@@ -303,6 +314,27 @@ impl Lowerer {
                     }
                     regions.push((id, index));
                 }
+                // A partially applied ket helper uses exactly the existing
+                // summary interface: remaining bools are entry coordinates.
+                // Operator-valued helpers retain the original density meaning.
+                let helper_name = match operator {
+                    SpecExpr::Name(name) | SpecExpr::NamedCall { name, .. } => Some(name.as_str()),
+                    _ => None,
+                };
+                let linear = a.kind == AnnotationKind::ExitState
+                    && helper_name.is_some_and(|name| self.spec_functions.iter()
+                        .any(|f| f.name == name && matches!(f.result, SpecType::Ket(_))));
+                if linear {
+                    let SpecType::Operator(width) = expected else { unreachable!() };
+                    let summary = Annotation {
+                        kind: AnnotationKind::Summary,
+                        payload: AnnotationPayload::Expression(operator.clone()),
+                        span: a.span.clone(), summary_hint: a.summary_hint, proof_group: None, selection: Default::default(),
+                    };
+                    let action = self.callable_summary(vec![summary], 0, width)?;
+                    a.payload = AnnotationPayload::LinearState { targets: targets.clone(), action };
+                    continue;
+                }
                 let actual = check_expression(operator, &self.spec_functions, |name| {
                     self.resolve_spec_name(name)
                 })
@@ -387,6 +419,11 @@ impl Lowerer {
                 }
             }
         }
+        if annotations.iter().any(|a| matches!(a.payload, AnnotationPayload::LinearState { .. }))
+            && annotations.iter().filter(|a| a.kind == AnnotationKind::ExitState).count() != 1
+        {
+            return Err(self.annotation_error(&annotations[0], "a linear exit_state cannot be combined with another exit_state"));
+        }
         let lowered = match generated_loop {
             Some(lowered) => lowered,
             None => self.lower_statement(statement)?,
@@ -449,7 +486,36 @@ impl Lowerer {
             .scopes
             .lookup(name)
             .map_err(|_| format!("unknown specification identifier `{name}`"))?;
+        if let BindingKind::QuantumParameter(ty) = binding.kind {
+            let actual = self.quantum_arguments.get(&binding.id)
+                .ok_or_else(|| format!("unbound quantum parameter `{name}`"))?;
+            let cells = actual.cells();
+            let first = cells.first().ok_or("empty quantum argument")?;
+            let register = self.quantum_registers.iter().find(|r| r.id == first.register)
+                .ok_or("quantum specification argument is not a program register")?;
+            let symbol = SpecExpr::Symbol { id: register.id, name: register.name.clone() };
+            return match ty {
+                QuantumType::Scalar => Ok((SpecExpr::Index {
+                    value: Box::new(symbol),
+                    index: Box::new(SpecExpr::Number(BigRational::from_integer(first.index.into()))),
+                }, SpecType::Qubit)),
+                QuantumType::Register { width } if width == register.width
+                    && cells.iter().enumerate().all(|(i,q)| q.register == register.id && q.index == i) =>
+                    Ok((symbol, SpecType::QubitRegister(width))),
+                _ => Err("quantum register contracts currently require a complete ordered actual register; use scalar quantum formals for slices".into()),
+            };
+        }
         let ty = match binding.kind {
+            BindingKind::ScalarArray { index, .. } if self.scalar_arrays[index].dimensions.len() == 1
+                && self.scalar_arrays[index].table.is_some() => {
+                if !self.constant_visible(binding.id) { return Err("constant table was not visible at subroutine definition".into()); }
+                let table = self.scalar_arrays[index].table.clone().ok_or("uninitialized constant table")?;
+                return Ok((SpecExpr::ConstantTable(table.clone()), SpecType::ConstantTable(table.ty(), table.values().len())));
+            }
+            BindingKind::ScalarArray {index,..} if self.scalar_arrays[index].dimensions.len()==1 => {
+                let a=&self.scalar_arrays[index];
+                return Ok((SpecExpr::Symbol {id:a.id,name:name.into()},SpecType::Array(a.ty,a.dimensions[0])));
+            }
             BindingKind::ScalarArray { .. } => {
                 return Err(format!(
                     "array-valued specifications/invariants are not supported (`{name}`); static program reads and writes are supported"

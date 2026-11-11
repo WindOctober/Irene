@@ -169,6 +169,7 @@ impl ScopeStack {
                 matches!(
                     binding.kind,
                     BindingKind::Scalar { is_const: true, .. } | BindingKind::StaticBits { .. }
+                    | BindingKind::ScalarArray { is_const: true, .. }
                 )
                 .then_some(binding.id)
             })

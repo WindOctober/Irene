@@ -20,7 +20,8 @@ fn integer_shift_edges_and_wrapping() {
     assert_eq!(signed.checked_integer_shift(true, 1, 8), Ok(256));
     assert_eq!(signed.checked_integer_shift(false, 7, 1), Ok(3));
     assert!(signed.checked_integer_shift(true, 1, 31).is_err());
-    assert!(signed.checked_integer_shift(false, -3, 1).is_err());
+    assert_eq!(signed.checked_integer_shift(false, -3, 1), Ok(-2));
+    assert_eq!(signed.checked_integer_shift(false, -3, 32), Ok(-1));
 }
 
 #[test]
@@ -46,9 +47,7 @@ fn shifts_keep_scalar_storage_and_dense_ast_ids() {
 fn shifts_fail_closed_outside_the_supported_subset() {
     for body in [
         "int[32] n=1<<31;",
-        "int[32] n=(-3)>>1;",
         "uint[8] n=1; n<<=-1;",
-        "uint[8] n=1; uint[8] k; n<<=k;",
         "float[64] n=1.0; n<<=1;",
     ] {
         assert!(

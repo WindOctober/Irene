@@ -30,6 +30,35 @@ enum Argument {
 }
 
 impl Lowerer {
+    pub(super) fn declare_annotated_subroutine(
+        &mut self, definition: ast::Def, annotations: Vec<crate::annotation::Annotation>,
+    ) -> Result<(), FrontendError> {
+        self.register_subroutine(definition)?;
+        let index = self.subroutines.len() - 1;
+        if annotations.iter().all(|a| matches!(a.kind,
+            crate::annotation::AnnotationKind::Requires | crate::annotation::AnnotationKind::Ensures)) {
+            // Resolve in the callee's definition scope after fresh by-value
+            // parameters are installed, never in the caller's lexical scope.
+            self.subroutines[index].contracts = annotations;
+            return Ok(());
+        }
+        let template = &self.subroutines[index];
+        if template.return_type.is_some() {
+            return Err(unsupported!("linear ket summary requires a void quantum subroutine", &template.definition));
+        }
+        let mut numeric = 0;
+        let mut quantum = 0;
+        for p in &template.parameters {
+            match p.ty {
+                ParameterType::Quantum(ty) => quantum += ty.width(),
+                ParameterType::Classical(ValueType::Scalar(_)) => numeric += 1,
+                _ => return Err(unsupported!("linear summary requires numeric and quantum parameters", &template.definition)),
+            }
+        }
+        let summary = self.callable_summary(annotations, numeric, quantum)?;
+        self.subroutines[index].summary = Some(summary);
+        Ok(())
+    }
     pub(super) fn subroutine_value_type(
         &self,
         ty: &ast::ScalarType,
@@ -128,6 +157,8 @@ impl Lowerer {
         // Classical expressions are copied before executing any body statement.
         let mut arguments = Vec::new();
         let mut wires = BTreeSet::new();
+        let mut ordered_wires = Vec::new();
+        let mut summary_arguments = Vec::new();
         for (source, parameter) in sources.into_iter().zip(&template.parameters) {
             let argument = match parameter.ty {
                 ParameterType::Quantum(ty) => {
@@ -142,11 +173,20 @@ impl Lowerer {
                                 &call
                             ));
                         }
+                        ordered_wires.push(q.clone());
                     }
                     Argument::Quantum(value)
                 }
                 ParameterType::Classical(ValueType::Scalar(ty)) => {
-                    Argument::Scalar(self.lower_scalar_expr(source, ty)?)
+                    let mut value = self.lower_scalar_expr(source, ty)?;
+                    if template.summary.is_some() {
+                        let constant = self.known_scalars.value(&value)?
+                            .ok_or_else(|| unsupported!("linear def summary currently requires known numeric actuals", &call))?;
+                        let scalar = self.ids.node(crate::ScalarExprData { ty, kind: constant.expression() });
+                        summary_arguments.push(self.ids.node(NumericExprKind::Scalar(Box::new(scalar.clone()))));
+                        value = scalar;
+                    }
+                    Argument::Scalar(value)
                 }
                 ParameterType::Classical(ValueType::Bits(ty)) => {
                     let value = self.lower_word_value(source, ty)?;
@@ -164,11 +204,22 @@ impl Lowerer {
             };
             arguments.push(argument);
         }
+        // Parameterless quantum templates share the very same IR as gates.
+        // Numeric def actuals are specialized with their machine types first;
+        // these definitions are intentionally not cached across different values.
+        if template.summary.is_some() && summary_arguments.is_empty() {
+            if let Some(definition) = self.gate_definitions.get(&binding.id) {
+                return Ok(self.ids.node(StatementKind::GateCall {
+                    definition: definition.clone(), parameters: Vec::new(), qubits: ordered_wires,
+                }));
+            }
+        }
         let before = self.known_scalars.clone();
         let bits_before = self.known_bits.clone();
         self.active_subroutines.insert(index);
         self.scopes.enter_definition(binding.id);
         let mut quantum_ids = Vec::new();
+        let annotations_before = self.annotations.len();
         let result = (|| {
             let mut prefix = BlockData::default();
             for (parameter, argument) in template.parameters.iter().zip(arguments) {
@@ -229,6 +280,20 @@ impl Lowerer {
                     _ => unreachable!("actual argument types checked"),
                 }
             }
+            if !template.contracts.is_empty() {
+                // The body contract ranges over formal input values, not just
+                // this call's currently known actuals. Keep actual evaluation
+                // in the prefix, but do not specialize its proof body with
+                // caller flow facts. Source const qualification is separate.
+                self.known_scalars = Default::default();
+                if let Some(known) = &mut self.known_bits { *known = Default::default(); }
+            }
+            let mut contracts = Vec::new();
+            for annotation in template.contracts.clone() {
+                // Reuse the Boolean contract checker and quantum-formal mapping.
+                let anchor = self.lower_assertion(vec![annotation])?;
+                contracts.extend(self.annotations.remove(&anchor.ast_id()).unwrap());
+            }
             // A callee's break/continue must never target its caller's loop.
             let caller_controls = std::mem::take(&mut self.loop_controls);
             let body_result = self.lower_subroutine_body(
@@ -241,6 +306,11 @@ impl Lowerer {
             );
             self.loop_controls = caller_controls;
             let mut body = body_result?;
+            if !contracts.is_empty() {
+                let boundary = self.ids.node(StatementKind::Scope(body));
+                self.annotations.insert(boundary.ast_id(), contracts);
+                body = self.ids.node(BlockData { statements: vec![boundary], ..Default::default() });
+            }
             prefix.statements.append(&mut body.statements);
             prefix
                 .classical_registers
@@ -256,12 +326,92 @@ impl Lowerer {
         self.active_subroutines.remove(&index);
         self.known_scalars = before;
         self.known_bits = bits_before;
-        let statement = self.ids.node(StatementKind::Scope(result?));
+        let body = result?;
+        let statement = if let Some(summary) = template.summary {
+            if self.annotations.len() != annotations_before {
+                return Err(unsupported!("retained loop/contracts in a linear def summary require a contextual callable proof; use an ordinary def with loop contracts", &call));
+            }
+            let body = self.linear_subroutine_body(&body, &mut Default::default(), &mut BTreeSet::new())?;
+            let definition = std::sync::Arc::new(crate::GateDefinition {
+                name: id.string(),
+                parameters: (0..summary_arguments.len()).map(|i| SymbolId(usize::MAX-i)).collect(),
+                qubits: ordered_wires.clone(), body, summary: Some(summary),
+            });
+            // Validate that no free wires or unsupported effects escaped the
+            // extraction. All body numeric expressions have been closed below.
+            definition.instantiate(&summary_arguments, &ordered_wires, &mut self.ids)
+                .map_err(|_| unsupported!("non-local quantum effect in linear subroutine summary", &call))?;
+            if summary_arguments.is_empty() { self.gate_definitions.insert(binding.id, definition.clone()); }
+            self.ids.node(StatementKind::GateCall {
+                definition, parameters: summary_arguments, qubits: ordered_wires,
+            })
+        } else { self.ids.node(StatementKind::Scope(body)) };
         self.known_scalars.statement(&statement)?;
         if let Some(known) = &mut self.known_bits {
             known.statement(&statement);
         }
         Ok(statement)
+    }
+
+    /// Erase only checked, total, local classical computation. No measurement,
+    /// reset, unresolved branch/loop or externally visible classical effect can
+    /// be hidden behind a coherent ket summary.
+    fn linear_subroutine_body(&mut self, body: &Block,
+        known: &mut known_scalars::KnownScalars, locals: &mut BTreeSet<SymbolId>,
+    ) -> Result<Block, FrontendError> {
+        let error = || FrontendError::Unsupported {
+            construct: "linear def summary requires a closed unitary body (retained loops need contextual callable proofs)",
+            snippet: "subroutine summary".into(),
+        };
+        fn closed(e: &NumericExpr) -> bool {
+            match &e.kind {
+                NumericExprKind::Rational(_) | NumericExprKind::Constant(_) => true,
+                NumericExprKind::Scalar(s) => s.constant_value().is_ok_and(|v| v.is_some()),
+                NumericExprKind::Neg(a) => closed(a),
+                NumericExprKind::Add(a,b) | NumericExprKind::Sub(a,b)
+                | NumericExprKind::Mul(a,b) | NumericExprKind::Div(a,b) => closed(a) && closed(b),
+                NumericExprKind::Input(_) => false,
+            }
+        }
+        if !body.classical_registers.is_empty() { return Err(error()); }
+        let mut statements = Vec::new();
+        for s in &body.statements {
+            match &s.kind {
+                StatementKind::ScalarDeclare { id, initializer: Some(e), .. } => {
+                    if known.value(e)?.is_none() { return Err(error()); }
+                    known.statement(s)?; locals.insert(*id);
+                }
+                StatementKind::ScalarAssign { target, value } if locals.contains(target) => {
+                    if known.value(value)?.is_none() { return Err(error()); }
+                    known.statement(s)?;
+                }
+                StatementKind::Scope(b) => {
+                    let mut local_known = known.clone();
+                    let mut local_ids = locals.clone();
+                    let b = self.linear_subroutine_body(b, &mut local_known, &mut local_ids)?;
+                    statements.extend(b.statements.iter().cloned());
+                    known.statement(s)?;
+                }
+                StatementKind::If { condition, then_branch, else_branch } => {
+                    let b = match constants::eval_constant_bit(condition) {
+                        Some(true) => then_branch, Some(false) => else_branch, None => return Err(error()),
+                    };
+                    let b = self.linear_subroutine_body(b, known, locals)?;
+                    statements.extend(b.statements.iter().cloned());
+                }
+                StatementKind::Apply { parameters, .. } | StatementKind::GateCall { parameters, .. }
+                    if parameters.iter().all(closed) => statements.push(s.clone()),
+                StatementKind::GlobalPhase(p) if closed(p) => statements.push(s.clone()),
+                StatementKind::Unitary { controls, power, body } => {
+                    let body = self.linear_subroutine_body(body, known, locals)?;
+                    statements.push(self.ids.node(StatementKind::Unitary {
+                        controls: controls.clone(), power: *power, body,
+                    }));
+                }
+                _ => return Err(error()),
+            }
+        }
+        Ok(self.ids.node(BlockData { statements, ..BlockData::default() }))
     }
 
     /// A direct if-call executes once before its branch, not once per use or

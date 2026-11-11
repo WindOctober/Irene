@@ -1,6 +1,13 @@
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
 expression_file = { SOI ~ expression ~ EOI }
-annotation_file = { SOI ~ "@saria." ~ (ghost_declaration | ghost_assignment | annotation_kind ~ (state_declaration | termination | expression)) ~ EOI }
+annotation_file = { SOI ~ "@saria." ~ (ghost_declaration | ghost_assignment | summary_annotation | assertion_annotation | annotation_kind ~ selection_tag* ~ (state_declaration | termination | expression)) ~ EOI }
+assertion_annotation = { assertion_keyword ~ (selection_tag | summary_hint)* ~ expression }
+selection_tag = { "[" ~ selection_key ~ ":" ~ identifier ~ "]" }
+selection_key = @{ ("name" | "group") ~ !ident_continue }
+assertion_keyword = @{ "assert" ~ !ident_continue }
+summary_annotation = { summary_keyword ~ summary_hint? ~ expression }
+summary_keyword = @{ "summary" ~ !ident_continue }
+summary_hint = { "[" ~ identifier ~ (":" ~ identifier)? ~ "]" }
 state_declaration = { expression ~ ":=" ~ expression }
 ghost_declaration = { ghost_keyword ~ identifier ~ ":" ~ scalar_type ~ ("=" ~ expression)? }
 ghost_assignment = { set_keyword ~ identifier ~ "=" ~ expression }
@@ -8,7 +15,12 @@ ghost_keyword = @{ "ghost" ~ !ident_continue }
 set_keyword = @{ "set" ~ !ident_continue }
 annotation_kind = @{ ("assert" | "requires" | "ensures" | "invariant" | "initial_state" | "exit_state" | "terminates" | "ranking_function" | "ranking_proof") ~ !ident_continue }
 termination = { ("almost_sure" | "positive_probability") ~ !ident_continue }
-function_file = { SOI ~ "pragma" ~ "saria.def" ~ identifier ~ "(" ~ parameters? ~ ")" ~ "->" ~ scalar_type ~ "=" ~ expression ~ EOI }
+function_file = { SOI ~ "pragma" ~ "saria.def" ~ identifier ~ "(" ~ parameters? ~ ")" ~ "->" ~ result_type ~ "=" ~ expression ~ EOI }
+result_type = _{ quantum_result_type | complex_type | scalar_type }
+quantum_result_type = ${ "ket" ~ !ident_continue ~ WHITESPACE* ~ "[" ~ WHITESPACE* ~ ASCII_DIGIT+ ~ WHITESPACE* ~ "]" }
+complex_type = @{ "complex" ~ !ident_continue }
+approx_config_file = { SOI ~ "pragma" ~ approx_config_keyword ~ number ~ EOI }
+approx_config_keyword = @{ "saria.approx" ~ !ident_continue }
 parameters = { parameter ~ ("," ~ parameter)* }
 parameter = { identifier ~ ":" ~ scalar_type }
 scalar_type = ${ ("bool" | "bit" | "uint" | "int" | "float" | "angle" | "real") ~ !ident_continue ~ (WHITESPACE* ~ "[" ~ WHITESPACE* ~ ASCII_DIGIT+ ~ WHITESPACE* ~ "]")? }
@@ -52,7 +64,8 @@ not = { "!" }
 postfix = _{ factorial | index }
 factorial = @{ "!" ~ !"=" }
 index = { "[" ~ expression ~ "]" }
-infix = _{ implies | or | and | eq | ne | le | ge | lt | gt | add | sub | pow | tensor | mul | div | modulo }
+infix = _{ implies | or | and | approx | eq | ne | le | ge | lt | gt | add | sub | pow | tensor | mul | div | modulo }
+approx = @{ "\\approx" ~ !ident_continue }
 tensor = @{ ("\\otimes" ~ !ident_continue) | "⊗" }
 implies = { "=>" }
 or = { "||" }

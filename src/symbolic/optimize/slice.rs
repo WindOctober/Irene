@@ -197,6 +197,7 @@ fn analyze_block(block: &Block, mut live: LiveSet, plan: &mut SlicePlan) -> Bloc
             StatementKind::While { .. }
             | StatementKind::ScalarDeclare { .. }
             | StatementKind::ScalarAssign { .. }
+            | StatementKind::ArrayDeclare { .. } | StatementKind::ArrayStore { .. }
             | StatementKind::GlobalPhase(_)
             | StatementKind::Unitary { .. }
             | StatementKind::GateCall { .. } => {

@@ -19,8 +19,12 @@ pub mod annotation;
 pub mod frontend;
 mod gate_call;
 pub mod scalar;
-pub use gate_call::GateDefinition;
+pub use gate_call::{GateDefinition, GateSummary};
 pub use scalar::*;
+
+/// Maximum automatic static-loop expansion in verification-oriented import.
+/// Explicit loop contracts select induction even for smaller loops.
+pub const DEFAULT_LOOP_UNROLL_LIMIT: usize = 10;
 
 /// Program-local identity shared by every owned IR node.
 ///
@@ -347,6 +351,20 @@ pub enum StatementKind {
         target: SymbolId,
         value: ScalarExpr,
     },
+    /// Fixed-shape machine storage. One array identity, not per-cell variables.
+    ArrayDeclare {
+        id: SymbolId,
+        name: String,
+        ty: ScalarType,
+        length: usize,
+        initializers: Vec<Option<ScalarExpr>>,
+    },
+    /// Address and RHS are evaluated once, before updating the array.
+    ArrayStore {
+        target: SymbolId,
+        index: ScalarExpr,
+        value: ScalarExpr,
+    },
     /// Exact exp(i * phase), including inside controlled custom gates.
     GlobalPhase(NumericExpr),
     /// Apply the entire unitary body to the given integer power, conditioned
@@ -480,6 +498,12 @@ impl AstNode<ProgramData> {
             for statement in &block.statements {
                 visit(statement.ast_id);
                 match &statement.kind {
+                    StatementKind::ArrayDeclare { initializers, .. } => {
+                        for e in initializers.iter().flatten() { e.visit_ids(visit); }
+                    }
+                    StatementKind::ArrayStore { index, value, .. } => {
+                        index.visit_ids(visit); value.visit_ids(visit);
+                    }
                     StatementKind::Break | StatementKind::Continue => {},
                     StatementKind::UnrolledLoop { iterations } => {
                         for b in iterations { visit_block(b, visit); }
@@ -595,7 +619,8 @@ pub(crate) fn compact_program_ids(mut program: crate::Program) -> crate::Program
     fn scalar(e: &mut ScalarExpr, next: &mut usize) {
         id(e, next);
         match &mut e.kind.kind {
-            ScalarExprKind::Neg(a)
+            ScalarExprKind::TableRead { index: a, .. } | ScalarExprKind::ArrayRead { index: a, .. }
+            | ScalarExprKind::Neg(a)
             | ScalarExprKind::FloatCast(a)
             | ScalarExprKind::IntWiden(a)
             | ScalarExprKind::IntFromFloat(a)
@@ -635,6 +660,10 @@ pub(crate) fn compact_program_ids(mut program: crate::Program) -> crate::Program
         for s in &mut b.statements {
             id(s, next);
             match &mut s.kind {
+                S::ArrayDeclare { initializers, .. } => {
+                    for e in initializers.iter_mut().flatten() { scalar(e, next); }
+                }
+                S::ArrayStore { index, value, .. } => { scalar(index, next); scalar(value, next); }
                 S::Break | S::Continue => {},
                 S::UnrolledLoop { iterations } => {
                     for b in iterations { block(b, next); }

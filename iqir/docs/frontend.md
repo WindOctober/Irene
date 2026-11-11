@@ -82,14 +82,16 @@ uses Boolean words; bool/bit parameters also use the bit IR.
 ## Runtime integer for ranges
 
 The expanded import APIs retain static expansion of compile-time integer ranges.
-Structured import expands at most 256 iterations, subject to the remaining
-shared iteration budget; larger ranges use the same loop lowering as runtime
-ranges. Explicit invariant/state/ranking/termination contracts also select
+Structured import expands at most 10 iterations, subject to the remaining
+shared iteration budget; larger ranges require an explicit invariant and use
+the same loop lowering as runtime ranges (the verifier also requires exit_state).
+Explicit invariant/state/ranking/termination contracts also select
 loop lowering in structured import, even for a small static range.
-This fallback currently accepts only positive unit steps: large descending
-or non-unit-step ranges are explicitly rejected. It does not add dynamic
-array/qubit indexing or automatically infer invariants.
-Empty static ranges retain the existing rejection behavior.
+The runtime fallback accepts known steps +1 and -1; general strides are
+explicitly rejected. Array access follows the fixed-size array rules below;
+invariants are not automatically inferred. The translation-only profile retains
+every counted loop, including small/nested/empty ranges. The expanded and
+ordinary structured import policies above are unchanged.
 In structured import, while expanding a static loop, a closed Boolean condition
 may select one branch before lowering. The unselected branch becomes an empty
 block, so its nested loops consume no expansion budget. Conditions with a
@@ -99,7 +101,7 @@ The whole source is still syntax-parsed, but skipped branches do not undergo
 lowering-time name, type, annotation or operation checks. This is specialization
 of executable paths, not complete static validation of dead source.
 An unknown
-integer range `[start:stop]` or `[start:1:stop]` instead lowers to a scoped
+integer range `[start:stop]`, `[start:1:stop]` or `[start:-1:stop]` instead lowers to a scoped
 `while` using the existing scalar IR. Both endpoints are evaluated once, before
 declaring the source iterator. A hidden `limit` retains the original endpoint
 even if the body changes the variable used to compute it.
@@ -111,8 +113,9 @@ locals leave scope before loop annotations are resolved; the iterator remains
 visible to the annotations, but body-local names do not.
 
 The generated loop uses a private cursor and an active flag. Initially it is
-active exactly when `start <= limit`. After the body, it stops if the cursor
-equals the inclusive limit; otherwise it increments the cursor and restores
+active exactly when `start <= limit` (or `start >= limit` for descending ranges).
+After the body, it stops if the cursor
+equals the inclusive limit; otherwise it advances by the signed step and restores
 the source iterator for the next iteration. This avoids an extra increment at
 the maximum representable endpoint, and body assignments to the source iterator
 cannot change the range being traversed. Iterator and implementation locals
@@ -120,10 +123,20 @@ leave scope together. Entry-only constant facts are cleared for body lowering
 so loop-carried updates cannot be incorrectly constant-folded.
 
 This subset accepts integer endpoints compatible with the iterator's type and
-width and a known step of positive one. Runtime descending/general-stride or
-open-ended ranges and dynamic array/qubit indices remain
-unsupported. It does not introduce a symbolic integer-shift or gate-angle
-implementation merely because such an expression occurs inside the loop.
+width and a known step of +1 or -1. General-stride and open-ended ranges remain
+unsupported. Array access follows the fixed-size array rules below.
+
+Both structured profiles share runtime gate lowering. An integer quantum-wire
+index into a register of 1..64 wires is evaluated once, checked against the
+register bounds, then dispatched through ordinary IR conditionals. Aliasing
+controls/targets is an execution-domain failure, never a successful no-op.
+Dispatch may use provable non-wrapping iterator bounds only when the body never
+assigns that iterator. This expands wire choices, not source iterations.
+Runtime integer gate powers retain a private counted loop: positive powers
+apply the unitary, negative powers apply its inverse, and zero does neither.
+The cursor moves toward zero without taking the absolute value of a signed
+minimum. Only closed, total gate parameters/bodies are accepted here; dynamic
+parameters needing evaluation even at exponent zero remain unsupported.
 
 Loop annotations on a runtime `for` bind to the generated `while`, with the
 source iterator visible in contracts. Existing loop-contract requirements still
@@ -169,25 +182,53 @@ runtime loops and scalar storage in Irene's equivalence backend remain.
 support global declarations, shape-matching nested literal initialization, `const`
 arrays, and full element reads/writes (including numeric compound assignment).
 Shapes are positive compile-time integer dimensions: at most seven dimensions
-and 4096 cells per declaration, also subject to the static-loop expansion budget.
+and 4096 cells per declaration.
 Comma indexing (`a[i,j]`) and chained indexing (`a[i][j]`) select the same cell.
-Indices must be statically resolvable, such as constants or specialized `for`
-indices; bounds and dimension count are checked before lowering.
+Mutable reads, writes and compound assignments accept symbolic integer indices.
+The address and RHS are evaluated once; a subroutine RHS snapshots the address
+before the call. Compound updates also snapshot the old element. Every
+axis retains its bounds obligation, including when the written value is unused.
+Untouched cells remain uninitialized rather than being read or defaulted to zero.
 
-Each cell lowers to existing typed `ScalarDeclare`/`ScalarAssign`/`Read` nodes,
-with a unique symbol in global scope. This is finite scalar storage,
-not an SMT array encoding. Cells retain scalar integer/IEEE arithmetic and
+Each mutable array has one storage symbol and lowers to typed
+`ArrayDeclare`/`ArrayStore`/`ArrayRead` nodes. Writes remain functional updates,
+not per-cell control-flow dispatch. Cells retain scalar integer/IEEE arithmetic and
 per-cell uninitialized-read checks; missing initializers do **not** mean zero.
-Known element values participate in existing constant math and gate-angle
-evaluation, including nested `arccos`/`sqrt` calls. Branches merge facts and
-loops invalidate possibly written array facts; no stale pre-loop value is used.
+The consumer can fold concrete reads through known writes. The frontend does
+not freeze mutable elements into pre-loop or pre-branch constants.
 
-Runtime indexing, slicing, whole-array copying/arithmetic, array parameters,
+`const` arrays also accept symbolic integer indices on every dimension.
+Ordinary arrays use this same route when every initializer is a closed typed
+constant and a conservative whole-source use check finds no writes or bare-array
+uses that could escape through aliases/references. Writes in branches, later
+statements or loop bodies prevent promotion. Same-name shadowing may conservatively
+prevent it too. This does not grant source-level `const` qualification or new
+subroutine capture permissions; genuinely mutable arrays retain array storage.
+The IR retains `TableRead(shared_table, index)`; it does not construct an `ite`
+tree or split control flow. A concrete index folds to the typed element, while
+an unknown index retains a bounds obligation for the verifier. Negative and
+out-of-range known indices are errors. Entries retain integer widths and exact
+IEEE bit patterns, including signed zero. Named constant tables can also be
+indexed in specifications and finite aggregates; indexing does not turn
+machine arithmetic into mathematical real arithmetic.
+Multidimensional source reads reuse bounded per-axis offset tables before the
+flattened lookup; a bad column cannot silently alias another row. Specification
+table indexing retains its existing one-dimensional interface.
+
+Loop `exit_state Q := helper` declarations can reference a ket-returning
+specification helper. They use the same checked signature/partial application
+as callable summaries, with one remaining Boolean per target wire. The IR
+distinguishes `LinearState` from the existing density-operator `State`;
+consumers must certify the full phase-exact map on arbitrary entry basis
+coordinates, not just compare outer products. This frontend typing does not
+establish termination or authorize ignoring unsupported loop semantics.
+
+Slicing, whole-array copying/arithmetic, array parameters,
 self-referencing initializers and nonnumeric array element types are explicitly
-unsupported. Array-valued specifications, quantified array invariants, and a
-Rocq array theory are outside this subset. Read a statically selected element
-into a scalar if a scalar assertion is needed; do not drop or weaken an existing
-array assertion to work around this boundary. A successful import alone does
+unsupported. One-dimensional mutable element reads are typed in specifications,
+including quantified invariants; whole-array equality and multidimensional
+specification indexing are not source interfaces. Do not drop or weaken an existing
+array assertion to work around a backend limitation. A successful import alone does
 not establish the program's verification goals.
 
 ## Scalar types, declarations and constant evaluation
@@ -270,6 +311,13 @@ promotes the operation to binary64. The target rounding profile is nearest,
 ties-to-even with gradual underflow. Signed zero, subnormals and float encoding
 are retained. Arithmetic/conversion can produce infinities or NaNs; comparisons
 must follow IEEE behavior (`NaN != value`, other comparisons false).
+The deterministic target profile canonicalizes NaNs produced by arithmetic,
+sqrt/floor/ceiling, powers, and cross-width float conversions to negative quiet
+NaN (`0xffc00000` / `0xfff8000000000000`). Raw values and same-width copies
+retain their payloads; negation and absolute value only change the sign bit.
+This is an explicit target-profile choice, not a guarantee about every host
+libm/SDK's NaN payload propagation. Backend implementations must use the same
+profile wherever storage-bit identity is observable.
 Nonfinite source literals are rejected.
 
 Classical scalar `base ** exponent` is a typed `ScalarArithmetic::Pow` node
@@ -310,21 +358,23 @@ bit-identical facts; while headers and exits forget possibly written variables
 and preserve read-only ones. This is not const qualification: mutable reads
 remain illegal in const declarations and const-required sizes. Ordinary scalar
 reads remain in executable IR. Unknown arguments to `floor`, `ceiling`,
-`sqrt`, `arccos`, `sin`, `arcsin`, and `log` remain as `ScalarExprKind::FloatUnary` nodes; explicit floating-to-integer
+`sqrt`, `sin`, `cos`, `tan`, `arcsin`, `arccos`, `arctan`, `exp`, and `log`
+remain as `ScalarExprKind::FloatUnary` nodes; explicit floating-to-integer
 casts remain as `IntFromFloat`. The shared constant evaluator and symbolic
 consumer use the same precision and truncation semantics. Unary IEEE operations
 preserve signed zero and special values; integer conversions require a finite,
 representable truncated integer. Consumers must prove these conditions even for
 unused or overwritten conversions. `arccos` and `arcsin` denote principal branches on
-[-1,1]; `sin` takes finite radians; `log` is natural logarithm on finite positive
-arguments. All round to operand precision, rather than
+[-1,1]; direct trigonometric functions take finite radians; `log` is natural
+logarithm on finite positive arguments. Transcendentals require finite inputs
+in their domains and finite results. All round to operand precision, rather than
 denoting exact-real functions. Their shared closed evaluator uses directed MPFR
 rounding bounds. Saria preserves symbolic calls
 but both SMT and Rocq currently reject dependent goals; a future checked model
 must establish domain and rounding semantics. Pending transcendental evaluation is not
-erased when its result is overwritten. Unknown arguments to other math functions
-(including measurement-driven statistics and loop-carried values) are still
-rejected rather than approximated or replaced by a first-iteration value.
+erased when its result is overwritten. Unknown arguments, including
+measurement-driven statistics and loop-carried values, are not approximated
+or replaced by a first-iteration value.
 Typed arithmetic and integer-to-float casts can remain dynamic, including
 inside gate parameters as described below.
 
@@ -366,16 +416,19 @@ operations remain errors/obligations. CoqQ currently rejects these parameters
 instead of replacing IEEE computations with real arithmetic; Irene's
 equivalence backend also rejects this unsupported machine-number fragment.
 
-Unsigned scalar shifts (`<<`, `>>`, `<<=`, `>>=`) with a known nonnegative
-integer count reuse finite-width multiplication/division by a power of two.
-Counts at least the width produce zero without suppressing operand reads or
-undefined computations. Counts are not reduced modulo the width. Shifts alone
-no longer force uint storage to expand into bits. Closed nonnegative signed
-shifts (including static `for` indices such as `1 << (8-idx)`) fold with range
-checks. Negative signed operands, runtime signed shifts and unknown shift
-counts remain explicitly unsupported; signed arithmetic has not been changed
-to wrapping arithmetic. The original Boolean-word path is retained when
-bit casts or indexed uses require it.
+Scalar shifts (`<<`, `>>`, `<<=`, `>>=`) use explicit shared integer-shift IR,
+including runtime operands and counts. The result type is the left operand's
+type; the count keeps its own integer width/signedness and must be nonnegative.
+Counts are never truncated to the left width or reduced modulo it. The IQIR
+machine profile defines signed right shift as arithmetic shift (floor division,
+not division truncated toward zero): `-3 >> 1 = -2`. This is an explicit profile
+extension, not a claim that every OpenQASM implementation defines negative
+signed shifts identically. At counts at least the width, right shift produces
+-1 for negative signed operands, otherwise zero. Unsigned left shift wraps;
+signed left shift requires a nonnegative input and a representable result.
+Operand reads and undefined computations remain checked even for a huge count
+or a zero result. Shifts alone do not force uint storage into Boolean words;
+the original word path remains available for bit casts/indexed uses.
 
 Typed scalar integers support `&`, `|`, `^`, `~` and the binary compound
 assignments. The result keeps the operand width and signedness; the target
@@ -413,9 +466,10 @@ facts do not escape to the caller.
 computation. Only the former can fall through to runtime lowering; overflow,
 zero division, invalid shifts and incompatible signedness remain errors.
 Computed values retain width and signedness when passed to classical consumers.
-Signed shifts are restricted to nonnegative operands and representable results;
-unsigned shifts use the declared width and wrap. Unknown scalar shift operands
-are not lowered by this constant-specialization path.
+Signed left shifts require nonnegative operands and representable results;
+signed right shifts use the arithmetic semantics above. Unsigned left shifts
+use the declared width and wrap. Unknown scalar shift operands fall through to
+explicit runtime shift IR rather than being treated as constant computations.
 
 Boolean constants and known-bit flow analysis share one bounded evaluator.
 `ScalarExpr::constant_value_with` reads a typed known-value environment without
